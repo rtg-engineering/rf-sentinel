@@ -40,6 +40,7 @@ The wrapper scripts do the same thing:
 - Detections populate for Bluetooth Classic, BLE, Zigbee / 802.15.4, WiFi APs and stations, TPMS, walkie-style sub-GHz, FM broadcast, VLF/LF/MF, and passive cellular awareness.
 - The 2.4 GHz chart lights up across Bluetooth, BLE, Zigbee, and WiFi channels.
 - The WiFi tab can show AP/station topology inferred from synthetic 802.11 frames.
+- The Analytics button opens a pattern-of-life modal with weekend recurrence, normal baseline, and anomaly-triage summaries. The public demo includes weekly examples such as `1 wk`, `1 mo`, `6 wk`, and `231 days`.
 - The Start button resumes replay after Stop; Clear wipes the table and the replay repopulates it.
 
 ## Dataset

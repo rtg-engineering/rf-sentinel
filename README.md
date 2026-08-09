@@ -11,7 +11,7 @@ The current app is the first live dashboard and capture front end. It uses `sdr-
 
 ## Public Demo Mode
 
-RF Sentinel now includes a hardware-free public demo that replays deterministic synthetic detection events into the normal dashboard. It shows Bluetooth Classic (`BTC`), BLE, Zigbee / 802.15.4, WiFi APs and stations, TPMS, walkie-style sub-GHz activity, FM broadcast, VLF/LF/MF, and passive cellular awareness without requiring SDR hardware or committing real RF captures.
+RF Sentinel now includes a hardware-free public demo that replays deterministic synthetic detection events into the normal dashboard. It shows Bluetooth Classic (`BTC`), BLE, Zigbee / 802.15.4, WiFi APs and stations, TPMS, walkie-style sub-GHz activity, FM broadcast, VLF/LF/MF, passive cellular awareness, and pattern-of-life analytics without requiring SDR hardware or committing real RF captures.
 
 ```bash
 docker compose -f docker-compose.demo.yml up --build
@@ -23,7 +23,8 @@ Open `http://127.0.0.1:8080`. Use `RF_SENTINEL_DEMO_PORT=8081` if port 8080 is b
 
 - One-command Docker packaging for a live RF dashboard demo.
 - A normalized event pipeline that can ingest multiple wireless protocol families.
-- Entity tracking, detection counts, RF health metrics, WiFi AP/station topology, and 2.4 GHz protocol activity visualization from replayed events.
+- Entity tracking, detection counts, RF health metrics, WiFi AP/station topology, pattern-of-life cadence, and 2.4 GHz protocol activity visualization from replayed events.
+- A modal analytics view for weekend recurrence, normal baselines, and anomaly triage.
 - Public-safe demo data generated under `.demo/events/` and excluded from version control.
 
 See [`docs/demo.md`](docs/demo.md) for the full demo workflow.
@@ -33,6 +34,10 @@ See [`docs/demo.md`](docs/demo.md) for the full demo workflow.
 | Public demo replay | Detection table population | WiFi AP / station topology |
 |---|---|---|
 | [![RF Sentinel public demo replay dashboard](docs/media/rf-sentinel-public-demo.gif)](docs/media/rf-sentinel-public-demo.gif) | [![RF Sentinel public demo table filling with synthetic detections](docs/media/rf-sentinel-public-demo-table.gif)](docs/media/rf-sentinel-public-demo-table.gif) | [![RF Sentinel public demo WiFi topology](docs/media/rf-sentinel-public-demo-wifi-topology.png)](docs/media/rf-sentinel-public-demo-wifi-topology.png) |
+
+| Pattern-of-life analytics |
+|---|
+| [![RF Sentinel pattern-of-life analytics modal](docs/media/rf-sentinel-public-demo-analytics.png)](docs/media/rf-sentinel-public-demo-analytics.png) |
 
 | Live multi-protocol scan | Protocol group settings |
 |---|---|

@@ -4751,18 +4751,36 @@ def _seen_day_stats(dates: list[str]) -> dict[str, Any]:
         clean_dates = [_utc_date_key(time.time())]
     last_date = clean_dates[-1]
     streak = 0
+    span_days = 1
+    weekly_cadence = False
+    weekday_names: list[str] = []
+    weekend_only = False
     try:
-        cursor = calendar.timegm(time.strptime(last_date, "%Y-%m-%d"))
+        date_stamps = [calendar.timegm(time.strptime(date, "%Y-%m-%d")) for date in clean_dates]
+        cursor = date_stamps[-1]
         date_set = set(clean_dates)
         while _utc_date_key(cursor) in date_set:
             streak += 1
             cursor -= 86400
+        span_days = max(1, int((date_stamps[-1] - date_stamps[0]) / 86400))
+        deltas = [int((right - left) / 86400) for left, right in zip(date_stamps, date_stamps[1:])]
+        weekly_cadence = bool(deltas) and all(6 <= delta <= 8 for delta in deltas)
+        weekdays = [time.gmtime(stamp).tm_wday for stamp in date_stamps]
+        weekday_names = [
+            ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][day]
+            for day in sorted(set(weekdays))
+        ]
+        weekend_only = bool(weekdays) and all(day in {5, 6} for day in weekdays)
     except (TypeError, ValueError):
         streak = 1
     return {
         "seen_dates": clean_dates[-30:],
         "seen_days": streak,
         "seen_day_count": len(clean_dates),
+        "seen_span_days": span_days,
+        "seen_weekly_cadence": weekly_cadence,
+        "seen_weekend_only": weekend_only,
+        "seen_weekday_names": weekday_names,
         "first_seen_date": clean_dates[0],
         "last_seen_date": last_date,
     }
@@ -5349,8 +5367,13 @@ def _upsert_discovery_row(event: dict[str, Any]) -> None:
     else:
         return
 
+    event_seen_dates = [
+        str(date)
+        for date in (event.get("seen_dates") or [])
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(date))
+    ]
     row.setdefault("first_seen_at", now)
-    historical_dates = _seen_history_dates_for_row(row)
+    historical_dates = [*event_seen_dates, *_seen_history_dates_for_row(row)]
     row.update(_seen_day_stats([*historical_dates, seen_date]))
     for idx, existing in enumerate(state.discovery_table):
         same_classic_lap = row.get("protocol") == "BTC" and existing.get("protocol") == "BTC" and existing.get("lap") == row.get("lap")
@@ -5361,6 +5384,7 @@ def _upsert_discovery_row(event: dict[str, Any]) -> None:
         prior_dates = list(existing.get("seen_dates") or [])
         if not prior_dates and existing.get("last_seen_at"):
             prior_dates.append(_utc_date_key(existing.get("last_seen_at")))
+        prior_dates.extend(event_seen_dates)
         prior_dates.extend(_seen_history_dates_for_row({**existing, **row}))
         prior_dates.append(seen_date)
         row.update(_seen_day_stats(prior_dates))
@@ -8082,6 +8106,17 @@ def _demo_assignment_device(protocol: str) -> str:
     return "demo-hackrf:0"
 
 
+def _demo_seen_dates(payload: dict[str, Any], now: float) -> list[str]:
+    dates: list[str] = []
+    for offset in payload.get("demo_seen_day_offsets") or []:
+        try:
+            days = max(0, int(offset))
+        except (TypeError, ValueError):
+            continue
+        dates.append(_utc_date_key(now - days * 86400))
+    return list(dict.fromkeys(dates))
+
+
 def _demo_touch_assignment(payload: dict[str, Any]) -> None:
     protocol = _demo_mode_key(payload)
     device_id = _demo_assignment_device(protocol)
@@ -8128,8 +8163,14 @@ def _demo_replay_loop() -> None:
             now = time.time()
             payload["timestamp"] = now
             payload["seen_at"] = now
+            seen_dates = _demo_seen_dates(payload, now)
+            if seen_dates:
+                payload["seen_dates"] = seen_dates
             source = _demo_source_for_payload(payload)
             events = _scanner_json_to_events(source, payload)
+            if seen_dates:
+                for event in events:
+                    event["seen_dates"] = seen_dates
             with state_lock:
                 _demo_prime_state(set(state.decoder_stats.get("enabled_protocols", RF_SENTINEL_PROTOCOLS)), preserve_detections=True)
                 _demo_touch_assignment(payload)

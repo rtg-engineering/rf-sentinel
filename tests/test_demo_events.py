@@ -27,6 +27,23 @@ class DemoEventsTest(unittest.TestCase):
         }
         self.assertGreaterEqual(len(demo_mesh_stations), 5)
 
+    def test_build_events_has_weekly_pattern_of_life_demo(self) -> None:
+        events = build_events(cycles=1)
+        demo_mesh_ap = next(
+            event
+            for event in events
+            if event.get("protocol") == "wifi"
+            and event.get("kind") == "probe_response"
+            and event.get("ssid") == "DemoMesh-2G"
+        )
+        demo_beacon = next(event for event in events if event.get("name") == "Demo Beacon-01")
+        mesh_offsets = demo_mesh_ap.get("demo_seen_day_offsets")
+        beacon_offsets = demo_beacon.get("demo_seen_day_offsets")
+        self.assertEqual(mesh_offsets[0], 0)
+        self.assertEqual(mesh_offsets[-1], 231)
+        self.assertTrue(all(right - left == 7 for left, right in zip(mesh_offsets, mesh_offsets[1:])))
+        self.assertEqual(beacon_offsets, [0, 7, 14, 21, 28])
+
     def test_write_events_creates_jsonl_and_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "public-demo-events.jsonl"

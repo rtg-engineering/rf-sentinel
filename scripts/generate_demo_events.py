@@ -14,6 +14,11 @@ from typing import Any
 
 DEFAULT_OUTPUT = Path(".demo/events/public-demo-events.jsonl")
 
+WEEKLY_1WK = [0, 7]
+WEEKLY_1MO = [0, 7, 14, 21, 28]
+WEEKLY_6WK = [0, 7, 14, 21, 28, 35, 42]
+WEEKLY_231D = list(range(0, 232, 7))
+
 
 BASE_EVENTS: list[tuple[float, dict[str, Any]]] = [
     (
@@ -33,6 +38,7 @@ BASE_EVENTS: list[tuple[float, dict[str, Any]]] = [
             "tracking_us": 356_000,
             "processed_packets": 24,
             "detail": "active Bluetooth Classic piconet traffic observed",
+            "demo_seen_day_offsets": WEEKLY_1WK,
         },
     ),
     (
@@ -49,6 +55,7 @@ BASE_EVENTS: list[tuple[float, dict[str, Any]]] = [
             "channel": 37,
             "center_freq_hz": 2_402_000_000,
             "rssi_dbfs": -51.2,
+            "demo_seen_day_offsets": WEEKLY_1MO,
         },
     ),
     (
@@ -64,6 +71,7 @@ BASE_EVENTS: list[tuple[float, dict[str, Any]]] = [
             "frequency_mhz": 2412,
             "rssi_dbm": -38,
             "raw": "802.11 beacon",
+            "demo_seen_day_offsets": WEEKLY_1MO,
         },
     ),
     (
@@ -85,6 +93,7 @@ BASE_EVENTS: list[tuple[float, dict[str, Any]]] = [
                 "fcs_hex": "a72c",
             },
             "fcs_ok": True,
+            "demo_seen_day_offsets": WEEKLY_1WK,
         },
     ),
     (
@@ -102,6 +111,7 @@ BASE_EVENTS: list[tuple[float, dict[str, Any]]] = [
             "rds_subcarrier_db": 9.8,
             "stereo_likely": True,
             "rds_likely": True,
+            "demo_seen_day_offsets": WEEKLY_6WK,
         },
     ),
     (
@@ -133,6 +143,7 @@ BASE_EVENTS: list[tuple[float, dict[str, Any]]] = [
             "frequency_mhz": 2437,
             "rssi_dbm": -47,
             "raw": "802.11 probe response",
+            "demo_seen_day_offsets": WEEKLY_231D,
         },
     ),
     (
@@ -149,6 +160,7 @@ BASE_EVENTS: list[tuple[float, dict[str, Any]]] = [
             "frequency_mhz": 2437,
             "rssi_dbm": -54,
             "raw": "802.11 data frame",
+            "demo_seen_day_offsets": WEEKLY_1MO,
         },
     ),
     (
@@ -226,6 +238,7 @@ BASE_EVENTS: list[tuple[float, dict[str, Any]]] = [
             "rssi_dbfs": -62.5,
             "confidence": 0.82,
             "hex": "a55a1202ef9033",
+            "demo_seen_day_offsets": WEEKLY_1WK,
         },
     ),
     (

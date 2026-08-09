@@ -987,6 +987,10 @@
         align-self: start;
       }
 
+      .analytics-btn {
+        min-width: 126px;
+      }
+
       .view-select {
         min-width: 126px;
         width: auto;
@@ -1704,6 +1708,102 @@
         gap: 10px;
       }
 
+      .analytics-panel {
+        width: min(980px, 96vw);
+      }
+
+      .analytics-content {
+        display: grid;
+        gap: 14px;
+        color: #fffdf8;
+      }
+
+      .analytics-summary {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .analytics-stat,
+      .analytics-card,
+      .analytics-section {
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.045);
+      }
+
+      .analytics-stat {
+        padding: 12px;
+      }
+
+      .analytics-stat span,
+      .analytics-card p,
+      .analytics-section p,
+      .analytics-list span {
+        color: rgba(255, 253, 248, 0.68);
+      }
+
+      .analytics-stat strong {
+        display: block;
+        margin-top: 4px;
+        font-size: 1.45rem;
+      }
+
+      .analytics-columns {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .analytics-section {
+        padding: 12px;
+      }
+
+      .analytics-section h3,
+      .analytics-card h3 {
+        margin: 0 0 8px;
+        color: #fffdf8;
+        font-size: 0.96rem;
+      }
+
+      .analytics-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .analytics-list div {
+        display: grid;
+        gap: 2px;
+      }
+
+      .analytics-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .analytics-card {
+        padding: 12px;
+      }
+
+      .analytics-card .chips {
+        margin-bottom: 8px;
+      }
+
+      .analytics-card p,
+      .analytics-section p {
+        margin: 0;
+        line-height: 1.45;
+      }
+
+      @media (max-width: 760px) {
+        .analytics-summary,
+        .analytics-columns,
+        .analytics-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
       .ghost-btn,
       .primary-btn {
         border: 1px solid rgba(255, 255, 255, 0.18);
@@ -2068,6 +2168,18 @@
         </div>
       </section>
     </div>
+    <div id="patternAnalyticsOverlay" class="config-overlay" hidden>
+      <section class="config-panel analytics-panel" role="dialog" aria-modal="true" aria-labelledby="patternAnalyticsTitle">
+        <div class="config-panel-head">
+          <div>
+            <h2 id="patternAnalyticsTitle">Pattern-of-Life Analytics</h2>
+            <p id="patternAnalyticsSubtitle">Recurring activity, normal baselines, and anomaly triage from the current detection set.</p>
+          </div>
+          <button class="ghost-btn" type="button" id="patternAnalyticsClose"><span class="material-symbols-rounded">close</span>Close</button>
+        </div>
+        <div id="patternAnalyticsContent" class="analytics-content"></div>
+      </section>
+    </div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <div class="app">
       <header>
@@ -2223,6 +2335,7 @@
                   <option value="table">Table</option>
                   <option value="wifi-map">WiFi Map</option>
                 </select>
+                <button class="secondary analytics-btn" type="button" id="patternAnalyticsBtn"><span class="material-symbols-rounded">monitoring</span>Analytics</button>
               </div>
             </div>
             <div class="identity-table-wrap" id="identityTableWrap"></div>
@@ -2314,6 +2427,10 @@
       const candidatesEl = document.getElementById("candidates");
       const detectionViewSelect = document.getElementById("detectionViewSelect");
       const lastSeenFilterSelect = document.getElementById("lastSeenFilterSelect");
+      const patternAnalyticsBtn = document.getElementById("patternAnalyticsBtn");
+      const patternAnalyticsOverlay = document.getElementById("patternAnalyticsOverlay");
+      const patternAnalyticsClose = document.getElementById("patternAnalyticsClose");
+      const patternAnalyticsContent = document.getElementById("patternAnalyticsContent");
       const followMenu = document.getElementById("followMenu");
       const protocolConfigOverlay = document.getElementById("protocolConfigOverlay");
       const protocolConfigTitle = document.getElementById("protocolConfigTitle");
@@ -2344,9 +2461,11 @@
       const themeParam = String(pageParams.get("theme") || "").toLowerCase();
       const expandParam = String(pageParams.get("expand") || "").toLowerCase();
       const captureMode = ["1", "true", "yes", "on"].includes(String(pageParams.get("capture") || "").toLowerCase());
+      const analyticsParam = String(pageParams.get("analytics") || "").toLowerCase();
       const initialTab = String(pageParams.get("tab") || "ALL").toUpperCase();
       let activeDetectionTab = ["ALL", "BTC", "BTLE", "ZIGBEE", "SUBGHZ", "WIFI", "FM", "LFMF", "CELLULAR"].includes(initialTab) ? initialTab : "ALL";
       let tableSort = { key: "last_seen_at", direction: "desc" };
+      let analyticsAutoOpened = false;
       let fmAudioCtx = null;
       let fmGainNode = null;
       let fmPlayCursor = 0;
@@ -2965,19 +3084,71 @@
         return `${seconds}s`;
       }
 
+      function patternScore(row) {
+        return Math.max(
+          0,
+          Number(row?.seen_span_days || 0),
+          Number(row?.seen_day_count || 0),
+          Number(row?.seen_days || 0),
+        );
+      }
+
+      function formatPatternSpan(days) {
+        const value = Math.max(1, Math.round(Number(days || 0)));
+        if (value === 7) return "1 wk";
+        if (value >= 28 && value <= 31) return "1 mo";
+        if (value % 7 === 0 && value < 70) return `${Math.round(value / 7)} wk`;
+        return `${value} days`;
+      }
+
+      function seenWeekdayNames(row) {
+        if (Array.isArray(row?.seen_weekday_names) && row.seen_weekday_names.length) {
+          return row.seen_weekday_names.map((name) => String(name || "").trim()).filter(Boolean);
+        }
+        return (row?.seen_dates || [])
+          .map((date) => {
+            const [year, month, day] = String(date || "").split("-").map(Number);
+            if (!year || !month || !day) return "";
+            return ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][new Date(Date.UTC(year, month - 1, day)).getUTCDay()];
+          })
+          .filter(Boolean)
+          .filter((name, index, names) => names.indexOf(name) === index);
+      }
+
+      function weekdaySeriesLabel(row) {
+        const names = seenWeekdayNames(row);
+        if (!names.length) return "";
+        return names.map((name) => `${name}s`).join(", ");
+      }
+
+      function seenPatternLabel(row) {
+        const spanDays = Number(row?.seen_span_days || 0);
+        if (row?.seen_weekly_cadence && spanDays >= 7) return formatPatternSpan(spanDays);
+        const streak = Math.max(0, Number(row?.seen_days || 0));
+        if (Number.isFinite(streak) && streak > 0) return streak === 1 ? "1 day" : `${streak}-day streak`;
+        const total = Math.max(0, Number(row?.seen_day_count || 0));
+        return total > 1 ? `${total} days` : "";
+      }
+
       function seenDaysChip(row) {
         const streak = Math.max(0, Number(row?.seen_days || 0));
-        if (!Number.isFinite(streak) || streak <= 0) return "";
+        const label = seenPatternLabel(row);
+        if (!label) return "";
         const total = Math.max(streak, Number(row?.seen_day_count || 0));
+        const spanDays = Math.max(0, Number(row?.seen_span_days || 0));
         const dateRange = row?.first_seen_date && row?.last_seen_date
           ? `${row.first_seen_date} to ${row.last_seen_date}`
           : "";
+        const weekdayLabel = weekdaySeriesLabel(row);
+        const recurringPattern = total > 1 || spanDays > 1;
         const titleBits = [
-          `${streak} consecutive UTC day${streak === 1 ? "" : "s"}`,
+          row?.seen_weekly_cadence ? "Recurring 7-day cadence" : `${streak} consecutive UTC day${streak === 1 ? "" : "s"}`,
+          row?.seen_weekend_only && recurringPattern ? "Seen on weekends" : "",
+          weekdayLabel && recurringPattern ? `Observed on ${weekdayLabel}` : "",
+          spanDays > 1 ? `Span ${formatPatternSpan(spanDays)}` : "",
           total > streak ? `${total} total UTC day${total === 1 ? "" : "s"}` : "",
           dateRange,
         ].filter(Boolean);
-        const label = streak === 1 ? "1 day" : `${streak}-day streak`;
         return `<span class="chip seen-days" title="${escapeHtml(titleBits.join(" · "))}">${materialIcon("event_repeat")}${label}</span>`;
       }
 
@@ -3225,7 +3396,7 @@
         if (key === "uuid16") return fmtUuid16(row);
         if (key === "manufacturer") return fmtManufacturer(row);
         if (key === "device_type") return `${fmtDeviceType(row)} ${fmtDeviceTypeDetail(row)}`.trim();
-        if (key === "seen_days") return Number(row.seen_days || 0);
+        if (key === "seen_days") return patternScore(row);
         return row[key];
       }
 
@@ -3281,6 +3452,115 @@
         if (!Number.isFinite(seconds) || seconds <= 0) return rows;
         const cutoff = Date.now() / 1000 - seconds;
         return rows.filter((row) => Number(row.last_seen_at || 0) >= cutoff);
+      }
+
+      function analyticsTitle(row) {
+        return row?.identity || row?.name || row?.ssid || row?.mac || protocolGroupLabel(row?.protocol);
+      }
+
+      function analyticsForRow(row) {
+        const score = patternScore(row);
+        const spanDays = Math.max(0, Number(row?.seen_span_days || 0));
+        const totalDays = Math.max(0, Number(row?.seen_day_count || 0));
+        const weekly = Boolean(row?.seen_weekly_cadence);
+        const weekend = Boolean(row?.seen_weekend_only);
+        const weekdayLabel = weekdaySeriesLabel(row);
+        const rssi = Number(row?.last_rssi_dbfs ?? -120);
+        const normal = weekly && weekend
+          ? `Normally seen on ${weekdayLabel || "weekends"}`
+          : weekly
+            ? `Normally seen every 7 days across ${formatPatternSpan(spanDays)}`
+            : totalDays > 1
+              ? `Observed across ${totalDays} separate UTC days`
+              : "New or one-off observation";
+        const cadence = weekly && spanDays >= 7
+          ? `${formatPatternSpan(spanDays)} weekly cadence`
+          : score > 1
+            ? `${totalDays} observed days`
+            : "No baseline yet";
+        const anomalies = [];
+        if (weekly && weekend) {
+          anomalies.push("No off-cadence anomaly in current replay");
+        } else if (weekly) {
+          anomalies.push("Recurring cadence, not weekend-only");
+        } else if (totalDays <= 1) {
+          anomalies.push("Baseline not established");
+        }
+        if (hasDb(rssi) && rssi > -42) anomalies.push("Strong local signal; review proximity");
+        const activeAnomalies = anomalies.filter((item) => !item.startsWith("No ") && item !== "Baseline not established");
+        return { score, spanDays, totalDays, weekly, weekend, weekdayLabel, normal, cadence, anomalies, activeAnomalies };
+      }
+
+      function analyticsList(title, rows, emptyText, mapFn) {
+        const body = rows.length
+          ? rows.slice(0, 5).map((row) => {
+              const info = analyticsForRow(row);
+              return `
+                <div>
+                  <strong>${escapeHtml(analyticsTitle(row))}</strong>
+                  <span>${escapeHtml(mapFn(row, info))}</span>
+                </div>
+              `;
+            }).join("")
+          : `<p>${escapeHtml(emptyText)}</p>`;
+        return `
+          <article class="analytics-section">
+            <h3>${title}</h3>
+            <div class="analytics-list">${body}</div>
+          </article>
+        `;
+      }
+
+      function renderPatternAnalytics(rows = []) {
+        const allRows = rows.length ? rows : (latestStatus?.discovery_table || []);
+        const sorted = [...allRows].sort((a, b) => patternScore(b) - patternScore(a) || Number(b.detections || 0) - Number(a.detections || 0));
+        const patterned = sorted.filter((row) => patternScore(row) > 1);
+        const weekendRows = patterned.filter((row) => analyticsForRow(row).weekend);
+        const anomalyRows = sorted.filter((row) => analyticsForRow(row).activeAnomalies.length);
+        if (!patternAnalyticsContent) return;
+        if (!allRows.length) {
+          patternAnalyticsContent.innerHTML = `<div class="empty">No detections available for analytics yet</div>`;
+          return;
+        }
+        const cards = sorted.slice(0, 8).map((row) => {
+          const info = analyticsForRow(row);
+          return `
+            <article class="analytics-card ${protocolClass(row.protocol)}">
+              <h3>${titleWithBrandIcon(row)}</h3>
+              <div class="chips">
+                ${protocolChip(row.protocol)}
+                ${seenDaysChip(row)}
+                <span class="chip">${Number(row.detections || 0).toLocaleString()} hits</span>
+                <span class="chip">${fmtMaybeDb(row.last_rssi_dbfs)}</span>
+              </div>
+              <p><strong>Normally seen:</strong> ${escapeHtml(info.normal)}</p>
+              <p><strong>Anomalies:</strong> ${escapeHtml(info.anomalies.join(" · "))}</p>
+            </article>
+          `;
+        }).join("");
+        patternAnalyticsContent.innerHTML = `
+          <div class="analytics-summary">
+            <div class="analytics-stat"><span>Tracked entities</span><strong>${allRows.length}</strong></div>
+            <div class="analytics-stat"><span>Recurring patterns</span><strong>${patterned.length}</strong></div>
+            <div class="analytics-stat"><span>Weekend cadence</span><strong>${weekendRows.length}</strong></div>
+            <div class="analytics-stat"><span>Anomaly flags</span><strong>${anomalyRows.length}</strong></div>
+          </div>
+          <div class="analytics-columns">
+            ${analyticsList("Seen On Weekends", weekendRows, "No weekend-only recurring entities in this view.", (row, info) => `${info.cadence}; ${info.weekdayLabel || "weekend-only"}`)}
+            ${analyticsList("Normally Seen", patterned, "No recurring baseline has been established yet.", (row, info) => info.normal)}
+            ${analyticsList("Anomalies", anomalyRows, "No off-cadence or strong-signal anomaly flags in this view.", (row, info) => info.activeAnomalies.join(" · "))}
+          </div>
+          <div class="analytics-grid">${cards}</div>
+        `;
+      }
+
+      function openPatternAnalytics(rows = []) {
+        renderPatternAnalytics(rows);
+        patternAnalyticsOverlay.hidden = false;
+      }
+
+      function closePatternAnalytics() {
+        patternAnalyticsOverlay.hidden = true;
       }
 
       function renderDetectionTable(rows) {
@@ -3500,11 +3780,13 @@
             const { x, y } = wifiStationPosition(index, visibleStations.length);
             const label = escapeHtml(wifiNodeLabel(station));
             const mac = escapeHtml(station.source_address || station.mac || station.identity || "");
+            const stationSeen = seenDaysChip(station);
             return `
               <div class="wifi-station-node" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%">
                 <strong>${label}</strong>
                 <span class="small">${mac}</span>
                 <span class="small">RSSI ${fmtMaybeDb(station.last_rssi_dbfs)} · ${age(station.last_seen_at)}</span>
+                ${stationSeen ? `<div class="chips" style="margin-top:5px">${stationSeen}</div>` : ""}
               </div>
             `;
           }).join("");
@@ -3535,6 +3817,7 @@
                   <div class="chips" style="margin-top:7px">
                     <span class="chip protocol-wifi">${materialIcon("wifi")}AP</span>
                     <span class="chip">${stations.length} station${stations.length === 1 ? "" : "s"}</span>
+                    ${seenDaysChip(hub)}
                     <span class="chip">CH ${hub.channel ?? ""}</span>
                     <span class="chip">${fmtMaybeDb(hub.last_rssi_dbfs)}</span>
                   </div>
@@ -3605,11 +3888,11 @@
         const detections = rows.reduce((sum, row) => sum + Number(row.detections || 0), 0);
         const bestRssi = Math.max(...rows.map((row) => Number(row.last_rssi_dbfs || -120)));
         const lastSeen = Math.max(...rows.map((row) => Number(row.last_seen_at || 0)));
-        const bestStreak = Math.max(0, ...rows.map((row) => Number(row.seen_days || 0)));
+        const bestPatternRow = rows.reduce((best, row) => patternScore(row) > patternScore(best) ? row : best, rows[0]);
         return `
           <span class="chip">${rows.length} ${label}${rows.length === 1 ? "" : "s"}</span>
           <span class="chip">${Number(detections || 0).toLocaleString()} detections</span>
-          ${bestStreak > 1 ? `<span class="chip seen-days">${materialIcon("event_repeat")}${bestStreak}-day streak</span>` : ""}
+          ${bestPatternRow ? seenDaysChip(bestPatternRow) : ""}
           <span class="chip">${fmtMaybeDb(bestRssi)}</span>
           <span class="chip">${age(lastSeen)}</span>
         `;
@@ -3861,7 +4144,7 @@
                 channels: new Set(),
                 bestRssi: -120,
                 lastSeen: 0,
-                bestSeenDays: 0,
+                bestPatternRow: null,
               });
             }
             const group = groups.get(label);
@@ -3873,7 +4156,7 @@
             if (row.channel !== undefined && row.channel !== null && row.channel !== "") group.channels.add(row.channel);
             group.bestRssi = Math.max(group.bestRssi, Number(row.last_rssi_dbfs || -120));
             group.lastSeen = Math.max(group.lastSeen, Number(row.last_seen_at || 0));
-            group.bestSeenDays = Math.max(group.bestSeenDays, Number(row.seen_days || 0));
+            if (!group.bestPatternRow || patternScore(row) > patternScore(group.bestPatternRow)) group.bestPatternRow = row;
           });
         return [...groups.values()].sort((a, b) => b.detections - a.detections || b.lastSeen - a.lastSeen);
       }
@@ -3903,7 +4186,7 @@
                 <div class="chips">
                   ${protocolChip("BTLE")}
                   <span class="chip">${Number(group.detections || 0).toLocaleString()} detections</span>
-                  ${group.bestSeenDays > 0 ? `<span class="chip seen-days">${materialIcon("event_repeat")}${group.bestSeenDays === 1 ? "1 day" : `${group.bestSeenDays}-day streak`}</span>` : ""}
+                  ${group.bestPatternRow ? seenDaysChip(group.bestPatternRow) : ""}
                   <span class="chip">${fmtMaybeDb(group.bestRssi)}</span>
                   <span class="chip">${age(group.lastSeen)}</span>
                   ${channels.length ? `<span class="chip">CH ${channels.join(" ")}</span>` : ""}
@@ -4457,6 +4740,11 @@
           renderSdrAssignments(status);
           renderBars(status);
           renderChannelActivity(status);
+          if (!patternAnalyticsOverlay.hidden) renderPatternAnalytics(visibleRows);
+          if (!analyticsAutoOpened && ["1", "true", "open"].includes(analyticsParam) && visibleRows.length) {
+            analyticsAutoOpened = true;
+            openPatternAnalytics(visibleRows);
+          }
         } catch {
           liveDot.classList.remove("live");
           runState.textContent = "Offline";
@@ -5156,6 +5444,14 @@
       protocolConfigCancel.addEventListener("click", closeProtocolConfigOverlay);
       protocolConfigOverlay.addEventListener("click", (event) => {
         if (event.target === protocolConfigOverlay) closeProtocolConfigOverlay();
+      });
+      patternAnalyticsBtn.addEventListener("click", () => openPatternAnalytics(applyLastSeenFilter(latestStatus?.discovery_table || [])));
+      patternAnalyticsClose.addEventListener("click", closePatternAnalytics);
+      patternAnalyticsOverlay.addEventListener("click", (event) => {
+        if (event.target === patternAnalyticsOverlay) closePatternAnalytics();
+      });
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !patternAnalyticsOverlay.hidden) closePatternAnalytics();
       });
       document.querySelector(".protocol-toggles")?.addEventListener("click", (event) => {
         if (event.target.closest(".protocol-row")) event.preventDefault();
