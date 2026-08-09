@@ -30,9 +30,9 @@ See [`docs/demo.md`](docs/demo.md) for the full demo workflow.
 
 ## Visual Evidence
 
-| Public demo replay | WiFi AP / station topology |
-|---|---|
-| [![RF Sentinel public demo replay dashboard](docs/media/rf-sentinel-public-demo.gif)](docs/media/rf-sentinel-public-demo.gif) | [![RF Sentinel public demo WiFi topology](docs/media/rf-sentinel-public-demo-wifi-topology.png)](docs/media/rf-sentinel-public-demo-wifi-topology.png) |
+| Public demo replay | Detection table population | WiFi AP / station topology |
+|---|---|---|
+| [![RF Sentinel public demo replay dashboard](docs/media/rf-sentinel-public-demo.gif)](docs/media/rf-sentinel-public-demo.gif) | [![RF Sentinel public demo table filling with synthetic detections](docs/media/rf-sentinel-public-demo-table.gif)](docs/media/rf-sentinel-public-demo-table.gif) | [![RF Sentinel public demo WiFi topology](docs/media/rf-sentinel-public-demo-wifi-topology.png)](docs/media/rf-sentinel-public-demo-wifi-topology.png) |
 
 | Live multi-protocol scan | Protocol group settings |
 |---|---|

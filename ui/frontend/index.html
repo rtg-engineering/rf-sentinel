@@ -6,6 +6,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RF Sentinel</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0" />
+    <script>
+      (function () {
+        const params = new URLSearchParams(window.location.search);
+        if (String(params.get("theme") || "").toLowerCase() === "dark") {
+          document.documentElement.classList.add("demo-dark");
+        }
+        if (["1", "true", "yes", "on"].includes(String(params.get("capture") || "").toLowerCase())) {
+          document.documentElement.classList.add("capture-mode");
+        }
+      })();
+    </script>
     <style>
       :root {
         --bg: #f3f0e8;
@@ -29,6 +40,28 @@
         --shadow: 0 18px 60px rgba(23, 33, 27, 0.12);
       }
 
+      html.demo-dark {
+        --bg: #161505;
+        --panel: #2a1f00;
+        --ink: #f7f2df;
+        --muted: #b5ad8f;
+        --line: #514011;
+        --green: #22c979;
+        --teal: #079ca6;
+        --red: #b83c32;
+        --gold: #d39a1e;
+        --chip: #4c3a10;
+        --ble-blue: #1d6fe8;
+        --btc-blue: #69baf4;
+        --zigbee-purple: #8b5cf6;
+        --wifi-green: #22c55e;
+        --walkie-orange: #f97316;
+        --fm-amber: #f59e0b;
+        --lfmf-cyan: #06b6d4;
+        --cellular-magenta: #ec4899;
+        --shadow: 0 18px 60px rgba(0, 0, 0, 0.28);
+      }
+
       * {
         box-sizing: border-box;
       }
@@ -42,6 +75,14 @@
           linear-gradient(135deg, rgba(31, 143, 98, 0.14), transparent 34%),
           linear-gradient(215deg, rgba(183, 123, 23, 0.14), transparent 36%),
           repeating-linear-gradient(0deg, rgba(23, 33, 27, 0.035) 0 1px, transparent 1px 24px),
+          var(--bg);
+      }
+
+      html.demo-dark body {
+        background:
+          linear-gradient(135deg, rgba(8, 123, 131, 0.16), transparent 35%),
+          linear-gradient(215deg, rgba(211, 154, 30, 0.16), transparent 38%),
+          repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 24px),
           var(--bg);
       }
 
@@ -65,6 +106,10 @@
         direction: ltr;
         -webkit-font-feature-settings: "liga";
         -webkit-font-smoothing: antialiased;
+      }
+
+      html.capture-mode .material-symbols-rounded {
+        display: none;
       }
 
       .app {
@@ -962,6 +1007,94 @@
         border-color: var(--teal);
       }
 
+      html.demo-dark .status-pill,
+      html.demo-dark .toolbar,
+      html.demo-dark .panel {
+        background: rgba(42, 31, 0, 0.92);
+      }
+
+      html.demo-dark select,
+      html.demo-dark input,
+      html.demo-dark .secondary,
+      html.demo-dark .tab-btn,
+      html.demo-dark .plan-chip,
+      html.demo-dark .metric,
+      html.demo-dark .sdr-assignment,
+      html.demo-dark .detection-group,
+      html.demo-dark .detection-subgroup,
+      html.demo-dark .candidate,
+      html.demo-dark .wifi-network-row {
+        color: var(--ink);
+        border-color: var(--line);
+        background: rgba(35, 25, 0, 0.94);
+      }
+
+      html.demo-dark .detection-subgroup summary,
+      html.demo-dark .identity-group-row td {
+        background: rgba(211, 154, 30, 0.12);
+      }
+
+      html.demo-dark .detection-card {
+        border-color: rgba(81, 64, 17, 0.92);
+        background: rgba(35, 25, 0, 0.82);
+      }
+
+      html.demo-dark .detection-card.protocol-btle,
+      html.demo-dark .candidate.protocol-btle {
+        background: linear-gradient(90deg, rgba(29, 111, 232, 0.22), rgba(35, 25, 0, 0.86) 38%);
+      }
+
+      html.demo-dark .detection-card.protocol-btc,
+      html.demo-dark .candidate.protocol-btc {
+        background: linear-gradient(90deg, rgba(105, 186, 244, 0.2), rgba(35, 25, 0, 0.86) 38%);
+      }
+
+      html.demo-dark .detection-card.protocol-zigbee,
+      html.demo-dark .candidate.protocol-zigbee {
+        background: linear-gradient(90deg, rgba(139, 92, 246, 0.2), rgba(35, 25, 0, 0.86) 38%);
+      }
+
+      html.demo-dark .detection-card.protocol-walkie,
+      html.demo-dark .candidate.protocol-walkie {
+        background: linear-gradient(90deg, rgba(249, 115, 22, 0.18), rgba(35, 25, 0, 0.86) 38%);
+      }
+
+      html.demo-dark .detection-card.protocol-wifi,
+      html.demo-dark .candidate.protocol-wifi {
+        background: linear-gradient(90deg, rgba(34, 197, 94, 0.18), rgba(35, 25, 0, 0.86) 38%);
+      }
+
+      html.demo-dark .detection-card.protocol-fm,
+      html.demo-dark .candidate.protocol-fm {
+        background: linear-gradient(90deg, rgba(245, 158, 11, 0.18), rgba(35, 25, 0, 0.86) 38%);
+      }
+
+      html.demo-dark .detection-card.protocol-lfmf,
+      html.demo-dark .candidate.protocol-lfmf {
+        background: linear-gradient(90deg, rgba(6, 182, 212, 0.18), rgba(35, 25, 0, 0.86) 38%);
+      }
+
+      html.demo-dark .detection-card.protocol-cellular,
+      html.demo-dark .candidate.protocol-cellular {
+        background: linear-gradient(90deg, rgba(236, 72, 153, 0.18), rgba(35, 25, 0, 0.86) 38%);
+      }
+
+      html.demo-dark .wifi-topology-header {
+        background: linear-gradient(135deg, rgba(34, 197, 94, 0.17), rgba(35, 25, 0, 0.94));
+      }
+
+      html.demo-dark .wifi-map-card {
+        background:
+          radial-gradient(circle at 50% 50%, rgba(34, 197, 94, 0.18), transparent 34%),
+          linear-gradient(135deg, rgba(26, 25, 10, 0.98), rgba(42, 31, 0, 0.95));
+      }
+
+      html.demo-dark .wifi-station-node,
+      html.demo-dark .wifi-map-empty {
+        color: var(--ink);
+        background: rgba(33, 24, 3, 0.96);
+      }
+
       .identity-table {
         width: 100%;
         border-collapse: collapse;
@@ -1266,7 +1399,7 @@
 
       .wifi-map-card {
         position: relative;
-        min-height: 330px;
+        min-height: 390px;
         margin: 0 10px 10px;
         border: 1px solid rgba(22, 163, 74, 0.26);
         border-radius: 12px;
@@ -1322,7 +1455,7 @@
       }
 
       .wifi-station-node {
-        width: 142px;
+        width: 166px;
         padding: 8px;
         border-radius: 12px;
         background: rgba(255, 253, 248, 0.96);
@@ -2208,6 +2341,9 @@
       let configLoaded = false;
       let protocolConfigDirty = false;
       const pageParams = new URLSearchParams(window.location.search);
+      const themeParam = String(pageParams.get("theme") || "").toLowerCase();
+      const expandParam = String(pageParams.get("expand") || "").toLowerCase();
+      const captureMode = ["1", "true", "yes", "on"].includes(String(pageParams.get("capture") || "").toLowerCase());
       const initialTab = String(pageParams.get("tab") || "ALL").toUpperCase();
       let activeDetectionTab = ["ALL", "BTC", "BTLE", "ZIGBEE", "SUBGHZ", "WIFI", "FM", "LFMF", "CELLULAR"].includes(initialTab) ? initialTab : "ALL";
       let tableSort = { key: "last_seen_at", direction: "desc" };
@@ -3321,6 +3457,25 @@
         });
       }
 
+      function wifiStationPosition(index, count) {
+        const presets = {
+          1: [[50, 22]],
+          2: [[28, 30], [72, 30]],
+          3: [[26, 30], [74, 30], [50, 80]],
+          4: [[25, 28], [75, 28], [25, 73], [75, 73]],
+          5: [[24, 27], [76, 27], [20, 63], [80, 63], [50, 82]],
+        };
+        const preset = presets[Math.min(5, Math.max(1, count))];
+        if (preset[index]) return { x: preset[index][0], y: preset[index][1] };
+        const extraIndex = index - preset.length;
+        const extraCount = Math.max(1, count - preset.length);
+        const angle = (Math.PI * 2 * extraIndex) / extraCount - Math.PI / 2;
+        return {
+          x: 50 + Math.cos(angle) * 42,
+          y: 50 + Math.sin(angle) * 38,
+        };
+      }
+
       function renderWifiTopology(rows) {
         const groups = buildWifiTopology(rows);
         const apCount = groups.filter((group) => group.key !== "unknown").length;
@@ -3338,15 +3493,11 @@
           const hubMac = escapeHtml(hub.bssid || hub.mac || group.key);
           const rowKey = escapeHtml(group.key);
           const lines = visibleStations.map((station, index) => {
-            const angle = (Math.PI * 2 * index) / Math.max(1, visibleStations.length) - Math.PI / 2;
-            const x = 50 + Math.cos(angle) * 38;
-            const y = 50 + Math.sin(angle) * 35;
+            const { x, y } = wifiStationPosition(index, visibleStations.length);
             return `<line x1="50" y1="50" x2="${x.toFixed(2)}" y2="${y.toFixed(2)}"></line>`;
           }).join("");
           const stationNodes = visibleStations.map((station, index) => {
-            const angle = (Math.PI * 2 * index) / Math.max(1, visibleStations.length) - Math.PI / 2;
-            const x = 50 + Math.cos(angle) * 38;
-            const y = 50 + Math.sin(angle) * 35;
+            const { x, y } = wifiStationPosition(index, visibleStations.length);
             const label = escapeHtml(wifiNodeLabel(station));
             const mac = escapeHtml(station.source_address || station.mac || station.identity || "");
             return `
@@ -3363,8 +3514,9 @@
           const empty = stations.length
             ? ""
             : `<div class="wifi-map-empty">No station traffic tied to this AP yet.</div>`;
+          const openAttr = shouldExpandWifiTopology() ? " open" : "";
           return `
-            <details class="wifi-network-row" data-wifi-network="${rowKey}">
+            <details class="wifi-network-row" data-wifi-network="${rowKey}"${openAttr}>
               <summary>
                 <div class="wifi-network-name">
                   <strong>${hubLabel}</strong>
@@ -3423,6 +3575,16 @@
           CELLULAR: "Cellular",
         };
         return map[String(protocol || "").toUpperCase()] || String(protocol || "Unknown Protocol");
+      }
+
+      function shouldExpandWifiTopology() {
+        return ["all", "wifi", "wifi-map"].includes(expandParam) || (captureMode && activeDetectionTab === "WIFI");
+      }
+
+      function applyVisualTheme(status) {
+        const demoMode = Boolean(status?.decoder_stats?.demo_mode);
+        const useDark = themeParam === "dark" || (themeParam !== "light" && demoMode);
+        document.documentElement.classList.toggle("demo-dark", useDark);
       }
 
       function protocolSortRank(protocol) {
@@ -4256,6 +4418,7 @@
           const resp = await fetch("/api/status", { cache: "no-store" });
           const status = await resp.json();
           latestStatus = status;
+          applyVisualTheme(status);
           liveDot.classList.toggle("live", Boolean(status.running && status.worker_alive));
           runState.textContent = statusLabel(status);
           if (status.fm_playback?.running) fmAudioLoop();

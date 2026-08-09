@@ -16,6 +16,17 @@ class DemoEventsTest(unittest.TestCase):
         self.assertGreaterEqual(len(events), 10)
         self.assertEqual(events, sorted(events, key=lambda item: item["offset_s"]))
 
+    def test_build_events_has_wifi_hub_spoke_demo(self) -> None:
+        events = build_events(cycles=1)
+        demo_mesh_stations = {
+            event.get("source")
+            for event in events
+            if event.get("protocol") == "wifi"
+            and event.get("bssid") == "02:10:7A:00:20:06"
+            and event.get("kind") == "data"
+        }
+        self.assertGreaterEqual(len(demo_mesh_stations), 5)
+
     def test_write_events_creates_jsonl_and_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "public-demo-events.jsonl"

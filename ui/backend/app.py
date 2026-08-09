@@ -4267,10 +4267,11 @@ def _scanner_json_to_events(source: str, payload: dict[str, Any]) -> list[dict[s
         frame_type = str(payload.get("kind") or "wifi").strip()
         role = _wifi_role(frame_type, source_mac, destination_mac, bssid, ssid)
         ssid_visible = bool(ssid)
+        station_label = str(payload.get("identity") or payload.get("name") or "").strip()
         ap_identifier = bssid or source_mac or destination_mac
         identity = ssid if role == "ap" and ssid_visible else (
             f"Hidden SSID {ap_identifier}" if role == "ap" and ap_identifier else (
-                "Hidden SSID" if role == "ap" else (source_mac or destination_mac or bssid or "WiFi station")
+                "Hidden SSID" if role == "ap" else (station_label or source_mac or destination_mac or bssid or "WiFi station")
             )
         )
         device_type = "Access Point" if role == "ap" else "Station"
