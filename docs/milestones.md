@@ -1,6 +1,6 @@
 # RF Sentinel Milestones
 
-This roadmap is derived from `/home/jake/workspace/SDR/RF_Intelligence_Platform_Milestone_Plan.docx` and adapted for this repository.
+This roadmap is adapted for this repository.
 
 ## Milestone 1: Product Definition And Repo Restructure
 

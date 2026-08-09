@@ -70,7 +70,6 @@ The milestone plan lives in:
 - `docs/product_strategy.md`
 - `docs/architecture.md`
 - `docs/milestones.md`
-- `/home/jake/workspace/SDR/RF_Intelligence_Platform_Milestone_Plan.docx`
 
 Near-term build order:
 
@@ -105,7 +104,7 @@ being up, even though the shared passive BT/BLE detection view does not.
 ## Setup
 
 ```bash
-cd /home/jake/workspace/SDR/rf-sentinel
+cd rf-sentinel
 ./install.sh
 ```
 
@@ -133,7 +132,7 @@ export SDR_GATEWAY_BASE_URL="http://127.0.0.1:8080"
 ## Run
 
 ```bash
-cd /home/jake/workspace/SDR/rf-sentinel
+cd rf-sentinel
 source .venv/bin/activate
 python3 ui/backend/app.py
 ```
