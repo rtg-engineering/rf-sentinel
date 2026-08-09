@@ -1,4 +1,5 @@
 .git
+.demo
 .venv
 .venv.old
 research

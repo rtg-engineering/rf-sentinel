@@ -1,6 +1,7 @@
 import os
 import calendar
 import contextlib
+import copy
 import csv
 import io
 import json
@@ -87,6 +88,12 @@ def _load_env_file(path: Path) -> None:
 _load_env_file(PROJECT_ROOT / "config" / "env.txt")
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
+
+
+def _env_flag(name: str, default: str = "0") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
 RF_SENTINEL_LOG_DIR = Path(os.getenv("RF_SENTINEL_LOG_DIR", "/var/log/rf_sentinel"))
 RF_SENTINEL_CONTROL_PATH = RF_SENTINEL_LOG_DIR / "rf_sentinel_control.json"
 RF_SENTINEL_UI_CONFIG_PATH = RF_SENTINEL_LOG_DIR / "rf_sentinel_ui_config.json"
@@ -98,6 +105,12 @@ RF_SENTINEL_DISCOVERY_TABLE_MAX_ROWS = max(500, int(os.getenv("RF_SENTINEL_DISCO
 RF_SENTINEL_BTC_NAME_LOOKUP = os.getenv("RF_SENTINEL_BTC_NAME_LOOKUP", "0").strip().lower() in {"1", "true", "yes", "on"}
 RF_SENTINEL_NO_CHANGE = object()
 RF_SENTINEL_PROTOCOLS = {"btc", "ble", "zigbee", "tpms", "walkie", "wifi", "fm", "lfmf", "cellular"}
+RF_SENTINEL_DEMO_MODE = _env_flag("RF_SENTINEL_DEMO_MODE")
+RF_SENTINEL_DEMO_LOOP = _env_flag("RF_SENTINEL_DEMO_LOOP", "1")
+RF_SENTINEL_DEMO_TIME_SCALE = max(0.1, float(os.getenv("RF_SENTINEL_DEMO_TIME_SCALE", "1.0")))
+RF_SENTINEL_DEMO_EVENT_FILE = Path(
+    os.getenv("RF_SENTINEL_DEMO_EVENT_FILE", str(PROJECT_ROOT / ".demo" / "events" / "public-demo-events.jsonl"))
+)
 WIFI_SUPPORTED_CHANNELS = {
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
     36, 40, 44, 48, 52, 56, 60, 64,
@@ -1559,6 +1572,7 @@ seen_history_lock = threading.Lock()
 seen_history_cache: dict[str, Any] = {"loaded_at": 0.0, "dates": {}}
 identity_cache_lock = threading.Lock()
 worker_stop = threading.Event()
+demo_replay_paused = threading.Event()
 worker_thread: threading.Thread | None = None
 worker_stops: dict[str, threading.Event] = {}
 worker_threads: dict[str, threading.Thread] = {}
@@ -7744,12 +7758,82 @@ def _fetch_gateway_wifi_devices() -> list[dict[str, Any]]:
     return devices
 
 
+def _demo_available_devices() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "demo-bladerf:0",
+            "driver": "demo-bladerf",
+            "label": "Demo wideband SDR",
+            "serial": "public-demo-a",
+            "freq_min_hz": 70_000_000,
+            "freq_max_hz": 6_000_000_000,
+            "max_sample_rate_sps": 60_000_000,
+            "notes": "Synthetic BTC/BLE 2.4 GHz ISM replay source",
+            "occupied": True,
+            "occupied_by": "rf-sentinel-demo",
+        },
+        {
+            "id": "demo-hackrf:0",
+            "driver": "demo-hackrf",
+            "label": "Demo agile SDR",
+            "serial": "public-demo-b",
+            "freq_min_hz": 1_000_000,
+            "freq_max_hz": 6_000_000_000,
+            "max_sample_rate_sps": 20_000_000,
+            "notes": "Synthetic Zigbee, sub-GHz, and cellular sweep source",
+            "occupied": True,
+            "occupied_by": "rf-sentinel-demo",
+        },
+        {
+            "id": "wlan-demo0",
+            "driver": "wifi",
+            "label": "Demo WiFi monitor interface",
+            "serial": "02:10:7a:ff:00:01",
+            "freq_min_hz": 2_400_000_000,
+            "freq_max_hz": 5_900_000_000,
+            "max_sample_rate_sps": 0,
+            "notes": "Synthetic 802.11 AP/station frame source",
+            "occupied": True,
+            "occupied_by": "rf-sentinel-demo",
+            "up": True,
+            "channel": 6,
+            "frequency_mhz": 2437,
+        },
+        {
+            "id": "demo-rtlsdr:0",
+            "driver": "demo-rtlsdr",
+            "label": "Demo FM receiver",
+            "serial": "public-demo-fm",
+            "freq_min_hz": 24_000_000,
+            "freq_max_hz": 1_700_000_000,
+            "max_sample_rate_sps": 2_400_000,
+            "notes": "Synthetic broadcast FM discovery source",
+            "occupied": True,
+            "occupied_by": "rf-sentinel-demo",
+        },
+        {
+            "id": "demo-sdrplay:0",
+            "driver": "demo-sdrplay-rsp2",
+            "label": "Demo low-frequency receiver",
+            "serial": "public-demo-lf",
+            "freq_min_hz": 1_000,
+            "freq_max_hz": 2_000_000_000,
+            "max_sample_rate_sps": 10_000_000,
+            "notes": "Synthetic VLF/LF/MF awareness source",
+            "occupied": True,
+            "occupied_by": "rf-sentinel-demo",
+        },
+    ]
+
+
 def _cached_gateway_devices() -> tuple[list[dict[str, Any]], float]:
     with devices_cache_lock:
         return [dict(item) for item in devices_cache], float(devices_cache_updated_at)
 
 
 def _available_devices() -> list[dict[str, Any]]:
+    if RF_SENTINEL_DEMO_MODE:
+        return _demo_available_devices()
     try:
         return _fetch_gateway_devices()
     except requests.RequestException:
@@ -7797,6 +7881,271 @@ def _stop_scan(stop_gateway: bool = True) -> None:
         state.scanner_assignments = {}
         state.test_target = None
         state.test_target_error = ""
+
+
+def _demo_assignments(now: float | None = None) -> dict[str, dict[str, Any]]:
+    ts = float(now or time.time())
+    return {
+        "demo-bladerf:0": {
+            "device_id": "demo-bladerf:0",
+            "job_name": "demo-btc-ble",
+            "protocol": "BTC",
+            "band": "BTC+BTLE shared 2.4 GHz ISM public demo",
+            "command": "synthetic-event-replay --protocols btc,ble --center-mhz 2442 --bandwidth-mhz 60",
+            "dwell_s": 0.0,
+            "seen_at": ts,
+            "mode": "demo",
+            "last_center_freq_hz": 2_442_000_000,
+        },
+        "demo-hackrf:0": {
+            "device_id": "demo-hackrf:0",
+            "job_name": "demo-agile-sweep",
+            "protocol": "ZIGBEE",
+            "band": "Zigbee, sub-GHz, walkie, and cellular public demo sweep",
+            "command": "synthetic-event-replay --protocols zigbee,tpms,walkie,cellular",
+            "dwell_s": 1.5,
+            "seen_at": ts,
+            "mode": "demo",
+            "last_center_freq_hz": 2_450_000_000,
+        },
+        "wlan-demo0": {
+            "device_id": "wlan-demo0",
+            "job_name": "demo-wifi-monitor",
+            "protocol": "wifi",
+            "band": "WiFi monitor channels 1, 6, and 11",
+            "command": "synthetic-event-replay --protocols wifi --channels 1,6,11",
+            "dwell_s": 0.0,
+            "seen_at": ts,
+            "mode": "demo",
+            "last_center_freq_hz": 2_437_000_000,
+        },
+        "demo-rtlsdr:0": {
+            "device_id": "demo-rtlsdr:0",
+            "job_name": "demo-fm",
+            "protocol": "fm",
+            "band": "Broadcast FM public demo sweep",
+            "command": "synthetic-event-replay --protocols fm --range 87.5-108.0MHz",
+            "dwell_s": 2.0,
+            "seen_at": ts,
+            "mode": "demo",
+            "last_center_freq_hz": 101_700_000,
+        },
+        "demo-sdrplay:0": {
+            "device_id": "demo-sdrplay:0",
+            "job_name": "demo-lfmf",
+            "protocol": "lfmf",
+            "band": "VLF/LF/MF public demo awareness",
+            "command": "synthetic-event-replay --protocols lfmf --range 1kHz-3MHz",
+            "dwell_s": 2.0,
+            "seen_at": ts,
+            "mode": "demo",
+            "last_center_freq_hz": 530_000,
+        },
+    }
+
+
+def _demo_prime_state(protocols: set[str] | None = None, preserve_detections: bool = True) -> None:
+    enabled = sorted((protocols or set(RF_SENTINEL_PROTOCOLS)) & RF_SENTINEL_PROTOCOLS)
+    now = time.time()
+    if not preserve_detections:
+        _reset_stats()
+    state.running = not demo_replay_paused.is_set()
+    state.mode = "sentinel"
+    state.stream_id = None
+    state.stream_ids = {"demo": "synthetic-event-replay"}
+    state.device_id = "demo-bladerf:0"
+    state.device_ids = {
+        "classic": "demo-bladerf:0",
+        "btle": "demo-bladerf:0",
+        "hop": "demo-hackrf:0",
+        "radio_a": "demo-bladerf:0",
+        "radio_b": "demo-hackrf:0",
+    }
+    state.center_freq_hz = 2_442_000_000
+    state.sample_rate_sps = 60_000_000
+    state.lna_gain_db = 32
+    state.vga_gain_db = 32
+    state.channel = 40
+    state.channels_by_mode = {"classic": 12, "ble": 37}
+    state.worker_alive = not demo_replay_paused.is_set()
+    state.worker_alive_by_mode = {"demo": not demo_replay_paused.is_set()}
+    state.worker_error = ""
+    state.worker_errors = {}
+    state.gateway_start_response = {
+        "demo": {
+            "engine": "synthetic-event-replay",
+            "event_file": str(RF_SENTINEL_DEMO_EVENT_FILE),
+            "public_safe": True,
+        }
+    }
+    state.btc_engine = "synthetic-event-replay"
+    state.btc_engine_command = ["synthetic-event-replay", "--event-file", str(RF_SENTINEL_DEMO_EVENT_FILE)]
+    state.btc_engine_log = ""
+    state.decoder_stats["enabled_protocols"] = enabled
+    state.decoder_stats["sweep_both_radios"] = True
+    state.decoder_stats["follow"] = {}
+    state.decoder_stats["demo_mode"] = True
+    state.scanner_assignments = _demo_assignments(now)
+    if not any("public demo" in line.lower() for line in state.scanner_log[-10:]):
+        _append_scanner_log(f"[demo] public demo replay active from {RF_SENTINEL_DEMO_EVENT_FILE}")
+
+
+def _demo_start_response(protocols: set[str], preserve_detections: bool = True):
+    demo_replay_paused.clear()
+    with state_lock:
+        _demo_prime_state(protocols or set(RF_SENTINEL_PROTOCOLS), preserve_detections=preserve_detections)
+    return jsonify(
+        {
+            "ok": True,
+            "mode": "sentinel",
+            "demo": True,
+            "event_file": str(RF_SENTINEL_DEMO_EVENT_FILE),
+            "devices": state.device_ids,
+        }
+    )
+
+
+def _demo_pause_response():
+    demo_replay_paused.set()
+    with state_lock:
+        state.running = False
+        state.worker_alive = False
+        state.worker_alive_by_mode = {"demo": False}
+        _append_scanner_log("[demo] public demo replay paused")
+    return jsonify({"ok": True, "demo": True, "running": False})
+
+
+def _demo_clear_response():
+    with state_lock:
+        _reset_stats()
+        _demo_prime_state(set(RF_SENTINEL_PROTOCOLS), preserve_detections=True)
+        _append_scanner_log("[demo] cleared public demo detections")
+    return jsonify({"ok": True, "demo": True})
+
+
+def _ensure_demo_event_file() -> None:
+    if RF_SENTINEL_DEMO_EVENT_FILE.exists() and RF_SENTINEL_DEMO_EVENT_FILE.stat().st_size > 0:
+        return
+    scripts_dir = PROJECT_ROOT / "scripts"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    try:
+        from generate_demo_events import write_events
+    except Exception as exc:
+        raise RuntimeError(f"demo event generator is unavailable: {exc}") from exc
+    write_events(RF_SENTINEL_DEMO_EVENT_FILE)
+
+
+def _load_demo_payloads() -> list[dict[str, Any]]:
+    _ensure_demo_event_file()
+    payloads: list[dict[str, Any]] = []
+    with RF_SENTINEL_DEMO_EVENT_FILE.open(encoding="utf-8") as handle:
+        for line in handle:
+            text = line.strip()
+            if not text:
+                continue
+            payload = json.loads(text)
+            if isinstance(payload, dict):
+                payloads.append(payload)
+    payloads.sort(key=lambda item: float(item.get("offset_s") or 0.0))
+    return payloads
+
+
+def _demo_source_for_payload(payload: dict[str, Any]) -> str:
+    protocol = str(payload.get("protocol") or "").strip().lower()
+    if protocol == "ieee802154":
+        protocol = "zigbee"
+    return f"demo:{protocol or 'rf'}"
+
+
+def _demo_mode_key(payload: dict[str, Any]) -> str:
+    protocol = str(payload.get("protocol") or "").strip().lower()
+    if protocol in {"btc", "bluetooth_classic", "classic"}:
+        return "classic"
+    if protocol in {"ble", "btle"}:
+        return "ble"
+    if protocol == "ieee802154":
+        return "zigbee"
+    return protocol or "rf"
+
+
+def _demo_assignment_device(protocol: str) -> str:
+    if protocol in {"btc", "classic", "ble", "btle"}:
+        return "demo-bladerf:0"
+    if protocol == "wifi":
+        return "wlan-demo0"
+    if protocol == "fm":
+        return "demo-rtlsdr:0"
+    if protocol == "lfmf":
+        return "demo-sdrplay:0"
+    return "demo-hackrf:0"
+
+
+def _demo_touch_assignment(payload: dict[str, Any]) -> None:
+    protocol = _demo_mode_key(payload)
+    device_id = _demo_assignment_device(protocol)
+    assignment = state.scanner_assignments.get(device_id)
+    if not assignment:
+        return
+    assignment["seen_at"] = time.time()
+    assignment["last_protocol"] = protocol
+    if payload.get("center_freq_hz") is not None:
+        assignment["last_center_freq_hz"] = payload.get("center_freq_hz")
+    if payload.get("frequency_hz") is not None:
+        assignment["last_frequency_hz"] = payload.get("frequency_hz")
+
+
+def _demo_replay_loop() -> None:
+    try:
+        payloads = _load_demo_payloads()
+    except Exception as exc:
+        with state_lock:
+            state.worker_error = str(exc)
+            _append_scanner_log(f"[demo] unable to load public demo events: {exc}")
+        return
+    if not payloads:
+        with state_lock:
+            state.worker_error = "demo event file is empty"
+            _append_scanner_log("[demo] public demo event file is empty")
+        return
+    with state_lock:
+        _demo_prime_state(set(RF_SENTINEL_PROTOCOLS), preserve_detections=False)
+    while not shutdown_complete:
+        cycle_start = time.monotonic()
+        for payload_template in payloads:
+            while demo_replay_paused.is_set() and not shutdown_complete:
+                time.sleep(0.2)
+            if shutdown_complete:
+                break
+            offset = max(0.0, float(payload_template.get("offset_s") or 0.0)) / RF_SENTINEL_DEMO_TIME_SCALE
+            deadline = cycle_start + offset
+            while time.monotonic() < deadline and not demo_replay_paused.is_set() and not shutdown_complete:
+                time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+            if demo_replay_paused.is_set() or shutdown_complete:
+                continue
+            payload = copy.deepcopy(payload_template)
+            now = time.time()
+            payload["timestamp"] = now
+            payload["seen_at"] = now
+            source = _demo_source_for_payload(payload)
+            events = _scanner_json_to_events(source, payload)
+            with state_lock:
+                _demo_prime_state(set(state.decoder_stats.get("enabled_protocols", RF_SENTINEL_PROTOCOLS)), preserve_detections=True)
+                _demo_touch_assignment(payload)
+                mode_key = _demo_mode_key(payload)
+                state.chunks_seen += 1
+                state.bytes_seen += 4096
+                state.chunks_by_mode[mode_key] = int(state.chunks_by_mode.get(mode_key, 0)) + 1
+                state.bytes_by_mode[mode_key] = int(state.bytes_by_mode.get(mode_key, 0)) + 4096
+                rssi = _real_rssi(payload.get("rssi_dbfs", payload.get("rssi_dbm", payload.get("power_dbfs"))))
+                if rssi is not None:
+                    state.last_rssi_dbfs = round(rssi, 1)
+                    state.noise_floor_dbfs = round((state.noise_floor_dbfs * 0.94) + ((rssi - 32.0) * 0.06), 1)
+            if events:
+                _append_detections(events, [])
+        if not RF_SENTINEL_DEMO_LOOP:
+            break
+        time.sleep(max(0.25, 1.5 / RF_SENTINEL_DEMO_TIME_SCALE))
 
 
 def _shutdown_gateway_device_ids() -> set[str]:
@@ -7924,6 +8273,8 @@ def resources(filename: str):
 
 @app.get("/api/devices")
 def devices():
+    if RF_SENTINEL_DEMO_MODE:
+        return jsonify(_demo_available_devices())
     try:
         return jsonify(_fetch_gateway_devices())
     except requests.RequestException as exc:
@@ -8037,6 +8388,9 @@ def start_scan():
     sweep_both_radios = bool(payload.get("sweep_both_radios", mode == "sentinel"))
     single_radio_bluetooth_requested = bool(payload.get("single_radio_bluetooth") or payload.get("bluetooth_single_radio"))
     sentinel_hop_device_id = btle_device_id
+
+    if RF_SENTINEL_DEMO_MODE:
+        return _demo_start_response(enabled_protocols or set(RF_SENTINEL_PROTOCOLS), preserve_detections=preserve_detections)
 
     if mode not in {"ble", "classic", "both", "sentinel"}:
         return _json_error(400, "start_scan", error="mode must be ble, classic, both, or sentinel")
@@ -8385,13 +8739,15 @@ def start_scan():
 
 @app.post("/api/scan/stop")
 def stop_scan():
+    if RF_SENTINEL_DEMO_MODE:
+        return _demo_pause_response()
     _stop_scan()
     return jsonify({"ok": True})
 
 
 @app.get("/api/status")
 def status():
-    gateway_live_centers = _sync_scanner_assignment_centers_from_gateway()
+    gateway_live_centers = {} if RF_SENTINEL_DEMO_MODE else _sync_scanner_assignment_centers_from_gateway()
     devices = _available_devices()
     ui_config = _read_ui_config()
     with state_lock:
@@ -8479,6 +8835,8 @@ def enable_discoverable_dongle():
 
 @app.post("/api/clear")
 def clear():
+    if RF_SENTINEL_DEMO_MODE:
+        return _demo_clear_response()
     with state_lock:
         _reset_stats()
     return jsonify({"ok": True})
@@ -8492,7 +8850,10 @@ def clear():
 # (state, state_lock, _scanner_json_to_events, _append_detections) is
 # guaranteed to already exist before the thread's first iteration can
 # possibly run, instead of racing module exec.
-threading.Thread(target=_shared_bt_detector_poll_loop, daemon=True).start()
+if RF_SENTINEL_DEMO_MODE:
+    threading.Thread(target=_demo_replay_loop, daemon=True).start()
+else:
+    threading.Thread(target=_shared_bt_detector_poll_loop, daemon=True).start()
 
 
 if __name__ == "__main__":

@@ -9,7 +9,30 @@ RF Sentinel is a passive, multi-protocol RF intelligence platform for SDR-backed
 
 The current app is the first live dashboard and capture front end. It uses `sdr-gateway` IQ streams for BLE and Bluetooth Classic discovery and hosts protocol plugins for additional RF families. The engineering focus is the platform layer: radio orchestration, event schemas, plugin boundaries, streaming capture, and operator-facing observability.
 
+## Public Demo Mode
+
+RF Sentinel now includes a hardware-free public demo that replays deterministic synthetic detection events into the normal dashboard. It shows Bluetooth Classic (`BTC`), BLE, Zigbee / 802.15.4, WiFi APs and stations, TPMS, walkie-style sub-GHz activity, FM broadcast, VLF/LF/MF, and passive cellular awareness without requiring SDR hardware or committing real RF captures.
+
+```bash
+docker compose -f docker-compose.demo.yml up --build
+```
+
+Open `http://127.0.0.1:8080`. Use `RF_SENTINEL_DEMO_PORT=8081` if port 8080 is busy.
+
+### What This Proves
+
+- One-command Docker packaging for a live RF dashboard demo.
+- A normalized event pipeline that can ingest multiple wireless protocol families.
+- Entity tracking, detection counts, RF health metrics, WiFi AP/station topology, and 2.4 GHz protocol activity visualization from replayed events.
+- Public-safe demo data generated under `.demo/events/` and excluded from version control.
+
+See [`docs/demo.md`](docs/demo.md) for the full demo workflow.
+
 ## Visual Evidence
+
+| Public demo replay | WiFi AP / station topology |
+|---|---|
+| [![RF Sentinel public demo replay dashboard](docs/media/rf-sentinel-public-demo.gif)](docs/media/rf-sentinel-public-demo.gif) | [![RF Sentinel public demo WiFi topology](docs/media/rf-sentinel-public-demo-wifi-topology.png)](docs/media/rf-sentinel-public-demo-wifi-topology.png) |
 
 | Live multi-protocol scan | Protocol group settings |
 |---|---|

@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 recordings/
+.demo/
 
 # Local capture/cache data. The public LUTs in ui/backend/data are intentionally tracked.
 ui/backend/data/ble_identities.json

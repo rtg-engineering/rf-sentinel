@@ -2207,7 +2207,9 @@
       };
       let configLoaded = false;
       let protocolConfigDirty = false;
-      let activeDetectionTab = "ALL";
+      const pageParams = new URLSearchParams(window.location.search);
+      const initialTab = String(pageParams.get("tab") || "ALL").toUpperCase();
+      let activeDetectionTab = ["ALL", "BTC", "BTLE", "ZIGBEE", "SUBGHZ", "WIFI", "FM", "LFMF", "CELLULAR"].includes(initialTab) ? initialTab : "ALL";
       let tableSort = { key: "last_seen_at", direction: "desc" };
       let fmAudioCtx = null;
       let fmGainNode = null;
@@ -3531,9 +3533,10 @@
             const groupProtocol = String(protocol || "RF").toUpperCase();
             const groupKey = `protocol:${groupProtocol}`;
             const encodedGroupKey = encodeURIComponent(groupKey);
+            const demoOpenLimit = latestStatus?.decoder_stats?.demo_mode ? 6 : 0;
             const isOpen = detectionGroupOpen.has(encodedGroupKey)
               ? detectionGroupOpen.get(encodedGroupKey)
-              : collapseAll ? false : index < 3;
+              : collapseAll ? index < demoOpenLimit : index < 3;
             const body = groupProtocol === "BTLE"
               ? `<div class="detection-subgroups">${
                   [...groupRowsBy(protocolRows, manufacturerGroupLabel).entries()]
@@ -5052,8 +5055,13 @@
         if (!event.target.closest("#followMenu")) hideFollowMenu();
       });
       window.addEventListener("blur", hideFollowMenu);
+      const initialView = String(pageParams.get("view") || "").toLowerCase();
+      if (["cards", "table", "wifi-map"].includes(initialView)) {
+        detectionViewSelect.value = initialView;
+      }
       setChannels();
       renderProtocolControls();
+      setDetectionTab(activeDetectionTab);
       (async () => {
         await loadConfig();
         await loadDevices();

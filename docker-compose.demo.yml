@@ -1,0 +1,18 @@
+services:
+  rf-sentinel-demo:
+    build:
+      context: .
+      dockerfile: Dockerfile.demo
+    image: rf-sentinel:public-demo
+    environment:
+      RF_SENTINEL_DEMO_MODE: "1"
+      RF_SENTINEL_DEMO_LOOP: "1"
+      RF_SENTINEL_DEMO_TIME_SCALE: "1.0"
+      RF_SENTINEL_HOST: "0.0.0.0"
+      RF_SENTINEL_PORT: "8080"
+      RF_SENTINEL_TEXTUAL_CONSOLE: "0"
+      RF_SENTINEL_CONSOLE_DASHBOARD: "0"
+      RF_SENTINEL_LOG_DIR: "/tmp/rf_sentinel"
+      RF_SENTINEL_DEMO_EVENT_FILE: "/app/.demo/events/public-demo-events.jsonl"
+    ports:
+      - "${RF_SENTINEL_DEMO_PORT:-8080}:8080"

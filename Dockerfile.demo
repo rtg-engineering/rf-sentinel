@@ -1,0 +1,35 @@
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    RF_SENTINEL_HOST=0.0.0.0 \
+    RF_SENTINEL_PORT=8080 \
+    RF_SENTINEL_TEXTUAL_CONSOLE=0 \
+    RF_SENTINEL_CONSOLE_DASHBOARD=0 \
+    RF_SENTINEL_DEMO_MODE=1 \
+    RF_SENTINEL_LOG_DIR=/tmp/rf_sentinel \
+    RF_SENTINEL_DEMO_EVENT_FILE=/app/.demo/events/public-demo-events.jsonl \
+    BT_DETECTOR_DB=/tmp/rf-sentinel-demo-disabled.sqlite3
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt pyproject.toml ./
+COPY rf_platform/ ./rf_platform/
+COPY ui/ ./ui/
+COPY scripts/ ./scripts/
+
+RUN python3 -m pip install --no-cache-dir --upgrade pip \
+    && python3 -m pip install --no-cache-dir -r requirements.txt \
+    && python3 -m pip install --no-cache-dir -e . \
+    && mkdir -p /app/.demo/events /tmp/rf_sentinel \
+    && chmod +x scripts/demo_container_entrypoint.sh scripts/generate_demo_events.py
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=6 \
+  CMD python3 -c "import json, urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:8080/api/status', timeout=2)); raise SystemExit(0 if data.get('running') else 1)"
+
+CMD ["bash", "scripts/demo_container_entrypoint.sh"]
