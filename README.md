@@ -9,6 +9,12 @@ RF Sentinel is a passive, multi-protocol RF intelligence platform for SDR-backed
 
 The current app is the first live dashboard and capture front end. It uses `sdr-gateway` IQ streams for BLE and Bluetooth Classic discovery and hosts protocol plugins for additional RF families. The engineering focus is the platform layer: radio orchestration, event schemas, plugin boundaries, streaming capture, and operator-facing observability.
 
+Related RTG Spectrum pages:
+
+- [RF Sentinel module case study](https://rtgspectrum.com/rf-sentinel/)
+- [RF Sentinel + Trace Analyzer case study](https://rtgspectrum.com/case-studies/rf-sentinel-trace-analyzer/)
+- [RF signal classification software](https://rtgspectrum.com/services/rf-sensing/)
+
 ## Public Demo Mode
 
 RF Sentinel now includes a hardware-free public demo that replays deterministic synthetic detection events into the normal dashboard. It shows Bluetooth Classic (`BTC`), BLE, Zigbee / 802.15.4, WiFi APs and stations, TPMS, walkie-style sub-GHz activity, FM broadcast, VLF/LF/MF, passive cellular awareness, and pattern-of-life analytics without requiring SDR hardware or committing real RF captures.
