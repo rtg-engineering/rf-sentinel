@@ -1573,6 +1573,18 @@ seen_history_cache: dict[str, Any] = {"loaded_at": 0.0, "dates": {}}
 identity_cache_lock = threading.Lock()
 worker_stop = threading.Event()
 demo_replay_paused = threading.Event()
+if _env_flag("RF_SENTINEL_DEMO_START_PAUSED"):
+    demo_replay_paused.set()
+
+
+def _new_validation_metrics():
+    return {"events_attempted": 0, "events_accepted": 0, "events_rejected": 0,
+            "events_dropped": 0, "rejection_reasons": {}, "replay_cycle": 0,
+            "last_event_sequence": 0, "last_event_attempted_at": None,
+            "last_event_accepted_at": None, "receipts": [], "complete": False}
+
+
+validation_metrics = _new_validation_metrics()
 worker_thread: threading.Thread | None = None
 worker_stops: dict[str, threading.Event] = {}
 worker_threads: dict[str, threading.Thread] = {}
@@ -7653,6 +7665,9 @@ def walkie_audio_recent():
 
 
 def _reset_stats() -> None:
+    if RF_SENTINEL_DEMO_MODE:
+        validation_metrics.clear()
+        validation_metrics.update(_new_validation_metrics())
     state.chunks_seen = 0
     state.bytes_seen = 0
     state.last_rssi_dbfs = -120.0
@@ -8069,9 +8084,17 @@ def _load_demo_payloads() -> list[dict[str, Any]]:
             text = line.strip()
             if not text:
                 continue
-            payload = json.loads(text)
-            if isinstance(payload, dict):
-                payloads.append(payload)
+            try:
+                payload = json.loads(text)
+                if not isinstance(payload, dict):
+                    payload = {}
+                offset = float(payload.get("offset_s") or 0.0)
+                if not np.isfinite(offset):
+                    payload = {}
+            except (ValueError, TypeError):
+                payload = {}
+            # Keep invalid records in the source so accounting observes rejection.
+            payloads.append(payload)
     payloads.sort(key=lambda item: float(item.get("offset_s") or 0.0))
     return payloads
 
@@ -8131,6 +8154,77 @@ def _demo_touch_assignment(payload: dict[str, Any]) -> None:
         assignment["last_frequency_hz"] = payload.get("frequency_hz")
 
 
+def _demo_ingest_payload(payload_template):
+    """Observe the normal synchronous demo ingestion transaction under its state lock."""
+    with state_lock:
+        metrics = validation_metrics
+        metrics["events_attempted"] += 1
+        metrics["last_event_attempted_at"] = time.time()
+        metrics["last_event_sequence"] = payload_template.get("validation_sequence", 0) if isinstance(payload_template, dict) else 0
+        reason = None
+        events = []
+        try:
+            if not isinstance(payload_template, dict) or not payload_template.get("protocol") or not payload_template.get("kind"):
+                reason = "malformed_event"
+            else:
+                events = _demo_ingest_normal(payload_template)
+                if not events:
+                    reason = "normalizer_filtered"
+                elif not any(event is visible for event in events for visible in state.detections):
+                    reason = "not_api_visible"
+        except (ValueError, TypeError, KeyError, OverflowError):
+            reason = "malformed_event"
+        if reason:
+            metrics["events_rejected"] += 1
+            reasons = metrics["rejection_reasons"]
+            reasons[reason] = reasons.get(reason, 0) + 1
+        else:
+            metrics["events_accepted"] += 1
+            metrics["last_event_accepted_at"] = time.time()
+            # Receipt is committed only after the normal UI state has been updated.
+            receipt = {"event_id": payload_template.get("validation_event_id"),
+                       "sequence": metrics["last_event_sequence"],
+                       "replay_cycle": metrics["replay_cycle"],
+                       "emitted_at": events[0]["validation_emitted_at"],
+                       "visible_at": time.time()}
+            metrics["receipts"].append(receipt)
+            del metrics["receipts"][:-10000]
+        return reason is None
+
+
+def _demo_ingest_normal(payload_template):
+    payload = copy.deepcopy(payload_template)
+    now = float(os.getenv("RF_SENTINEL_DEMO_REFERENCE_TIMESTAMP") or time.time())
+    payload["validation_emitted_at"] = time.time()
+    payload["timestamp"] = now
+    payload["seen_at"] = now
+    seen_dates = _demo_seen_dates(payload, now)
+    if seen_dates:
+        payload["seen_dates"] = seen_dates
+    source = _demo_source_for_payload(payload)
+    events = _scanner_json_to_events(source, payload)
+    for event in events:
+        for key in ("validation_event_id", "validation_sequence", "validation_emitted_at"):
+            event[key] = payload.get(key)
+        if seen_dates:
+            event["seen_dates"] = seen_dates
+    with state_lock:
+        _demo_prime_state(set(state.decoder_stats.get("enabled_protocols", RF_SENTINEL_PROTOCOLS)), preserve_detections=True)
+        _demo_touch_assignment(payload)
+        mode_key = _demo_mode_key(payload)
+        state.chunks_seen += 1
+        state.bytes_seen += 4096
+        state.chunks_by_mode[mode_key] = int(state.chunks_by_mode.get(mode_key, 0)) + 1
+        state.bytes_by_mode[mode_key] = int(state.bytes_by_mode.get(mode_key, 0)) + 4096
+        rssi = _real_rssi(payload.get("rssi_dbfs", payload.get("rssi_dbm", payload.get("power_dbfs"))))
+        if rssi is not None:
+            state.last_rssi_dbfs = round(rssi, 1)
+            state.noise_floor_dbfs = round((state.noise_floor_dbfs * 0.94) + ((rssi - 32.0) * 0.06), 1)
+    if events:
+        _append_detections(events, [])
+    return events
+
+
 def _demo_replay_loop() -> None:
     try:
         payloads = _load_demo_payloads()
@@ -8147,45 +8241,30 @@ def _demo_replay_loop() -> None:
     with state_lock:
         _demo_prime_state(set(RF_SENTINEL_PROTOCOLS), preserve_detections=False)
     while not shutdown_complete:
-        cycle_start = time.monotonic()
+        previous_offset = 0.0
+        with state_lock:
+            validation_metrics["replay_cycle"] += 1
         for payload_template in payloads:
-            while demo_replay_paused.is_set() and not shutdown_complete:
-                time.sleep(0.2)
+            offset = max(0.0, float(payload_template.get("offset_s") or 0.0)) / RF_SENTINEL_DEMO_TIME_SCALE
+            remaining = max(0.0, offset - previous_offset)
+            previous_offset = offset
+            last_tick = time.monotonic()
+            while not shutdown_complete:
+                now_tick = time.monotonic()
+                with state_lock:
+                    paused = demo_replay_paused.is_set()
+                    if not paused:
+                        remaining -= now_tick - last_tick
+                        if remaining <= 0:
+                            _demo_ingest_payload(payload_template)
+                            break
+                last_tick = now_tick
+                time.sleep(0.01)
             if shutdown_complete:
                 break
-            offset = max(0.0, float(payload_template.get("offset_s") or 0.0)) / RF_SENTINEL_DEMO_TIME_SCALE
-            deadline = cycle_start + offset
-            while time.monotonic() < deadline and not demo_replay_paused.is_set() and not shutdown_complete:
-                time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
-            if demo_replay_paused.is_set() or shutdown_complete:
-                continue
-            payload = copy.deepcopy(payload_template)
-            now = time.time()
-            payload["timestamp"] = now
-            payload["seen_at"] = now
-            seen_dates = _demo_seen_dates(payload, now)
-            if seen_dates:
-                payload["seen_dates"] = seen_dates
-            source = _demo_source_for_payload(payload)
-            events = _scanner_json_to_events(source, payload)
-            if seen_dates:
-                for event in events:
-                    event["seen_dates"] = seen_dates
-            with state_lock:
-                _demo_prime_state(set(state.decoder_stats.get("enabled_protocols", RF_SENTINEL_PROTOCOLS)), preserve_detections=True)
-                _demo_touch_assignment(payload)
-                mode_key = _demo_mode_key(payload)
-                state.chunks_seen += 1
-                state.bytes_seen += 4096
-                state.chunks_by_mode[mode_key] = int(state.chunks_by_mode.get(mode_key, 0)) + 1
-                state.bytes_by_mode[mode_key] = int(state.bytes_by_mode.get(mode_key, 0)) + 4096
-                rssi = _real_rssi(payload.get("rssi_dbfs", payload.get("rssi_dbm", payload.get("power_dbfs"))))
-                if rssi is not None:
-                    state.last_rssi_dbfs = round(rssi, 1)
-                    state.noise_floor_dbfs = round((state.noise_floor_dbfs * 0.94) + ((rssi - 32.0) * 0.06), 1)
-            if events:
-                _append_detections(events, [])
         if not RF_SENTINEL_DEMO_LOOP:
+            with state_lock:
+                validation_metrics["complete"] = True
             break
         time.sleep(max(0.25, 1.5 / RF_SENTINEL_DEMO_TIME_SCALE))
 
@@ -8797,6 +8876,7 @@ def status():
         follow_target = _follow_state_for_protocols({"follow": state.decoder_stats.get("follow", {})}, enabled_protocols)
         return jsonify(
             {
+                **({"validation_metrics": copy.deepcopy(validation_metrics)} if RF_SENTINEL_DEMO_MODE else {}),
                 "running": state.running,
                 "mode": state.mode,
                 "stream_id": state.stream_id,
