@@ -163,6 +163,17 @@ class BackendValidationTest(unittest.TestCase):
         self.assertEqual(status['detections'][0]['validation_event_id'],metrics['receipts'][0]['event_id'])
         self.assertGreaterEqual(metrics['receipts'][0]['visible_at'],metrics['receipts'][0]['emitted_at'])
 
+    def test_receipts_cursor_returns_only_new_receipts(self):
+        events = build_validation_events()
+        for event in events[:3]:
+            self.assertTrue(self.backend._demo_ingest_payload(event))
+        full = self.client.get('/api/status').get_json()['validation_metrics']['receipts']
+        self.assertEqual([r['accepted_index'] for r in full], [1, 2, 3])
+        tail = self.client.get('/api/status?receipts_after=2').get_json()['validation_metrics']
+        self.assertEqual([r['event_id'] for r in tail['receipts']], [events[2]['validation_event_id']])
+        self.assertEqual(tail['events_accepted'], 3)
+        self.assertEqual(self.client.get('/api/status?receipts_after=3').get_json()['validation_metrics']['receipts'], [])
+
     def test_rejection_does_not_increment_acceptance(self):
         for invalid in ({}, {'protocol':'ble'}, None):
             self.assertFalse(self.backend._demo_ingest_payload(invalid))

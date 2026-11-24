@@ -148,6 +148,7 @@ def command(args, **kwargs):
 
 
 def api(base, path='/api/status', payload=None, timeout=3):
+    """POST when payload is given; path may carry a query string."""
     data = json.dumps(payload).encode() if payload is not None else None
     request = urllib.request.Request(base + path, data=data, headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -241,6 +242,7 @@ def run_once(number, fixture_path, events, config, output, prefix, fault='pause'
     recovery = dict(interruption_injected=False, interruption_detected=False, recovered=False,
                     recovery_time_ms=None, post_recovery_events_accepted=0)
     started = time.monotonic(); last_resource = 0; paused_count = None
+    cursor = 0  # highest accepted_index already observed; keeps status responses bounded
     try:
         command(['docker', 'run', '-d', '--name', container, '-p', '127.0.0.1::8080',
                  '-e', 'RF_SENTINEL_DEMO_LOOP=0', '-e', 'RF_SENTINEL_DEMO_START_PAUSED=1',
@@ -263,11 +265,12 @@ def run_once(number, fixture_path, events, config, output, prefix, fault='pause'
         api(base, '/api/scan/start', {'mode': 'sentinel', 'preserve_detections': True})
         deadline = time.monotonic() + max(60, events[-1]['offset_s'] * 2 + 30)
         while time.monotonic() < deadline:
-            status = api(base)
+            status = api(base, f'/api/status?receipts_after={cursor}')
             seen_at = time.time()
             metrics = status['validation_metrics']
             for receipt in metrics['receipts']:
                 event_id = receipt['event_id']
+                cursor = max(cursor, receipt['accepted_index'])
                 if event_id not in observed:
                     observed[event_id] = (seen_at - receipt['emitted_at']) * 1000
             count = metrics['events_accepted']
@@ -286,7 +289,7 @@ def run_once(number, fixture_path, events, config, output, prefix, fault='pause'
                 recovery['post_restart_state_clean'] = (fresh_metrics['events_attempted'] == 0 and
                     fresh_metrics['events_accepted'] == 0 and not fresh['discovery_table'])
                 recovery['interruption_detected'] = restart['api_unreachable_after_kill'] and restart['exit_code'] == 137
-                observed.clear(); baseline = []; paused_count = 0
+                observed.clear(); baseline = []; paused_count = 0; cursor = 0
                 if previous_sample:
                     try:
                         rss, cpu = sample_resources(container); previous_sample = (time.monotonic(), cpu)
@@ -461,7 +464,9 @@ def main():
     source_paths += sorted((ROOT / 'scripts').glob('*.py')) + sorted((ROOT / 'scripts').glob('*.sh')) + sorted((ROOT / 'tests').glob('*.py'))
     source_digest = digest({str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in source_paths})
     version = command(['git', 'rev-parse', 'HEAD'], capture_output=True).stdout.strip()
-    if command(['git', 'status', '--porcelain'], capture_output=True).stdout.strip(): version += '-dirty'
+    # Dirty = any tracked change, or untracked files that can reach the images or harness (not untracked docs).
+    if command(['git', 'status', '--porcelain', '--', '.', ':(exclude)docs/*.md'], capture_output=True).stdout.strip():
+        version += '-dirty'
     result = new_result(version, fixture, config); runs = []; started = time.monotonic()
     result['source_sha256'] = source_digest
     prefix = 'rf-validation-' + uuid.uuid4().hex[:10]

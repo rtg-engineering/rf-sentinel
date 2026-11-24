@@ -56,7 +56,7 @@ Demo `/api/status` retains its existing fields and adds `validation_metrics`:
 - `events_rejected`: records not accepted, with stable reason counts: `malformed_event`, `normalizer_filtered`, or `not_api_visible`.
 - `events_dropped`: zero for this synchronous replay path, which has no intervening event queue. This makes no claim about live receiver or pipeline queue loss.
 - `replay_cycle`, `last_event_sequence`, `last_event_attempted_at`, and `last_event_accepted_at`: source progress and actual wall-clock times.
-- `receipts`: at most 10,000 recent accepted event identities, source sequences, replay cycles, actual emission times, and state-visibility times.
+- `receipts`: at most 10,000 recent accepted event identities, each with a monotonically increasing `accepted_index`, source sequence, replay cycle, actual emission time, and state-visibility time. `GET /api/status?receipts_after=N` returns only receipts with `accepted_index > N`; without the parameter the full buffer is returned. The harness polls with its highest seen index so response size stays bounded. Before this cursor, the full receipt list made each poll grow from ~125 KB to ~511 KB over a 3,000-event replay, inflating observed latency over the run.
 - `complete`: the finite fixture has finished.
 
 Every attempted event must reconcile as accepted, rejected, or dropped. The validation fixture is entirely valid, so every event must be accepted and observed, with zero rejections/drops. Malformed JSON records are retained as invalid source records and counted as rejections. Unit tests exercise rejection paths separately from the valid performance fixture.
@@ -140,7 +140,7 @@ bundle/                  checksummed .tar.gz evidence bundle and .sha256
 
 | Field | Meaning |
 |---|---|
-| `schema_version`, `application`, `application_version` | Schema, product, and Git commit; `-dirty` marks uncommitted work. |
+| `schema_version`, `application`, `application_version` | Schema, product, and Git commit; `-dirty` marks any tracked change or untracked file outside `docs/*.md`. |
 | `source_sha256` | Hash of key application/build/harness/test source files, distinguishing local changes. |
 | `started_at`, `completed_at`, `duration_s` | UTC ISO timestamps and total elapsed validation time, including builds/tests and replay setup/teardown, before card rendering. |
 | `public_safe`, `synthetic_replay` | This harness uses generated synthetic observations only. |

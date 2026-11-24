@@ -8183,6 +8183,7 @@ def _demo_ingest_payload(payload_template):
             metrics["last_event_accepted_at"] = time.time()
             # Receipt is committed only after the normal UI state has been updated.
             receipt = {"event_id": payload_template.get("validation_event_id"),
+                       "accepted_index": metrics["events_accepted"],
                        "sequence": metrics["last_event_sequence"],
                        "replay_cycle": metrics["replay_cycle"],
                        "emitted_at": events[0]["validation_emitted_at"],
@@ -8866,6 +8867,17 @@ def stop_scan():
     return jsonify({"ok": True})
 
 
+def _validation_metrics_view() -> dict[str, Any]:
+    """Copy demo metrics; ``receipts_after=N`` returns only receipts with accepted_index > N."""
+    view = copy.deepcopy({k: v for k, v in validation_metrics.items() if k != "receipts"})
+    receipts = validation_metrics["receipts"]
+    after = request.args.get("receipts_after", type=int)
+    if after is not None:
+        receipts = [item for item in receipts if item["accepted_index"] > after]
+    view["receipts"] = copy.deepcopy(receipts)
+    return view
+
+
 @app.get("/api/status")
 def status():
     gateway_live_centers = {} if RF_SENTINEL_DEMO_MODE else _sync_scanner_assignment_centers_from_gateway()
@@ -8876,7 +8888,7 @@ def status():
         follow_target = _follow_state_for_protocols({"follow": state.decoder_stats.get("follow", {})}, enabled_protocols)
         return jsonify(
             {
-                **({"validation_metrics": copy.deepcopy(validation_metrics)} if RF_SENTINEL_DEMO_MODE else {}),
+                **({"validation_metrics": _validation_metrics_view()} if RF_SENTINEL_DEMO_MODE else {}),
                 "running": state.running,
                 "mode": state.mode,
                 "stream_id": state.stream_id,
