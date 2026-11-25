@@ -2,7 +2,7 @@
 
 The Analyst answers *"what changed in this wireless environment, and what evidence supports it?"* It works from captured `/api/status` snapshots. It cannot change ingestion, detections, receivers, or scan schedules. Every factual claim in a report is re-read from the cited evidence by code, not by a model.
 
-This covers Phases 1–3 of the autonomous-investigation roadmap:
+This covers Phases 1–3 of the autonomous-investigation roadmap. Phase 4, bounded missions, is in [missions.md](missions.md):
 - read-only, evidence-backed reports;
 - bounded multi-step analysis with sensor-health reasoning;
 - ranked hypotheses, evaluation on held-out scenarios, and dashboard drill-down;

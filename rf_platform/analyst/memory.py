@@ -20,7 +20,7 @@ from typing import Any
 
 from .evidence import EvidenceStore, Snapshot, canonical, short_hash
 
-TABLES = ("snapshots", "baselines", "assessments", "annotations")
+TABLES = ("snapshots", "baselines", "assessments", "annotations", "missions", "mission_events")
 ANNOTATION_KINDS = ("confirm", "dispute", "note", "known_device", "unknown_device")
 
 SCHEMA = """
@@ -43,6 +43,13 @@ CREATE TABLE IF NOT EXISTS annotations (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   annotation_id TEXT UNIQUE NOT NULL, created_at TEXT NOT NULL, author TEXT NOT NULL,
   kind TEXT NOT NULL, entity_key TEXT, investigation_id TEXT, finding_id TEXT, text TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS missions (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  mission_id TEXT UNIQUE NOT NULL, created_at TEXT NOT NULL, created_by TEXT NOT NULL, spec TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS mission_events (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  mission_id TEXT NOT NULL REFERENCES missions(mission_id), at REAL NOT NULL, recorded_at TEXT NOT NULL,
+  type TEXT NOT NULL, actor TEXT NOT NULL, data TEXT NOT NULL);
 """ + "".join(f"""
 CREATE TRIGGER IF NOT EXISTS {t}_no_update BEFORE UPDATE ON {t} BEGIN SELECT RAISE(ABORT, '{t} is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS {t}_no_delete BEFORE DELETE ON {t} BEGIN SELECT RAISE(ABORT, '{t} is append-only'); END;
@@ -201,6 +208,35 @@ class EnvironmentMemory:
             return rows
         wanted = set(entity_keys)
         return [r for r in rows if r["entity_key"] in wanted]
+
+    # Missions (event-sourced; state is derived by replaying events) --------------------------------
+    def add_mission(self, mission_id: str, spec: dict[str, Any], created_by: str) -> None:
+        with closing(self._connect()) as db, db:
+            db.execute("INSERT INTO missions (mission_id, created_at, created_by, spec) VALUES (?, ?, ?, ?)",
+                       (mission_id, _now(), created_by, canonical(spec)))
+
+    def mission_spec(self, mission_id: str) -> dict[str, Any]:
+        with closing(self._connect()) as db:
+            row = db.execute("SELECT spec FROM missions WHERE mission_id = ?", (mission_id,)).fetchone()
+        if row is None:
+            raise MemoryStoreError(f"Unknown mission: {mission_id}")
+        return json.loads(row["spec"])
+
+    def missions(self) -> list[dict[str, Any]]:
+        with closing(self._connect()) as db:
+            return [dict(r) for r in db.execute("SELECT seq, mission_id, created_at, created_by FROM missions ORDER BY seq")]
+
+    def append_mission_event(self, mission_id: str, at: float, type_: str, actor: str, data: dict[str, Any]) -> int:
+        with closing(self._connect()) as db, db:
+            db.execute("INSERT INTO mission_events (mission_id, at, recorded_at, type, actor, data) VALUES (?, ?, ?, ?, ?, ?)",
+                       (mission_id, float(at), _now(), type_, actor, canonical(data)))
+            return db.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    def mission_events(self, mission_id: str) -> list[dict[str, Any]]:
+        with closing(self._connect()) as db:
+            rows = db.execute("SELECT seq, at, recorded_at, type, actor, data FROM mission_events WHERE mission_id = ? "
+                              "ORDER BY seq", (mission_id,)).fetchall()
+        return [{**dict(r), "data": json.loads(r["data"])} for r in rows]
 
     # Historical queries ----------------------------------------------------------------------
     def entity_timeline(self, entity_key: str) -> list[dict[str, Any]]:
