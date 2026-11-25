@@ -36,6 +36,16 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual({e['scenario_phase'] for e in one}, {'baseline','new_entity','relationship_change','off_cadence_activity','operator_review'})
         self.assertTrue(all(e['scenario_truth_id'] and e['scenario_expected_outcome'] for e in one))
 
+    def test_walkthrough_fixture_paces_scenario_in_order(self):
+        from scripts.record_walkthrough import walkthrough_events
+        events = walkthrough_events()
+        offsets = [e['offset_s'] for e in events]
+        self.assertEqual(offsets, sorted(offsets))
+        self.assertEqual([e['scenario_phase'] for e in events[-4:]],
+                         ['new_entity', 'relationship_change', 'off_cadence_activity', 'operator_review'])
+        baseline_end = max(e['offset_s'] for e in events if e['scenario_phase'] == 'baseline')
+        self.assertLess(baseline_end, events[-4]['offset_s'])
+
     def test_nearest_rank(self):
         p = percentiles(list(range(1, 101)))
         self.assertEqual((p['p50'],p['p95'],p['p99']), (50,95,99))
