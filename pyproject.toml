@@ -10,6 +10,10 @@ requires-python = ">=3.10"
 license = "LicenseRef-RF-Sentinel-Commercial"
 dependencies = []
 
+[project.optional-dependencies]
+# Optional LLM provider for the read-only Analyst; deterministic analysis needs none of this.
+analyst-llm = ["pydantic-ai-slim[anthropic,openai]>=2.74,<3; python_version >= '3.11'"]
+
 [project.scripts]
 rf-sentinel-scan = "rf_platform.scanner:main"
 rf_sentinel_scan = "rf_platform.scanner:main"
@@ -17,6 +21,7 @@ rf-sentinel-pipeline = "rf_platform.pipeline:main"
 rf_sentinel_pipeline = "rf_platform.pipeline:main"
 rf-sentinel-ui = "rf_platform.ui:main"
 rf_sentinel_ui = "rf_platform.ui:main"
+rf-sentinel-analyst = "rf_platform.analyst.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["rf_platform*"]
