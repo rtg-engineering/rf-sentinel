@@ -93,6 +93,25 @@ Every published number comes from a captured run. Nothing is entered by hand.
 
 Reproduce it with `./scripts/validate_demo.sh`. Verify the published bundle without Docker with `python3 scripts/verify_evidence_bundle.py <bundle>.tar.gz`; the bundle is attached to the [`validation-986956f` release](https://github.com/rtg-engineering/rf-sentinel/releases/tag/validation-986956f). The full result is in [JSON](docs/validation/latest-public-result.json), and the methodology and limits are in [`docs/validation.md`](docs/validation.md).
 
+### Analyst evaluation
+
+The Analyst is scored on held-out scenarios: a new device, an access-point outage, a receiver outage, and a quiet control where nothing changes. Ground truth is held separately from the evidence the Analyst sees.
+
+| Measured on commit `b534cbd` | Deterministic | LLM-assisted (`gpt-6-astra`) |
+|---|---|---|
+| Scenario runs passed | 4 / 4 | 12 / 12 (3 runs each) |
+| Expected changes found | 6 / 6 | 18 / 18 |
+| False findings on the quiet control and other scenarios | 0 | 0 |
+| Unsupported findings | 0 of 13 | 0 of 36 |
+| Citations re-checked by code | 74 | 361 |
+| Actions executed | 0 | 0 |
+| Same findings on every run | Yes | Yes |
+| Mean model tokens per investigation | n/a | ≈27k |
+
+On these scenarios the deterministic analyst detects everything the LLM does. It needs no model, and it is what the dashboard runs. The optional LLM path writes richer, more heavily cited explanations through the same read-only tools and checks. The scenario set is small, so these results show behavior on known cases, not a general accuracy rate. Reproduce them with `python3 scripts/analyst_scorecard.py`. The full result is in [JSON](docs/validation/analyst-scorecard.json).
+
+![RF Sentinel Analyst scorecard](docs/media/rf-sentinel-analyst-scorecard.png)
+
 These results measure the platform on synthetic replay. They do not measure live RF decoder accuracy, receiver sensitivity, or performance in an uncontrolled environment. Those are characterized per deployment.
 
 ## Product tour
