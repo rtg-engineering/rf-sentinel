@@ -632,6 +632,10 @@ def _listen_one_channel(args: argparse.Namespace, channel: int, stop_requested: 
                     pass
     finally:
         stop_stream(args.base_url, args.token, stream_id)
+        if args.json and getattr(detector, "stats", None):
+            # Decoder yield for this dwell: candidates, failures by reason, CRC-valid packets.
+            _print_event({"kind": "ble_decoder_stats", "channel": channel, "device_id": args.device_id,
+                          "dwell_s": round(time.monotonic() - started, 2), **detector.stats}, True)
     return events_seen
 
 

@@ -28,6 +28,15 @@ def _render(result: dict[str, Any]) -> str:
         f"<td>{e(round(d['best_rssi_dbfs'], 1)) if 'best_rssi_dbfs' in d else ''}</td>"
         f"<td>{e(' · '.join(dict.fromkeys(str(d[k]) for k in ('identity', 'name', 'manufacturer', 'device_type_detail', 'pdu_type') if d.get(k))))}</td>"
         f"<td>{e(d.get('gain_db'))}</td></tr>" for d in result["devices"])
+    cols = (("aa_candidates", "Sync candidates"), ("crc_valid", "CRC-valid"), ("crc_failures", "CRC failures"),
+            ("header_rejects", "Bad header"), ("length_rejects", "Bad length"), ("clipped_samples", "Clipped samples"))
+    stats = result.get("decoder_stats") or {}
+    decoder = "" if not stats else (
+        "<h2>Decoder yield</h2><div class='card'><table><tr><th>Channel</th>"
+        + "".join(f"<th>{label}</th>" for _, label in cols) + "<th>Yield</th></tr>"
+        + "".join(f"<tr><td>{e(ch)}</td>" + "".join(f"<td>{e(int(v.get(k, 0)))}</td>" for k, _ in cols)
+                  + f"<td>{e(v.get('crc_valid_fraction'))}</td></tr>" for ch, v in sorted(stats.items()))
+        + "</table></div>")
     steps = "".join(f"<li><span class='t'>{s['t']:.1f} s</span> {e(s['message'])}</li>" for s in result["steps"])
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RF Sentinel Agent Run</title><style>
@@ -42,7 +51,7 @@ th,td{{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}}code
 gain {e(', '.join(f'{g:.0f}' for g in result['gains_db']))} dB ({e(result['adjustments'])} automatic adjustment(s))</div>
 <div class="card"><strong>{len(result['devices'])} device(s), {sum(d['count'] for d in result['devices'])} detection(s)</strong>
 <table><tr><th>Device</th><th>Seen</th><th>Best RSSI (dBFS)</th><th>Details</th><th>Gain (dB)</th></tr>{rows}</table></div>
-<h2>What the agent did</h2><ol>{steps}</ol>
+{decoder}<h2>What the agent did</h2><ol>{steps}</ol>
 <h2>Limitations</h2><ul>{''.join(f'<li>{e(x)}</li>' for x in result['limitations'])}</ul></main></body></html>"""
 
 

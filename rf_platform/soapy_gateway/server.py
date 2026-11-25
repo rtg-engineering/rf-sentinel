@@ -86,6 +86,9 @@ def create_app(backend: SoapyBackend, token: str | None = None) -> Flask:
 
     def stream_state(s):
         state = {"stream_id": s.id, "status": s.status, "config": s.config}
+        if s.worker:
+            state["receiver"] = {"driver_path": s.worker.driver_path, "samples_received": s.worker.samples_received,
+                                 "overflows": s.worker.overflows}
         if s.worker and s.worker.error:
             state["error"] = s.worker.error
         return state
