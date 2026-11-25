@@ -1,0 +1,442 @@
+{
+  "application": "RF Sentinel",
+  "application_version": "986956f660ac926b5f989d9e4b036015376f66f6",
+  "checks": [
+    {
+      "name": "run-1",
+      "passed": true
+    },
+    {
+      "name": "run-2",
+      "passed": true
+    },
+    {
+      "name": "run-3",
+      "passed": true
+    },
+    {
+      "name": "repeatability",
+      "passed": true
+    },
+    {
+      "name": "run-restart",
+      "passed": true
+    },
+    {
+      "name": "restart_rebuild_matches",
+      "passed": true
+    }
+  ],
+  "completed_at": "2026-11-24T18:53:10.056962+00:00",
+  "conclusions": {
+    "anomaly_count": 3,
+    "entity_count": 22,
+    "patterns": [
+      {
+        "anomalies": [
+          "Strong local signal; review proximity"
+        ],
+        "key": "ble:02:00:00:00:99:01",
+        "span": 1,
+        "weekend": true,
+        "weekly": false
+      },
+      {
+        "anomalies": [],
+        "key": "ble:D0:EF:42:10:AA:01",
+        "span": 28,
+        "weekend": true,
+        "weekly": true
+      },
+      {
+        "anomalies": [],
+        "key": "ble:E1:04:22:6A:B0:14",
+        "span": 1,
+        "weekend": true,
+        "weekly": false
+      },
+      {
+        "anomalies": [],
+        "key": "ble:F2:A8:6C:03:09:51",
+        "span": 1,
+        "weekend": true,
+        "weekly": false
+      },
+      {
+        "anomalies": [],
+        "key": "btc:A1C3E5",
+        "span": 7,
+        "weekend": true,
+        "weekly": true
+      },
+      {
+        "anomalies": [],
+        "key": "btc:C4D9B2",
+        "span": 1,
+        "weekend": true,
+        "weekly": false
+      },
+      {
+        "anomalies": [],
+        "key": "cellular:751000000:downlink",
+        "span": 1,
+        "weekend": true,
+        "weekly": false
+      },
+      {
+        "anomalies": [
+          "Strong local signal; review proximity"
+        ],
+        "key": "fm:101700000",
+        "span": 42,
+        "weekend": true,
+        "weekly": true
+      },
+      {
+        "anomalies": [],
+        "key": "lfmf:530000",
+        "span": 1,
+        "weekend": true,
+        "weekly": false
+      },
+      {
+        "anomalies": [],
+        "key": "tpms:DTPMS-02",
+        "span": 7,
+        "weekend": true,
+        "weekly": true
+      },
+      {
+        "anomalies": [],
+        "key": "walkie:462562500",
+        "span": 1,
+        "weekend": true,
+        "weekly": false
+      },
+      {
+        "anomalies": [
+          "Strong local signal; review proximity"
+        ],
+        "key": "wifi:ap:02:10:7A:00:10:01:FieldLab-AP-01",
+        "span": 28,
+        "weekend": true,
+        "weekly": true
+      },
+      {
+        "anomalies": [],
+        "key": "wifi:ap:02:10:7A:00:20:06:DemoMesh-2G",
+        "span": 231,
+        "weekend": true,
+        "weekly": true
+      },
+      {
+        "anomalies": [],
+        "key": "wifi:ap:02:10:7A:00:30:11:Telemetry-GW",
+        "span": 1,
+        "weekend": true,
+        "weekly": false
+      },
+      {
+        "anomalies": [],
+        "key": "wifi:station:72:94:11:3B:0C:90:",
+        "span": 1,
+        "weekend": true,
+        "weekly": false
+      },
+      {
+        "anomalies": [],
+        "key": "wifi:station:8A:D3:5B:21:44:10:",
+        "span": 28,
+        "weekend": true,
+        "weekly": true
+      },
+      {
+        "anomalies": [],
+        "key": "wifi:station:8A:D3:5B:21:44:11:",
+        "span": 1,
+        "weekend": true,
+        "weekly": false
+      },
+      {
+        "anomalies": [],
+        "key": "wifi:station:8A:D3:5B:21:44:12:",
+        "span": 1,
+        "weekend": true,
+        "weekly": false
+      },
+      {
+        "anomalies": [],
+        "key": "wifi:station:8A:D3:5B:21:44:13:",
+        "span": 1,
+        "weekend": true,
+        "weekly": false
+      },
+      {
+        "anomalies": [],
+        "key": "wifi:station:8A:D3:5B:21:44:14:",
+        "span": 1,
+        "weekend": true,
+        "weekly": false
+      },
+      {
+        "anomalies": [],
+        "key": "zigbee:0x3021:0x11AA:20",
+        "span": 1,
+        "weekend": true,
+        "weekly": false
+      },
+      {
+        "anomalies": [],
+        "key": "zigbee:0x7C4A:0xBEEF:15",
+        "span": 7,
+        "weekend": true,
+        "weekly": true
+      }
+    ],
+    "protocol_counts": {
+      "BTC": 2,
+      "BTLE": 4,
+      "CELLULAR": 1,
+      "FM": 1,
+      "LFMF": 1,
+      "TPMS": 1,
+      "WALKIE": 1,
+      "WIFI": 9,
+      "ZIGBEE": 2
+    },
+    "recurring_pattern_count": 8,
+    "topology": [
+      [
+        "wifi:station:72:94:11:3B:0C:90:",
+        "02:10:7A:00:10:01"
+      ],
+      [
+        "wifi:station:8A:D3:5B:21:44:10:",
+        "02:10:7A:00:20:06"
+      ],
+      [
+        "wifi:station:8A:D3:5B:21:44:11:",
+        "02:10:7A:00:20:06"
+      ],
+      [
+        "wifi:station:8A:D3:5B:21:44:12:",
+        "02:10:7A:00:20:06"
+      ],
+      [
+        "wifi:station:8A:D3:5B:21:44:13:",
+        "02:10:7A:00:20:06"
+      ],
+      [
+        "wifi:station:8A:D3:5B:21:44:14:",
+        "02:10:7A:00:20:06"
+      ]
+    ],
+    "weekend_pattern_count": 8,
+    "wifi_ap_count": 3,
+    "wifi_station_count": 6
+  },
+  "configuration": {
+    "duration_s": 300.0,
+    "poll_interval_s": 0.01,
+    "rate": 10.0,
+    "reference_timestamp": 1795348800,
+    "runs": 3
+  },
+  "configuration_sha256": "42a9849061b660454b83584bf1e05d59229d5de83d3f156dc3a2874589d46a10",
+  "duration_s": 1562.031265738,
+  "event_accounting": {
+    "accepted": 9000,
+    "attempted": 9000,
+    "dropped": 0,
+    "rejected": 0,
+    "rejection_reasons": {}
+  },
+  "fixture": {
+    "event_count": 3000,
+    "path": ".demo/soak-validation-v3/events.jsonl",
+    "protocols": [
+      "ble",
+      "btc",
+      "cellular",
+      "fm",
+      "ieee802154",
+      "lfmf",
+      "tpms",
+      "walkie",
+      "wifi"
+    ],
+    "sha256": "5a5e519b2fe798bb9b721cc17dfec7cfd30172e2000bf42f6d414c592def00d9"
+  },
+  "latency_ms": {
+    "maximum": 121.35434150695801,
+    "minimum": 2.132415771484375,
+    "p50": 15.163898468017578,
+    "p95": 54.60405349731445,
+    "p99": 94.47288513183594,
+    "samples": 9000
+  },
+  "latency_trends": [
+    {
+      "first": {
+        "maximum": 117.67792701721191,
+        "minimum": 3.032684326171875,
+        "p50": 14.57977294921875,
+        "p95": 52.411556243896484,
+        "p99": 94.03347969055176,
+        "samples": 1000
+      },
+      "last": {
+        "maximum": 112.50567436218262,
+        "minimum": 5.471229553222656,
+        "p50": 16.07513427734375,
+        "p95": 56.74099922180176,
+        "p99": 97.05948829650879,
+        "samples": 1000
+      },
+      "p95_delta_ms": 4.329442977905273,
+      "window": "first and last third of accepted events"
+    },
+    {
+      "first": {
+        "maximum": 111.7238998413086,
+        "minimum": 2.132415771484375,
+        "p50": 13.861894607543945,
+        "p95": 54.121971130371094,
+        "p99": 93.86491775512695,
+        "samples": 1000
+      },
+      "last": {
+        "maximum": 110.70823669433594,
+        "minimum": 5.245447158813477,
+        "p50": 15.443086624145508,
+        "p95": 56.06889724731445,
+        "p99": 96.38762474060059,
+        "samples": 1000
+      },
+      "p95_delta_ms": 1.9469261169433594,
+      "window": "first and last third of accepted events"
+    },
+    {
+      "first": {
+        "maximum": 110.1999282836914,
+        "minimum": 3.0629634857177734,
+        "p50": 14.973878860473633,
+        "p95": 52.786827087402344,
+        "p99": 88.15121650695801,
+        "samples": 1000
+      },
+      "last": {
+        "maximum": 121.35434150695801,
+        "minimum": 6.254911422729492,
+        "p50": 16.098499298095703,
+        "p95": 56.83445930480957,
+        "p99": 99.0138053894043,
+        "samples": 1000
+      },
+      "p95_delta_ms": 4.047632217407227,
+      "window": "first and last third of accepted events"
+    }
+  ],
+  "limitations": "This result measures deterministic synthetic replay through the RF Sentinel demo backend and API path. It does not measure live RF decoder accuracy, receiver sensitivity, protocol coverage in an uncontrolled environment, or production deployment performance. API polling latency includes observer delay; it is not browser paint latency.",
+  "overall_status": "pass",
+  "public_safe": true,
+  "recovery": {
+    "aggregation": "Booleans require all runs; time is maximum; accepted count is sum; timestamps describe run 1.",
+    "fault": "replay_worker_pause_resume",
+    "interrupted_at": "2026-11-24T18:29:11.443900+00:00",
+    "interruption_detected": true,
+    "interruption_injected": true,
+    "post_recovery_events_accepted": 8937,
+    "rebuild_complete_ms": 314797.45974799996,
+    "recovered": true,
+    "recovered_at": "2026-11-24T18:29:11.863721+00:00",
+    "recovery_time_ms": 109.35259699999733,
+    "restored_at": "2026-11-24T18:29:11.755025+00:00"
+  },
+  "repeatability": {
+    "all_stable_results_match": true,
+    "entity_counts_match": true,
+    "normalized_result_digest": "be5a14160c6594adc01b3676014f0c2f1e2c01e3b8743e80c141b6de5cabedca",
+    "pattern_conclusions_match": true,
+    "protocol_counts_match": true,
+    "run_count": 3,
+    "run_digests": [
+      "be5a14160c6594adc01b3676014f0c2f1e2c01e3b8743e80c141b6de5cabedca",
+      "be5a14160c6594adc01b3676014f0c2f1e2c01e3b8743e80c141b6de5cabedca",
+      "be5a14160c6594adc01b3676014f0c2f1e2c01e3b8743e80c141b6de5cabedca"
+    ]
+  },
+  "resource_trends": [
+    {
+      "ending_rss_bytes": 80994304,
+      "rss_growth_bytes": 6815744,
+      "starting_rss_bytes": 74178560
+    },
+    {
+      "ending_rss_bytes": 81600512,
+      "rss_growth_bytes": 7340032,
+      "starting_rss_bytes": 74260480
+    },
+    {
+      "ending_rss_bytes": 81620992,
+      "rss_growth_bytes": 6946816,
+      "starting_rss_bytes": 74674176
+    }
+  ],
+  "resources": {
+    "ending_rss_bytes": 80994304,
+    "entity_count_at_completion": 22,
+    "log_bytes": 92934,
+    "notes": [],
+    "peak_cpu_percent": 29.48391189248769,
+    "peak_rss_bytes": 81620992,
+    "restart_count": 0,
+    "rss_growth_bytes": 6815744,
+    "starting_rss_bytes": 74178560
+  },
+  "restart_recovery": {
+    "api_unreachable_after_kill": true,
+    "event_accounting": {
+      "accepted": 3000,
+      "attempted": 3000,
+      "dropped": 0,
+      "rejected": 0,
+      "rejection_reasons": {}
+    },
+    "exit_code": 137,
+    "fault": "backend_sigkill_container_restart",
+    "interruption_detected": true,
+    "kill_to_health_ms": 1520.5852939998294,
+    "latency_ms": {
+      "maximum": 115.86523056030273,
+      "minimum": 2.6578903198242188,
+      "p50": 15.21754264831543,
+      "p95": 56.452035903930664,
+      "p99": 97.64957427978516,
+      "samples": 3000
+    },
+    "note": "Detection state is in memory. After SIGKILL it is lost, then rebuilt by replaying the source fixture; this is not durable-state recovery.",
+    "post_restart_state_clean": true,
+    "pre_kill_entity_count": 21,
+    "pre_kill_events_accepted": 1500,
+    "rebuild_complete_ms": 316588.005993,
+    "rebuilt_matches_uninterrupted": true,
+    "recovered": true,
+    "recovery_time_ms": 105.97649500004991,
+    "result_digest": "be5a14160c6594adc01b3676014f0c2f1e2c01e3b8743e80c141b6de5cabedca",
+    "state_after_restart": {
+      "entity_count": 0,
+      "events_accepted": 0,
+      "events_attempted": 0
+    }
+  },
+  "schema_version": "1.0",
+  "soak": {
+    "max_p95_delta_ms": 4.329442977905273,
+    "max_rss_growth_bytes": 7340032,
+    "note": "First-third versus last-third P95 latency and start-to-end sampled RSS, per run; reported, not thresholded."
+  },
+  "source_sha256": "d4673158d6f5053278ec0e843ce75c4385d6b6ba580bc73e30058dec73af095c",
+  "started_at": "2026-11-24T18:27:08.025656+00:00",
+  "synthetic_replay": true
+}

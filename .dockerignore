@@ -10,3 +10,7 @@ rf_sentinel.egg-info
 **/build
 **/captures
 ui/backend/data/*.log
+
+# Local observed identities must not seed public demo images.
+ui/backend/data/ble_identities.json
+ui/backend/data/ble_identities.json.tmp

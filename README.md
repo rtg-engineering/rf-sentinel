@@ -35,6 +35,20 @@ Open `http://127.0.0.1:8080`. Use `RF_SENTINEL_DEMO_PORT=8081` if port 8080 is b
 
 See [`docs/demo.md`](docs/demo.md) for the full demo workflow.
 
+## Measured Validation
+
+Run a hardware-free, three-run validation through the real demo backend and status API:
+
+```bash
+./scripts/validate_demo.sh
+```
+
+The harness checks event accounting, API visibility latency, replay pause/resume recovery, backend SIGKILL/restart with state rebuild, topology, and repeatable Pattern-of-Life conclusions. It writes JSON evidence, an HTML/PNG result card, and a checksummed evidence bundle under `.demo/validation/`; check a bundle independently with `python3 scripts/verify_evidence_bundle.py <bundle>.tar.gz`. See [validation methodology and limitations](docs/validation.md) for prerequisites, configuration, and the distinction between synthetic platform validation and live RF performance.
+
+Latest reviewed result: 300-second, three-run soak plus crash-restart run on commit `986956f` ([JSON](docs/validation/latest-public-result.json)).
+
+![RF Sentinel validation result card](docs/media/rf-sentinel-validation-card.png)
+
 ## Visual Evidence
 
 | Public demo replay | Detection table population | WiFi AP / station topology |

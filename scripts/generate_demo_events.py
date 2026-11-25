@@ -414,7 +414,39 @@ def build_events(cycles: int = 5, cycle_seconds: float = 9.5) -> list[dict[str, 
             if item.get("protocol") == "wifi" and item.get("ssid") == "DemoMesh-2G":
                 item["rssi_dbm"] = round(float(item["rssi_dbm"]) - (cycle % 2), 1)
             events.append(item)
-    return sorted(events, key=lambda item: float(item["offset_s"]))
+    events.sort(key=lambda item: float(item["offset_s"]))
+    for sequence, event in enumerate(events, 1):
+        event["validation_event_id"] = f"demo-{sequence:08d}"
+        event["validation_sequence"] = sequence
+    return events
+
+
+def build_validation_events(duration_s: float = 30, rate: float = 10) -> list[dict[str, Any]]:
+    """A fixed-count replay, with baseline followed by four observable changes."""
+    count = max(len(BASE_EVENTS) + 4, int(duration_s * rate))
+    baseline = build_events(cycles=(count // len(BASE_EVENTS)) + 1)[:count - 4]
+    new = deepcopy(BASE_EVENTS[1][1])
+    new.update(address="02:00:00:00:99:01", name="Validation New Beacon", rssi_dbfs=-65)
+    new.pop("demo_seen_day_offsets", None)
+    relationship = deepcopy(BASE_EVENTS[17][1])
+    relationship.update(source="72:94:11:3B:0C:90", bssid="02:10:7A:00:10:01",
+                        destination="02:10:7A:00:10:01", ssid="FieldLab-AP-01")
+    strong = deepcopy(new)
+    strong.update(rssi_dbfs=-25)
+    review = deepcopy(BASE_EVENTS[6][1])
+    events = baseline + [new, relationship, strong, review]
+    phases = ["baseline"] * len(baseline) + ["new_entity", "relationship_change", "off_cadence_activity", "operator_review"]
+    outcomes = {"baseline": "recurring entities and five-station mesh present",
+                "new_entity": "new beacon appears after baseline",
+                "relationship_change": "telemetry station moves to FieldLab AP",
+                "off_cadence_activity": "new beacon has strong-signal anomaly context",
+                "operator_review": "231-day weekly recurrence and mesh remain present"}
+    for sequence, (event, phase) in enumerate(zip(events, phases), 1):
+        event.update(offset_s=sequence / rate, validation_event_id=f"validation-{sequence:08d}",
+                     validation_sequence=sequence, scenario_phase=phase,
+                     scenario_truth_id=f"{phase}-{sequence:08d}",
+                     scenario_expected_outcome=outcomes[phase])
+    return events
 
 
 def write_events(output: Path, cycles: int = 5, cycle_seconds: float = 9.5) -> dict[str, Any]:

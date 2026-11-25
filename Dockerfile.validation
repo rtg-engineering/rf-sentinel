@@ -1,0 +1,7 @@
+FROM rf-sentinel:public-demo
+RUN apt-get update && apt-get install -y --no-install-recommends chromium \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m pip install --no-cache-dir playwright
+COPY tests/ /app/tests/
+ENTRYPOINT ["python3"]
+CMD ["-m", "unittest", "discover", "-s", "tests", "-v"]
