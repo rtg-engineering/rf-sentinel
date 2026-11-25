@@ -49,6 +49,12 @@ Latest reviewed result: 300-second, three-run soak plus crash-restart run on com
 
 ![RF Sentinel validation result card](docs/media/rf-sentinel-validation-card.png)
 
+### Operator walkthrough
+
+About 50 seconds of the shipped dashboard running the same scripted scenario: baseline, a new entity, a changed AP relationship, and Pattern-of-Life review ([MP4](docs/media/rf-sentinel-operator-walkthrough.mp4)). Synthetic replay only. Regenerate it with `python3 scripts/record_walkthrough.py --build`.
+
+![RF Sentinel operator walkthrough](docs/media/rf-sentinel-operator-walkthrough.gif)
+
 ## Visual Evidence
 
 | Public demo replay | Detection table population | WiFi AP / station topology |

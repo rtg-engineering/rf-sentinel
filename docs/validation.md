@@ -163,6 +163,10 @@ The HTML and PNG show fixture size, aggregate accounting, P50/P95, recovery, rep
 
 The result card and JSON remain local for review. After a successful **reviewed** run, the reviewed summary may be copied to `docs/validation/latest-public-result.json` and the card to `docs/media/rf-sentinel-validation-card.png`. The harness does not perform that promotion or publish a website. Resolve the `-dirty` source state and rerun before publishing commit-specific claims.
 
+## Operator walkthrough recording
+
+`python3 scripts/record_walkthrough.py [--build]` records about 50 seconds of the shipped dashboard while the demo backend replays the validation scenario's minimum fixture: 21 baseline events, then the four changes, paced roughly 12 seconds apart. Each scene (baseline, new entity, relationship change, operator review) starts only after the dashboard's own status shows that state, so a missed change fails the recording instead of producing a misleading video. The script adds only a caption bar, a synthetic-replay badge, and outlines on the relevant row. It requires host ffmpeg and writes `docs/media/rf-sentinel-operator-walkthrough.mp4` and `.gif`. It is a demonstration, not a measurement, and is not part of `validate_demo.sh`.
+
 ## Tests and troubleshooting
 
 Run tests locally with the project's Python dependencies installed:
