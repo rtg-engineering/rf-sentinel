@@ -250,19 +250,34 @@ def enrich_ble_event(event: dict[str, Any]) -> dict[str, Any]:
 
 
 class BLEAdvertisingDetector:
+    # Longest legacy advertising packet after the access address: 2-byte header + 37-byte PDU + 3-byte CRC.
+    MAX_PACKET_BITS = (2 + 37 + 3) * 8
+    MAX_AA_ERRORS = 1
+
     def __init__(self, sample_rate_sps: int = BLE_ADV_SAMPLE_RATE_SPS, center_freq_hz: int = BLE_ADV_CHANNELS[37], channel: int = 37) -> None:
         self.sample_rate_sps = int(sample_rate_sps)
         self.center_freq_hz = int(center_freq_hz)
         self.channel = int(channel)
-        self._prev = np.complex64(1.0 + 0j)
-        self._bit_tail: list[int] = []
-        self._seen_packet_keys: dict[str, float] = {}
+        self.sps = max(1, int(round(self.sample_rate_sps / 1_000_000.0)))
+        # Samples carried into the next chunk so packets that straddle a chunk boundary still decode.
+        self._tail = np.empty(0, dtype=np.complex64)
+        self._tail_len = (self.MAX_PACKET_BITS + 48) * self.sps
+        self._sample_index = 0  # stream position of the next chunk's first sample
+        self._seen_packet_keys: dict[str, int] = {}
         self._burst_holdoff = 0
+        self._aa_pm = np.array([1 if b else -1 for b in self._bytes_to_lsb_bits(BLE_ADV_ACCESS_BYTES)], dtype=np.float32)
+        self._whitening = np.array(self._ble_dewhiten_bits([0] * self.MAX_PACKET_BITS, self.channel), dtype=np.int8)
+        self.stats: dict[str, int] = {key: 0 for key in (
+            "samples", "chunks", "clipped_samples", "bursts", "aa_candidates", "header_rejects", "length_rejects",
+            "truncated", "crc_failures", "crc_valid", "duplicates", "packets")}
 
     def process_iq_i8(self, raw: bytes) -> tuple[float, list[dict[str, Any]]]:
         z = self._iq_bytes_to_complex(raw)
         if z.size < 64:
             return -120.0, []
+        iq = np.frombuffer(raw[: z.size * 2], dtype=np.int8)
+        self.stats["clipped_samples"] += int(np.count_nonzero((iq[0::2] <= -127) | (iq[0::2] >= 127)
+                                                              | (iq[1::2] <= -127) | (iq[1::2] >= 127)))
         return self.process_complex(z)
 
     def process_complex(self, z: np.ndarray) -> tuple[float, list[dict[str, Any]]]:
@@ -304,100 +319,149 @@ class BLEAdvertisingDetector:
         return spans[:12]
 
     def _ble_events(self, z: np.ndarray, rssi_dbfs: float, burst_spans: list[tuple[int, int, float]]) -> list[dict[str, Any]]:
-        events: list[dict[str, Any]] = []
-        bits = self._gfsk_bits(z)
-        if not bits:
-            return self._burst_only_events(rssi_dbfs, burst_spans)
-        search_bits = (self._bit_tail + bits)[-8192:]
-        self._bit_tail = search_bits[-96:]
-        for polarity in (0, 1):
-            normalized = [bit ^ polarity for bit in search_bits]
-            events.extend(self._extract_ble_adv_packets(normalized, rssi_dbfs))
+        self.stats["samples"] += int(z.size)
+        self.stats["chunks"] += 1
+        self.stats["bursts"] += len(burst_spans)
+        buffer = np.concatenate((self._tail, z.astype(np.complex64, copy=False)))
+        buffer_start = self._sample_index - self._tail.size
+        self._tail = buffer[-self._tail_len:].copy()
+        self._sample_index += int(z.size)
+        events = self._decode_buffer(buffer, buffer_start, rssi_dbfs)
         if not events:
             events.extend(self._burst_only_events(rssi_dbfs, burst_spans))
-        return events[:16]
+        return events[:64]
 
-    def _gfsk_bits(self, z: np.ndarray) -> list[int]:
-        freq = self._gfsk_discriminator(z)
-        sps = max(1, int(round(self.sample_rate_sps / 1_000_000.0)))
-        usable = (freq.size // sps) * sps
-        if usable <= 0:
+    def _soft_symbols(self, buffer: np.ndarray) -> np.ndarray:
+        """Amplitude-independent FM discriminator, integrated over one symbol starting at every sample."""
+        freq = np.angle(buffer[1:] * np.conj(buffer[:-1])).astype(np.float32)
+        if self.sps == 1:
+            return freq
+        csum = np.concatenate(([0.0], np.cumsum(freq, dtype=np.float64)))
+        return (csum[self.sps:] - csum[:-self.sps]).astype(np.float32)
+
+    def _decode_buffer(self, buffer: np.ndarray, buffer_start: int, rssi_dbfs: float) -> list[dict[str, Any]]:
+        if buffer.size < 64 * self.sps:
             return []
-        symbols = freq[:usable].reshape(-1, sps).mean(axis=1)
-        return [1 if value > 0 else 0 for value in symbols.tolist()]
-
-    def _gfsk_discriminator(self, z: np.ndarray) -> np.ndarray:
-        prev = np.empty_like(z)
-        prev[0] = self._prev
-        prev[1:] = z[:-1]
-        self._prev = z[-1]
-        cross = (prev.real * z.imag) - (prev.imag * z.real)
-        freq = cross.astype(np.float32)
-        freq -= float(np.median(freq))
-        return freq
-
-    def _extract_ble_adv_packets(self, bits: list[int], rssi_dbfs: float) -> list[dict[str, Any]]:
-        access_bits = self._bytes_to_lsb_bits(BLE_ADV_ACCESS_BYTES)
+        integrated = self._soft_symbols(buffer)
+        aa_len = self._aa_pm.size
+        # Gather access-address hits at every timing phase, from both slicers.
+        hits: dict[tuple[int, int, bool], float] = {}
+        softs = []
+        for phase in range(self.sps):
+            soft = integrated[phase:: self.sps]
+            softs.append(soft)
+            if soft.size < aa_len + 16:
+                continue
+            # Slice against zero, and against a forward local mean that follows carrier frequency offset.
+            window = 32
+            csum = np.concatenate(([0.0], np.cumsum(soft, dtype=np.float64)))
+            fwd = np.empty(soft.size, dtype=np.float32)
+            n_full = soft.size - window + 1
+            fwd[:n_full] = (csum[window:] - csum[:n_full]) / window
+            fwd[n_full:] = fwd[n_full - 1] if n_full > 0 else 0.0
+            for sliced in (soft, soft - fwd):
+                corr = np.correlate(np.where(sliced > 0, 1.0, -1.0).astype(np.float32), self._aa_pm, mode="valid")
+                errors = (aa_len - corr) / 2.0
+                for pos in np.flatnonzero((errors <= self.MAX_AA_ERRORS) | (errors >= aa_len - self.MAX_AA_ERRORS)):
+                    inverted = bool(errors[pos] >= aa_len - self.MAX_AA_ERRORS)
+                    if (phase, int(pos), inverted) in hits:
+                        continue
+                    aa = soft[pos: pos + aa_len] * (-1.0 if inverted else 1.0)
+                    # Eye opening on the known access address: higher means better symbol timing.
+                    hits[(phase, int(pos), inverted)] = float(np.dot(aa, self._aa_pm) / (np.abs(aa).sum() + 1e-9))
+        # Group hits of the same packet (neighbouring phases/symbols); try the best-aligned first.
+        groups: list[list[tuple[int, int, bool]]] = []
+        for key in sorted(hits, key=lambda k: (k[1] * self.sps + k[0])):
+            sample_pos = key[1] * self.sps + key[0]
+            if groups and sample_pos - (groups[-1][0][1] * self.sps + groups[-1][0][0]) <= 2 * self.sps:
+                groups[-1].append(key)
+            else:
+                groups.append([key])
         out: list[dict[str, Any]] = []
-        for pos in self._find_bit_pattern(bits, access_bits, max_errors=1):
-            start = pos + len(access_bits)
-            dewhitened = self._ble_dewhiten_bits(bits[start : start + (2 + 37 + 3) * 8], self.channel)
-            if len(dewhitened) < 16:
-                continue
-            header = self._bits_to_bytes(dewhitened[:16])
-            if len(header) != 2:
-                continue
-            pdu_type = header[0] & 0x0F
+        for group in groups:
+            self.stats["aa_candidates"] += 1
+            failure = None
+            for phase, pos, inverted in sorted(group, key=lambda k: -hits[k]):
+                event, failure = self._decode_candidate(softs[phase], pos, inverted, buffer_start + pos * self.sps + phase, rssi_dbfs)
+                if failure is None:
+                    if event is not None:
+                        out.append(event)
+                    break
+            else:
+                self.stats[failure] += 1
+        return out
+
+    def _decode_candidate(self, soft: np.ndarray, pos: int, inverted: bool, stream_pos: int,
+                          rssi_dbfs: float) -> tuple[dict[str, Any] | None, str | None]:
+        """Returns (event, None) on a CRC-valid packet (event None if it is a repeat), else (None, failure reason)."""
+        aa_len = self._aa_pm.size
+        data = soft[pos + aa_len: pos + aa_len + self.MAX_PACKET_BITS]
+        if data.size < 16:
+            return None, "truncated"
+        # Decision threshold from the known access address: midway between the mean "1" and mean "0" levels.
+        aa_soft = soft[pos: pos + aa_len]
+        sign = -1.0 if inverted else 1.0
+        ones, zeros = aa_soft[self._aa_pm * sign > 0], aa_soft[self._aa_pm * sign < 0]
+        threshold = float((ones.mean() + zeros.mean()) / 2.0) if ones.size and zeros.size else 0.0
+        failure = "header_rejects"
+        for level in (threshold, 0.0):
+            raw = (data > level).astype(np.int8) ^ np.int8(inverted)
+            bits = raw ^ self._whitening[: raw.size]
+            header = self._bits_to_bytes(bits[:16].tolist())
+            pdu_type, length = header[0] & 0x0F, header[1] & 0x3F
             if pdu_type > 6:
                 continue
-            tx_add = bool(header[0] & 0x40)
-            length = header[1] & 0x3F
             if length < 6 or length > 37:
+                failure = "length_rejects" if failure == "header_rejects" else failure
                 continue
-            packet_bit_len = (2 + length + 3) * 8
-            dewhitened = self._ble_dewhiten_bits(bits[start : start + packet_bit_len], self.channel)
-            if len(dewhitened) < packet_bit_len:
+            packet_bits = (2 + length + 3) * 8
+            if bits.size < packet_bits:
+                failure = "truncated"
                 continue
-            pdu_bits = dewhitened[: (2 + length) * 8]
-            crc_bits_rx = dewhitened[(2 + length) * 8 : packet_bit_len]
-            if self._ble_crc24_bits(pdu_bits) != crc_bits_rx:
+            pdu_bits = bits[: (2 + length) * 8].tolist()
+            if self._ble_crc24_bits(pdu_bits) != bits[(2 + length) * 8: packet_bits].tolist():
+                failure = "crc_failures"
                 continue
-            packet = self._bits_to_bytes(pdu_bits)
-            if len(packet) < 2 + length:
-                continue
-            body = packet[2 : 2 + length]
-            advertiser = self._format_ble_addr(body[:6])
-            ad_data = body[6:] if len(body) > 6 else b""
-            ad_fields = self._ble_ad_fields(ad_data)
-            key = f"own-crc:{self.channel}:{pdu_type}:{advertiser}:{packet.hex()}"
-            now = time.time()
-            if now - self._seen_packet_keys.get(key, 0.0) < 1.0:
-                continue
-            self._seen_packet_keys[key] = now
-            out.append(
-                enrich_ble_event(
-                    {
-                    "kind": "ble_adv",
-                    "seen_at": now,
-                    "channel": self.channel,
-                    "center_freq_hz": self.center_freq_hz,
-                    "rssi_dbfs": round(rssi_dbfs, 1),
-                    "pdu_type": self._ble_pdu_name(pdu_type),
-                    "pdu_type_id": pdu_type,
-                    "address": advertiser or "unknown",
-                    "address_type": "random" if tx_add else "public",
-                    "name": self._ble_local_name_from_fields(ad_fields),
-                    "uuid16": self._ble_uuid16s_from_fields(ad_fields),
-                    "manufacturer": self._ble_manufacturer_from_fields(ad_fields),
-                    "appearance": self._ble_appearance_from_fields(ad_fields),
-                    "payload_len": length,
-                    "confidence": 0.94,
-                    "decoder": "own-crc",
-                    "packet": packet.hex(),
-                    }
-                )
-            )
-        return out
+            self.stats["crc_valid"] += 1
+            return self._packet_event(self._bits_to_bytes(pdu_bits), header[0], length, stream_pos, rssi_dbfs), None
+        return None, failure
+
+    def _packet_event(self, packet: bytes, header0: int, length: int, stream_pos: int, rssi_dbfs: float) -> dict[str, Any] | None:
+        pdu_type = header0 & 0x0F
+        body = packet[2: 2 + length]
+        advertiser = self._format_ble_addr(body[:6])
+        key = f"own-crc:{self.channel}:{packet.hex()}"
+        # Suppress repeats of an identical packet within one second of stream time (not wall time),
+        # so live and recorded IQ behave the same.
+        last = self._seen_packet_keys.get(key)
+        if last is not None and stream_pos - last < self.sample_rate_sps:
+            self.stats["duplicates"] += 1
+            return None
+        self._seen_packet_keys[key] = stream_pos
+        if len(self._seen_packet_keys) > 4096:
+            horizon = stream_pos - self.sample_rate_sps
+            self._seen_packet_keys = {k: v for k, v in self._seen_packet_keys.items() if v >= horizon}
+        self.stats["packets"] += 1
+        ad_fields = self._ble_ad_fields(body[6:] if len(body) > 6 else b"")
+        return enrich_ble_event({
+            "kind": "ble_adv",
+            "seen_at": time.time(),
+            "channel": self.channel,
+            "center_freq_hz": self.center_freq_hz,
+            "rssi_dbfs": round(rssi_dbfs, 1),
+            "pdu_type": self._ble_pdu_name(pdu_type),
+            "pdu_type_id": pdu_type,
+            "address": advertiser or "unknown",
+            "address_type": "random" if header0 & 0x40 else "public",
+            "name": self._ble_local_name_from_fields(ad_fields),
+            "uuid16": self._ble_uuid16s_from_fields(ad_fields),
+            "manufacturer": self._ble_manufacturer_from_fields(ad_fields),
+            "appearance": self._ble_appearance_from_fields(ad_fields),
+            "payload_len": length,
+            "confidence": 0.94,
+            "decoder": "own-crc",
+            "packet": packet.hex(),
+        })
 
     def _burst_only_events(self, rssi_dbfs: float, burst_spans: list[tuple[int, int, float]]) -> list[dict[str, Any]]:
         return [
@@ -507,23 +571,6 @@ class BLEAdvertisingDetector:
                 value |= (bits[idx + bit] & 1) << bit
             out.append(value)
         return bytes(out)
-
-    @staticmethod
-    def _find_bit_pattern(bits: list[int], pattern: list[int], max_errors: int) -> list[int]:
-        if len(bits) < len(pattern):
-            return []
-        hits: list[int] = []
-        plen = len(pattern)
-        for pos in range(0, len(bits) - plen + 1):
-            errors = 0
-            for offset, expected in enumerate(pattern):
-                if bits[pos + offset] != expected:
-                    errors += 1
-                    if errors > max_errors:
-                        break
-            if errors <= max_errors:
-                hits.append(pos)
-        return hits[:8]
 
     @staticmethod
     def _format_ble_addr(raw: bytes) -> str:

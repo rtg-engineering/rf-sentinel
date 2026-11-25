@@ -21,6 +21,8 @@ import uuid
 
 import numpy as np
 
+from . import bladerf_native
+
 # Fallback ranges when a device cannot be opened to query them (e.g. it is in use elsewhere).
 KNOWN_DRIVERS = {
     "hackrf": (1_000_000, 6_000_000_000, 20_000_000),
@@ -35,7 +37,8 @@ KNOWN_DRIVERS = {
 NON_RF_DRIVERS = {"audio"}  # sound cards exposed by SoapyAudio are not receivers
 CHUNK_SAMPLES = 131_072  # samples per published chunk (filled from several driver reads)
 RING_CHUNKS = 64
-TRANSIENT_READ_ERRORS = {-1, -4}  # SOAPY_SDR_TIMEOUT, SOAPY_SDR_OVERFLOW
+SOAPY_SDR_OVERFLOW = -4
+TRANSIENT_READ_ERRORS = {-1, SOAPY_SDR_OVERFLOW}  # SOAPY_SDR_TIMEOUT, SOAPY_SDR_OVERFLOW
 NO_DATA_TIMEOUT_S = 5.0           # a running stream that delivers nothing this long has failed
 
 
@@ -156,6 +159,9 @@ class RxWorker:
         self.bandwidth_hz = bandwidth_hz
         self.max_samples = max_samples
         self.status, self.error = "starting", None
+        self.samples_received = 0
+        self.overflows = 0  # driver-reported overruns (samples lost)
+        self.driver_path: str | None = None  # "libbladerf" or "soapysdr"
         self._ring: deque[tuple[int, bytes, float]] = deque(maxlen=RING_CHUNKS)
         self._seq = 0
         self._cond = threading.Condition()
@@ -170,6 +176,7 @@ class RxWorker:
         dev = stream = None
         try:
             dev = self._open()
+            self.driver_path = "libbladerf" if isinstance(dev, bladerf_native.NativeBladeRF) else "soapysdr"
             dev.setSampleRate(rx, 0, float(self.rate_sps))
             dev.setFrequency(rx, 0, float(self.center_hz))
             if self.bandwidth_hz:
@@ -196,6 +203,8 @@ class RxWorker:
                     if result.ret > 0:
                         filled += result.ret
                         last_data = time.monotonic()
+                    elif result.ret == SOAPY_SDR_OVERFLOW:
+                        self.overflows += 1
                     elif result.ret not in TRANSIENT_READ_ERRORS:
                         last_error = result.ret
                     if time.monotonic() - last_data > NO_DATA_TIMEOUT_S:
@@ -209,6 +218,7 @@ class RxWorker:
                     self._ring.append((self._seq, payload, self.center_hz))
                     self._cond.notify_all()
                 received += filled
+                self.samples_received = received
                 if self.max_samples and received >= self.max_samples:
                     break
             self.status = "stopped"
@@ -276,7 +286,9 @@ class Session:
 class SoapyBackend:
     """Devices, streams, power sweeps, and IQ sweeps over SoapySDR, with one owner per device."""
 
-    def __init__(self, soapy: Any = None, include_non_rf: bool = False):
+    def __init__(self, soapy: Any = None, include_non_rf: bool = False, native_bladerf: bool | None = None):
+        # Direct libbladeRF for bladeRF devices: on by default with the real SoapySDR, off when one is injected.
+        self.native_bladerf = (soapy is None and bladerf_native.enabled()) if native_bladerf is None else native_bladerf
         self.soapy = soapy or load_soapysdr()
         self.include_non_rf = include_non_rf
         self._lock = threading.RLock()
@@ -290,12 +302,18 @@ class SoapyBackend:
             self._handles.pop(device.id, None)
         return drop_handle
 
+    def _open_handle(self, driver: str, kwargs: dict[str, str]) -> Any:
+        """bladeRF goes through libbladeRF directly (continuous stream; see bladerf_native); others via SoapySDR."""
+        if driver == "bladerf" and self.native_bladerf and bladerf_native.load() is not None:
+            return bladerf_native.NativeBladeRF(kwargs)
+        return self.soapy.Device(kwargs)
+
     def _opener(self, device: Device):
         """Open once and reuse. Safe because one session owns a device at a time and is joined before the next."""
         def open_device():
             handle = self._handles.get(device.id)
             if handle is None:
-                handle = self.soapy.Device(device.kwargs)
+                handle = self._open_handle(device.driver, device.kwargs)
                 self._handles[device.id] = handle
             return handle
         return open_device
@@ -328,7 +346,7 @@ class SoapyBackend:
         if device_id not in self._owners:
             try:
                 rx = self.soapy.SOAPY_SDR_RX
-                dev = self._handles.get(device_id) or self.soapy.Device(kwargs)
+                dev = self._handles.get(device_id) or self._open_handle(driver, kwargs)
                 self._handles[device_id] = dev
                 freqs = list(dev.getFrequencyRange(rx, 0))
                 rates = list(dev.getSampleRateRange(rx, 0))

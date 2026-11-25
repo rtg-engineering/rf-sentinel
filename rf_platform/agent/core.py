@@ -106,6 +106,7 @@ class Agent:
                                     "duration_s": task.duration_s})
 
         detections: dict[str, dict[str, Any]] = {}
+        decoder: dict[str, dict[str, Any]] = {}  # per-channel decoder counters reported by the plugin
         adjustments = 0
         gains_used = [gain]
         deadline = time.monotonic() + task.duration_s
@@ -123,6 +124,8 @@ class Agent:
                         peaks.append(float(event["peak_dbfs"]))
                     elif kind in profile.detection_kinds:
                         self._record(detections, profile, event, gain, on_detection)
+                    elif kind and kind.endswith("_decoder_stats"):
+                        self._decoder_stats(decoder, event)
                     if time.monotonic() >= window_end:  # evaluated even when the plugin is quiet
                         decided = self._decide(peaks, gain, adjustments)
                         if decided is not None:
@@ -160,7 +163,8 @@ class Agent:
                          "receiver_label": device.get("label"), "duration_s": task.duration_s, "gains_db": gains_used,
                          "adjustments": adjustments, "devices": devices, "steps": steps,
                          "elapsed_s": round(time.time() - started, 1), "receive_only": True,
-                         "mode": gw.mode, "stopped": self._stop.is_set(), "audit": gw.audit}, started)
+                         "mode": gw.mode, "stopped": self._stop.is_set(), "audit": gw.audit,
+                         "decoder_stats": decoder}, started)
 
     def _lines(self, proc: subprocess.Popen, deadline: float):
         """Plugin stdout lines until the deadline, without blocking past it."""
@@ -202,6 +206,15 @@ class Agent:
         if median < WEAK_MEDIAN_PEAK_DBFS and gain < 60:
             return min(60.0, gain + 6), f"bursts are weak (median peak {median:.1f} dBFS)"
         return None
+
+    @staticmethod
+    def _decoder_stats(totals: dict[str, dict[str, Any]], event: dict[str, Any]) -> None:
+        item = totals.setdefault(str(event.get("channel", "all")), {})
+        for field, value in event.items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and field != "channel":
+                item[field] = round(item.get(field, 0) + value, 2)
+        candidates = item.get("aa_candidates", 0)
+        item["crc_valid_fraction"] = round(item.get("crc_valid", 0) / candidates, 3) if candidates else None
 
     @staticmethod
     def _record(detections, profile: Profile, event, gain, on_detection) -> None:

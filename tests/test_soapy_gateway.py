@@ -103,6 +103,54 @@ class FakeSoapy:
                     {"driver": "bladerf", "serial": "bbb", "label": "BladeRF #1"}]
 
 
+class OverflowingSoapy(FakeSoapy):
+    class Device(FakeSoapy.Device):
+        calls = 0
+
+        def readStream(self, s, bufs, n, timeoutUs=0):
+            type(self).calls += 1
+            if type(self).calls % 2 == 0:
+                return _Result(-4)  # SOAPY_SDR_OVERFLOW: samples were lost
+            return super().readStream(s, bufs, n, timeoutUs)
+
+
+class ReceiverInstrumentationTest(unittest.TestCase):
+    def test_overflows_and_samples_are_counted(self):
+        backend = SoapyBackend(OverflowingSoapy)
+        try:
+            self.assertFalse(backend.native_bladerf)  # an injected SoapySDR never opens real hardware
+            session = backend.start_stream({"device_id": "bladerf:0", "center_freq_hz": 2_402_000_000,
+                                            "sample_rate_sps": 2_000_000})
+            deadline = time.time() + 5
+            while session.worker.samples_received < 200_000 and time.time() < deadline:
+                time.sleep(0.02)
+            self.assertGreaterEqual(session.worker.samples_received, 131_072)
+            self.assertGreater(session.worker.overflows, 0)
+            self.assertEqual(session.worker.driver_path, "soapysdr")
+        finally:
+            backend.stop_all()
+
+    def test_native_bladerf_converts_sc16_to_cf32(self):
+        from rf_platform.soapy_gateway import bladerf_native
+
+        dev = bladerf_native.NativeBladeRF.__new__(bladerf_native.NativeBladeRF)
+        dev._scratch = np.zeros(2 * bladerf_native._READ_SAMPLES, dtype=np.int16)
+        dev._dev, dev._streaming = None, False
+
+        class Lib:
+            @staticmethod
+            def bladerf_sync_rx(_dev, _ptr, n, _meta, _timeout):
+                dev._scratch[: 2 * n: 2] = 1024    # I = +0.5 full scale
+                dev._scratch[1: 2 * n: 2] = -2048  # Q = -1.0 full scale
+                return 0
+        dev._lib = Lib()
+        out = np.zeros(100, dtype=np.complex64)
+        self.assertEqual(dev.readStream(None, [out], 100).ret, 100)
+        self.assertTrue(np.allclose(out, 0.5 - 1.0j))
+        Lib.bladerf_sync_rx = staticmethod(lambda *a: -6)
+        self.assertEqual(dev.readStream(None, [out], 100).ret, -1)  # libbladeRF timeout -> SoapySDR timeout
+
+
 class BackendTest(unittest.TestCase):
     def setUp(self):
         self.backend = SoapyBackend(FakeSoapy)
@@ -219,7 +267,8 @@ class ServerTest(unittest.TestCase):
         start = self.client.post("/streams/start", headers=self.auth,
                                  json={"device_id": "bladerf:0", "center_freq_hz": 2_402_000_000, "sample_rate_sps": 2_000_000})
         state = start.get_json()
-        self.assertEqual(set(state), {"stream_id", "status", "config"})
+        self.assertEqual(set(state), {"stream_id", "status", "config", "receiver"})
+        self.assertEqual(set(state["receiver"]), {"driver_path", "samples_received", "overflows"})
         busy = self.client.post("/streams/start", headers=self.auth,
                                 json={"device_id": "bladerf:0", "center_freq_hz": 2_402_000_000, "sample_rate_sps": 2_000_000})
         self.assertEqual(busy.status_code, 409)
