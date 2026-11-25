@@ -1786,6 +1786,38 @@
         padding: 12px;
       }
 
+      .agent-bar {
+        margin: 0 0 12px;
+      }
+
+      .agent-form {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .agent-form input {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .agent-panel {
+        margin-top: 8px;
+        padding: 10px 12px;
+        border: 1px solid rgba(127, 127, 127, 0.35);
+        border-radius: 8px;
+        font-size: 0.9rem;
+      }
+
+      .agent-steps {
+        margin: 0 0 6px;
+        padding-left: 20px;
+      }
+
+      .agent-steps li.gain {
+        font-weight: 600;
+      }
+
       .analyst-actions {
         display: flex;
         flex-wrap: wrap;
@@ -2273,6 +2305,18 @@
         })();
       </script>
 
+      <section class="agent-bar" aria-label="Ask RF Sentinel">
+        <form id="agentForm" class="agent-form">
+          <span class="material-symbols-rounded">smart_toy</span>
+          <input id="agentCommand" type="text" autocomplete="off" placeholder='Ask RF Sentinel, e.g. "find bluetooth devices for 1 minute"' aria-label="Agent command">
+          <button type="submit" id="agentRunBtn">Run</button>
+          <button type="button" class="secondary" id="agentStopBtn" hidden>Stop</button>
+        </form>
+        <div id="agentPanel" class="agent-panel" hidden>
+          <ol id="agentSteps" class="agent-steps"></ol>
+          <div id="agentResult"></div>
+        </div>
+      </section>
       <form class="toolbar" id="scanForm">
         <select id="btcDeviceSelect" hidden></select>
         <select id="btleDeviceSelect" hidden></select>
@@ -5500,6 +5544,76 @@
         if (event.target === protocolConfigOverlay) closeProtocolConfigOverlay();
       });
       patternAnalyticsBtn.addEventListener("click", () => openPatternAnalytics(applyLastSeenFilter(latestStatus?.discovery_table || [])));
+
+      // Operator agent: plain-language, receive-only scans with automatic gain.
+      const agentForm = document.getElementById("agentForm");
+      const agentCommand = document.getElementById("agentCommand");
+      const agentRunBtn = document.getElementById("agentRunBtn");
+      const agentStopBtn = document.getElementById("agentStopBtn");
+      const agentPanel = document.getElementById("agentPanel");
+      const agentSteps = document.getElementById("agentSteps");
+      const agentResult = document.getElementById("agentResult");
+      let agentJobId = null;
+      let agentTimer = null;
+
+      function renderAgent(job) {
+        agentPanel.hidden = false;
+        agentSteps.innerHTML = (job.steps || []).map((s) => `<li class="${/gain .* -> /.test(s.message) ? "gain" : ""}"><span class="small">${Number(s.t).toFixed(1)} s</span> ${escapeHtml(s.message)}</li>`).join("");
+        const running = job.status === "running";
+        agentRunBtn.disabled = running;
+        agentStopBtn.hidden = !running;
+        if (job.error) {
+          agentResult.innerHTML = `<p><strong>Error:</strong> ${escapeHtml(job.error)}</p>`;
+        } else if (job.result) {
+          const devices = job.result.devices || [];
+          agentResult.innerHTML = devices.length
+            ? `<table class="identity-table"><thead><tr><th>Device</th><th>Seen</th><th>Best RSSI</th><th>Details</th></tr></thead><tbody>${devices.map((d) => `<tr><td>${escapeHtml(d.key)}</td><td>${Number(d.count)}</td><td>${d.best_rssi_dbfs != null ? Number(d.best_rssi_dbfs).toFixed(1) : ""}</td><td>${escapeHtml([...new Set([d.identity, d.name, d.manufacturer, d.device_type_detail, d.pdu_type].filter(Boolean))].join(" · "))}</td></tr>`).join("")}</tbody></table>`
+            : `<p>No devices decoded in this window.</p>`;
+          if (job.report_dir) agentResult.innerHTML += `<p class="small">Run ${escapeHtml(job.result.run_id)} · <a href="/api/agent/jobs/${encodeURIComponent(job.job_id)}/report" target="_blank" rel="noopener">verifiable report</a></p>`;
+        } else {
+          agentResult.innerHTML = running ? `<p class="small">Working… detections also appear in the table below as they are decoded.</p>` : "";
+        }
+      }
+
+      async function pollAgent() {
+        if (!agentJobId) return;
+        try {
+          const response = await fetch(`/api/agent/jobs/${agentJobId}`);
+          const job = await response.json();
+          renderAgent(job);
+          if (job.status !== "running") {
+            clearInterval(agentTimer);
+            agentTimer = null;
+            pollStatus();
+          }
+        } catch (err) {
+          showToast(err.message || "Agent status unavailable");
+        }
+      }
+
+      agentForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const command = agentCommand.value.trim();
+        if (!command) return;
+        try {
+          const response = await fetch("/api/agent/run", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ command }) });
+          const job = await response.json();
+          if (!response.ok) throw new Error(job.error || `Request failed (${response.status})`);
+          agentJobId = job.job_id;
+          renderAgent(job);
+          clearInterval(agentTimer);
+          agentTimer = setInterval(pollAgent, 1000);
+        } catch (err) {
+          agentPanel.hidden = false;
+          agentSteps.innerHTML = "";
+          agentResult.innerHTML = `<p><strong>${escapeHtml(err.message)}</strong></p>`;
+        }
+      });
+
+      agentStopBtn.addEventListener("click", async () => {
+        if (agentJobId) await fetch(`/api/agent/jobs/${agentJobId}/stop`, { method: "POST" });
+      });
 
       // Read-only Analyst: findings cite entities; clicking one opens its row in the detections table.
       const analystOverlay = document.getElementById("analystOverlay");

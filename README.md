@@ -45,6 +45,7 @@ RF Sentinel listens across Bluetooth, WiFi, Zigbee/802.15.4, TPMS and other sub-
 | **Investigate** | The read-only Analyst finds new and missing devices, relationship and signal changes, and silent sensors. Each finding has cited evidence, ranked explanations, and proposed next steps. |
 | **Remember** | Append-only environment memory: versioned baselines, "what changed since the last assessment", operator notes that never rewrite evidence, and assessments that can be re-verified later. |
 | **Prove** | Validation harness, published result card, verifiable evidence bundles, and recorded walkthroughs of the shipped dashboard. |
+| **Operate** | Ask in plain language ("find bluetooth devices"). The agent picks a receiver, measures clipping and corrects gain automatically, runs the decoder, and writes a verifiable run report, from the dashboard or the CLI. Receive-only. |
 | **Integrate** | Docker packaging, a protocol plugin model, a JSON status API, and an optional LLM provider (local or cloud) behind the same read-only tools and checks. |
 
 ## How it works
@@ -203,6 +204,7 @@ More from RTG Spectrum:
 | Analyst: read-only, evidence-backed investigation with dashboard drill-down | Shipped |
 | Persistent environment memory: versioned baselines, "what changed since the last assessment", operator notes, reproducible history | Shipped |
 | Bounded investigation missions with an independent policy engine and operator approval | Next |
+| Operator agent: plain-language, receive-only scans with automatic gain and verifiable run reports ([agent](docs/agent.md)) | Shipped |
 | Multi-site fleet: distributed collectors with per-site baselines | Planned |
 
 Full plans: [`docs/product_strategy.md`](docs/product_strategy.md), [`docs/architecture.md`](docs/architecture.md), [`docs/milestones.md`](docs/milestones.md).
