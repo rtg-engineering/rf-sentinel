@@ -205,7 +205,6 @@ More from RTG Spectrum:
 | Analyst: read-only, evidence-backed investigation with dashboard drill-down | Shipped |
 | Persistent environment memory: versioned baselines, "what changed since the last assessment", operator notes, reproducible history | Shipped |
 | Bounded investigation missions with an independent policy engine and operator approval | Shipped, with simulated execution ([missions](docs/missions.md)) |
-| Operator agent: plain-language, receive-only scans with automatic gain and verifiable run reports ([agent](docs/agent.md)) | Shipped |
 | Real (non-simulated) execution of approved passive collection | Next, after review |
 | Multi-site fleet: distributed collectors with per-site baselines | Planned |
 
