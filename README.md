@@ -43,6 +43,7 @@ RF Sentinel listens across Bluetooth, WiFi, Zigbee/802.15.4, TPMS and other sub-
 | **Track** | Entity resolution and identity tracking: Bluetooth Classic LAP/UAP, BLE metadata and manufacturers, WiFi AP/station topology, recurring TPMS IDs. |
 | **Understand** | Pattern-of-life: weekly and weekend recurrence, normal baselines, anomaly triage, strong-signal proximity review. |
 | **Investigate** | The read-only Analyst finds new and missing devices, relationship and signal changes, and silent sensors. Each finding has cited evidence, ranked explanations, and proposed next steps. |
+| **Monitor** | Bounded missions: scheduled read-only assessments, follow-ups ranked by expected information gain, and an independent policy engine. Anything beyond read-only needs a named operator's approval bound to the exact proposal. Execution is currently simulated. |
 | **Remember** | Append-only environment memory: versioned baselines, "what changed since the last assessment", operator notes that never rewrite evidence, and assessments that can be re-verified later. |
 | **Prove** | Validation harness, published result card, verifiable evidence bundles, and recorded walkthroughs of the shipped dashboard. |
 | **Operate** | Ask in plain language ("find bluetooth devices"). The agent picks a receiver, measures clipping and corrects gain automatically, runs the decoder, and writes a verifiable run report, from the dashboard or the CLI. Receive-only. |
@@ -185,7 +186,7 @@ Scope and pricing follow a short discovery call. **[What the pilot includes →]
 - **Licensing.** A commercial license for deployment in your environment or product.
 - **Integration.** Connect your SDRs, sensors, or existing event sources to the normalized pipeline, dashboards, and Analyst.
 - **Custom protocols and features.** New receiver plugins, reports, and deployment packaging for your mission.
-- **Roadmap partnership.** Help shape bounded investigation missions with operator approval, and multi-site fleet monitoring. These are on the roadmap and not yet shipped.
+- **Roadmap partnership.** Help shape real execution of approved collection actions, and multi-site fleet monitoring. These are on the roadmap and not yet shipped.
 
 **[Contact RTG to discuss your RF environment →](https://rtgspectrum.com/contact/)**
 
@@ -203,8 +204,9 @@ More from RTG Spectrum:
 | Measured validation harness and published evidence | Shipped |
 | Analyst: read-only, evidence-backed investigation with dashboard drill-down | Shipped |
 | Persistent environment memory: versioned baselines, "what changed since the last assessment", operator notes, reproducible history | Shipped |
-| Bounded investigation missions with an independent policy engine and operator approval | Next |
+| Bounded investigation missions with an independent policy engine and operator approval | Shipped, with simulated execution ([missions](docs/missions.md)) |
 | Operator agent: plain-language, receive-only scans with automatic gain and verifiable run reports ([agent](docs/agent.md)) | Shipped |
+| Real (non-simulated) execution of approved passive collection | Next, after review |
 | Multi-site fleet: distributed collectors with per-site baselines | Planned |
 
 Full plans: [`docs/product_strategy.md`](docs/product_strategy.md), [`docs/architecture.md`](docs/architecture.md), [`docs/milestones.md`](docs/milestones.md).
