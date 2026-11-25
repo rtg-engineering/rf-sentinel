@@ -22,6 +22,7 @@ rf_sentinel_pipeline = "rf_platform.pipeline:main"
 rf-sentinel-ui = "rf_platform.ui:main"
 rf_sentinel_ui = "rf_platform.ui:main"
 rf-sentinel-analyst = "rf_platform.analyst.__main__:main"
+rf-sentinel-soapy-gateway = "rf_platform.soapy_gateway.server:main"
 
 [tool.setuptools.packages.find]
 include = ["rf_platform*"]

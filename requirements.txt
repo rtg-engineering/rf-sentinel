@@ -2,3 +2,4 @@ flask
 numpy
 requests
 websocket-client
+flask-sock
