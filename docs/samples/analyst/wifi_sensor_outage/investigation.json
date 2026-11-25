@@ -1,0 +1,680 @@
+{
+  "computed_results": {
+    "computed:1485271443cb": {
+      "args": {
+        "current_snapshot_id": "snapshot:current:39f6171e2596",
+        "reference_snapshot_id": "snapshot:baseline:f166f9625798"
+      },
+      "current_snapshot_id": "snapshot:current:39f6171e2596",
+      "entities_without_sensor": [],
+      "evidence_refs": [
+        "snapshot:baseline:f166f9625798",
+        "snapshot:current:39f6171e2596",
+        "sensor:demo-bladerf:0@snapshot:current:39f6171e2596",
+        "sensor:demo-hackrf:0@snapshot:current:39f6171e2596",
+        "sensor:demo-rtlsdr:0@snapshot:current:39f6171e2596",
+        "sensor:demo-sdrplay:0@snapshot:current:39f6171e2596",
+        "sensor:wlan-demo0@snapshot:current:39f6171e2596"
+      ],
+      "method": "Expected new detections = sensor's share of reference detections x all new detections. Sensor coverage is inferred from scanner assignments, not per-detection attribution.",
+      "new_detections_between_snapshots": 36,
+      "producing_sensor_count": 4,
+      "reference_snapshot_id": "snapshot:baseline:f166f9625798",
+      "sensors": {
+        "demo-bladerf:0": {
+          "device_id": "demo-bladerf:0",
+          "entity_count": 5,
+          "expected_new_detections": 8.57,
+          "new_detections": 15,
+          "protocols": [
+            "ble",
+            "btc"
+          ],
+          "ref": "sensor:demo-bladerf:0@snapshot:current:39f6171e2596",
+          "reference_detections": 10,
+          "status": "producing"
+        },
+        "demo-hackrf:0": {
+          "device_id": "demo-hackrf:0",
+          "entity_count": 5,
+          "expected_new_detections": 8.57,
+          "new_detections": 15,
+          "protocols": [
+            "cellular",
+            "tpms",
+            "walkie",
+            "zigbee"
+          ],
+          "ref": "sensor:demo-hackrf:0@snapshot:current:39f6171e2596",
+          "reference_detections": 10,
+          "status": "producing"
+        },
+        "demo-rtlsdr:0": {
+          "device_id": "demo-rtlsdr:0",
+          "entity_count": 1,
+          "expected_new_detections": 1.71,
+          "new_detections": 3,
+          "protocols": [
+            "fm"
+          ],
+          "ref": "sensor:demo-rtlsdr:0@snapshot:current:39f6171e2596",
+          "reference_detections": 2,
+          "status": "producing"
+        },
+        "demo-sdrplay:0": {
+          "device_id": "demo-sdrplay:0",
+          "entity_count": 1,
+          "expected_new_detections": 1.71,
+          "new_detections": 3,
+          "protocols": [
+            "lfmf"
+          ],
+          "ref": "sensor:demo-sdrplay:0@snapshot:current:39f6171e2596",
+          "reference_detections": 2,
+          "status": "producing"
+        },
+        "wlan-demo0": {
+          "device_id": "wlan-demo0",
+          "entity_count": 9,
+          "expected_new_detections": 15.43,
+          "new_detections": 0,
+          "protocols": [
+            "wifi"
+          ],
+          "ref": "sensor:wlan-demo0@snapshot:current:39f6171e2596",
+          "reference_detections": 18,
+          "status": "silent_unexpectedly"
+        }
+      },
+      "tool": "get_sensor_health"
+    },
+    "computed:48631e92e3c0": {
+      "args": {
+        "snapshot_id": "snapshot:current:39f6171e2596"
+      },
+      "collection": {
+        "captured_at": "2026-11-22T12:05:00+00:00",
+        "detections_cap": 120,
+        "detections_may_be_truncated": false,
+        "detections_returned": 78,
+        "entity_count": 21,
+        "events_accepted": 78,
+        "events_dropped": 0,
+        "events_rejected": 0,
+        "label": "current",
+        "replay_complete": false,
+        "running": false,
+        "snapshot_id": "snapshot:current:39f6171e2596",
+        "worker_alive": false
+      },
+      "data_quality_notes": [],
+      "entities_by_protocol": {
+        "BTC": 2,
+        "BTLE": 3,
+        "CELLULAR": 1,
+        "FM": 1,
+        "LFMF": 1,
+        "TPMS": 1,
+        "WALKIE": 1,
+        "WIFI": 9,
+        "ZIGBEE": 2
+      },
+      "entity_count": 21,
+      "evidence_refs": [
+        "snapshot:current:39f6171e2596",
+        "sensor:demo-bladerf:0@snapshot:current:39f6171e2596",
+        "sensor:demo-hackrf:0@snapshot:current:39f6171e2596",
+        "sensor:demo-rtlsdr:0@snapshot:current:39f6171e2596",
+        "sensor:demo-sdrplay:0@snapshot:current:39f6171e2596",
+        "sensor:wlan-demo0@snapshot:current:39f6171e2596"
+      ],
+      "sensors": {
+        "demo-bladerf:0": {
+          "band": "BTC+BTLE shared 2.4 GHz ISM public demo",
+          "mode": "demo",
+          "protocol": "BTC",
+          "ref": "sensor:demo-bladerf:0@snapshot:current:39f6171e2596"
+        },
+        "demo-hackrf:0": {
+          "band": "Zigbee, sub-GHz, walkie, and cellular public demo sweep",
+          "mode": "demo",
+          "protocol": "ZIGBEE",
+          "ref": "sensor:demo-hackrf:0@snapshot:current:39f6171e2596"
+        },
+        "demo-rtlsdr:0": {
+          "band": "Broadcast FM public demo sweep",
+          "mode": "demo",
+          "protocol": "fm",
+          "ref": "sensor:demo-rtlsdr:0@snapshot:current:39f6171e2596"
+        },
+        "demo-sdrplay:0": {
+          "band": "VLF/LF/MF public demo awareness",
+          "mode": "demo",
+          "protocol": "lfmf",
+          "ref": "sensor:demo-sdrplay:0@snapshot:current:39f6171e2596"
+        },
+        "wlan-demo0": {
+          "band": "WiFi monitor channels 1, 6, and 11",
+          "mode": "demo",
+          "protocol": "wifi",
+          "ref": "sensor:wlan-demo0@snapshot:current:39f6171e2596"
+        }
+      },
+      "snapshot_id": "snapshot:current:39f6171e2596",
+      "tool": "get_environment_summary",
+      "wifi_ap_count": 3,
+      "wifi_station_count": 6
+    },
+    "computed:89035c9f5314": {
+      "args": {
+        "snapshot_id": "snapshot:baseline:f166f9625798"
+      },
+      "collection": {
+        "captured_at": "2026-11-22T12:00:00+00:00",
+        "detections_cap": 120,
+        "detections_may_be_truncated": false,
+        "detections_returned": 42,
+        "entity_count": 21,
+        "events_accepted": 42,
+        "events_dropped": 0,
+        "events_rejected": 0,
+        "label": "baseline",
+        "replay_complete": false,
+        "running": false,
+        "snapshot_id": "snapshot:baseline:f166f9625798",
+        "worker_alive": false
+      },
+      "data_quality_notes": [],
+      "entities_by_protocol": {
+        "BTC": 2,
+        "BTLE": 3,
+        "CELLULAR": 1,
+        "FM": 1,
+        "LFMF": 1,
+        "TPMS": 1,
+        "WALKIE": 1,
+        "WIFI": 9,
+        "ZIGBEE": 2
+      },
+      "entity_count": 21,
+      "evidence_refs": [
+        "snapshot:baseline:f166f9625798",
+        "sensor:demo-bladerf:0@snapshot:baseline:f166f9625798",
+        "sensor:demo-hackrf:0@snapshot:baseline:f166f9625798",
+        "sensor:demo-rtlsdr:0@snapshot:baseline:f166f9625798",
+        "sensor:demo-sdrplay:0@snapshot:baseline:f166f9625798",
+        "sensor:wlan-demo0@snapshot:baseline:f166f9625798"
+      ],
+      "sensors": {
+        "demo-bladerf:0": {
+          "band": "BTC+BTLE shared 2.4 GHz ISM public demo",
+          "mode": "demo",
+          "protocol": "BTC",
+          "ref": "sensor:demo-bladerf:0@snapshot:baseline:f166f9625798"
+        },
+        "demo-hackrf:0": {
+          "band": "Zigbee, sub-GHz, walkie, and cellular public demo sweep",
+          "mode": "demo",
+          "protocol": "ZIGBEE",
+          "ref": "sensor:demo-hackrf:0@snapshot:baseline:f166f9625798"
+        },
+        "demo-rtlsdr:0": {
+          "band": "Broadcast FM public demo sweep",
+          "mode": "demo",
+          "protocol": "fm",
+          "ref": "sensor:demo-rtlsdr:0@snapshot:baseline:f166f9625798"
+        },
+        "demo-sdrplay:0": {
+          "band": "VLF/LF/MF public demo awareness",
+          "mode": "demo",
+          "protocol": "lfmf",
+          "ref": "sensor:demo-sdrplay:0@snapshot:baseline:f166f9625798"
+        },
+        "wlan-demo0": {
+          "band": "WiFi monitor channels 1, 6, and 11",
+          "mode": "demo",
+          "protocol": "wifi",
+          "ref": "sensor:wlan-demo0@snapshot:baseline:f166f9625798"
+        }
+      },
+      "snapshot_id": "snapshot:baseline:f166f9625798",
+      "tool": "get_environment_summary",
+      "wifi_ap_count": 3,
+      "wifi_station_count": 6
+    },
+    "computed:cf2c1489e957": {
+      "absent_despite_expectation": [],
+      "absent_despite_expectation_count": 0,
+      "args": {
+        "current_snapshot_id": "snapshot:current:39f6171e2596",
+        "reference_snapshot_id": "snapshot:baseline:f166f9625798"
+      },
+      "current_snapshot_id": "snapshot:current:39f6171e2596",
+      "events_accepted_between_snapshots": 36,
+      "evidence_refs": [
+        "snapshot:baseline:f166f9625798",
+        "snapshot:current:39f6171e2596",
+        "sensor:wlan-demo0@snapshot:current:39f6171e2596"
+      ],
+      "new_detections_between_snapshots": 36,
+      "new_entities": [],
+      "new_entity_count": 0,
+      "not_reobserved_count": 9,
+      "not_reobserved_keys": [
+        "wifi:ap:02:10:7A:00:10:01:FieldLab-AP-01",
+        "wifi:ap:02:10:7A:00:20:06:DemoMesh-2G",
+        "wifi:ap:02:10:7A:00:30:11:Telemetry-GW",
+        "wifi:station:72:94:11:3B:0C:90:",
+        "wifi:station:8A:D3:5B:21:44:10:",
+        "wifi:station:8A:D3:5B:21:44:11:",
+        "wifi:station:8A:D3:5B:21:44:12:",
+        "wifi:station:8A:D3:5B:21:44:13:",
+        "wifi:station:8A:D3:5B:21:44:14:"
+      ],
+      "reference_snapshot_id": "snapshot:baseline:f166f9625798",
+      "relationship_change_count": 0,
+      "relationship_changes": [],
+      "reobserved_count": 12,
+      "reobserved_entities": [
+        {
+          "detection_delta": 3,
+          "key": "ble:D0:EF:42:10:AA:01",
+          "ref": "entity:ble:D0:EF:42:10:AA:01@snapshot:current:39f6171e2596"
+        },
+        {
+          "detection_delta": 3,
+          "key": "ble:E1:04:22:6A:B0:14",
+          "ref": "entity:ble:E1:04:22:6A:B0:14@snapshot:current:39f6171e2596"
+        },
+        {
+          "detection_delta": 3,
+          "key": "ble:F2:A8:6C:03:09:51",
+          "ref": "entity:ble:F2:A8:6C:03:09:51@snapshot:current:39f6171e2596"
+        },
+        {
+          "detection_delta": 3,
+          "key": "btc:A1C3E5",
+          "ref": "entity:btc:A1C3E5@snapshot:current:39f6171e2596"
+        },
+        {
+          "detection_delta": 3,
+          "key": "btc:C4D9B2",
+          "ref": "entity:btc:C4D9B2@snapshot:current:39f6171e2596"
+        },
+        {
+          "detection_delta": 3,
+          "key": "cellular:751000000:downlink",
+          "ref": "entity:cellular:751000000:downlink@snapshot:current:39f6171e2596"
+        },
+        {
+          "detection_delta": 3,
+          "key": "fm:101700000",
+          "ref": "entity:fm:101700000@snapshot:current:39f6171e2596"
+        },
+        {
+          "detection_delta": 3,
+          "key": "lfmf:530000",
+          "ref": "entity:lfmf:530000@snapshot:current:39f6171e2596"
+        },
+        {
+          "detection_delta": 3,
+          "key": "tpms:DTPMS-02",
+          "ref": "entity:tpms:DTPMS-02@snapshot:current:39f6171e2596"
+        },
+        {
+          "detection_delta": 3,
+          "key": "walkie:462562500",
+          "ref": "entity:walkie:462562500@snapshot:current:39f6171e2596"
+        },
+        {
+          "detection_delta": 3,
+          "key": "zigbee:0x3021:0x11AA:20",
+          "ref": "entity:zigbee:0x3021:0x11AA:20@snapshot:current:39f6171e2596"
+        },
+        {
+          "detection_delta": 3,
+          "key": "zigbee:0x7C4A:0xBEEF:15",
+          "ref": "entity:zigbee:0x7C4A:0xBEEF:15@snapshot:current:39f6171e2596"
+        }
+      ],
+      "signal_change_count": 0,
+      "signal_changes": [],
+      "silent_sensor_count": 1,
+      "silent_sensors": [
+        {
+          "device_id": "wlan-demo0",
+          "expected_new_detections": 15.43,
+          "ref": "sensor:wlan-demo0@snapshot:current:39f6171e2596"
+        }
+      ],
+      "thresholds": {
+        "expected_detections_for_absence": 2.0,
+        "expected_detections_for_sensor_silence": 3.0,
+        "signal_change_db": 15.0,
+        "strong_hysteresis_db": 6.0,
+        "strong_signal_dbfs": -42.0
+      },
+      "tool": "compare_baselines"
+    }
+  },
+  "created_at": "2026-11-25T15:27:55.231747+00:00",
+  "evidence": {
+    "provenance": "synthetic_replay",
+    "snapshots": [
+      {
+        "captured_at": "2026-11-22T12:00:00+00:00",
+        "detections_cap": 120,
+        "detections_may_be_truncated": false,
+        "detections_returned": 42,
+        "entity_count": 21,
+        "events_accepted": 42,
+        "events_dropped": 0,
+        "events_rejected": 0,
+        "label": "baseline",
+        "replay_complete": false,
+        "running": false,
+        "snapshot_id": "snapshot:baseline:f166f9625798",
+        "worker_alive": false
+      },
+      {
+        "captured_at": "2026-11-22T12:05:00+00:00",
+        "detections_cap": 120,
+        "detections_may_be_truncated": false,
+        "detections_returned": 78,
+        "entity_count": 21,
+        "events_accepted": 78,
+        "events_dropped": 0,
+        "events_rejected": 0,
+        "label": "current",
+        "replay_complete": false,
+        "running": false,
+        "snapshot_id": "snapshot:current:39f6171e2596",
+        "worker_alive": false
+      }
+    ]
+  },
+  "executed_actions": [],
+  "findings": [
+    {
+      "assessment": "9 entities on this sensor were not re-observed while other sensors kept producing. Treat these devices as unobserved, not departed, until the sensor is verified.",
+      "category": "sensor_gap",
+      "computed_results": [
+        {
+          "field": "sensors.wlan-demo0.status",
+          "ref": "computed:1485271443cb",
+          "statement": "Sensor status (sensor health)",
+          "value": "silent_unexpectedly"
+        },
+        {
+          "field": "sensors.wlan-demo0.new_detections",
+          "ref": "computed:1485271443cb",
+          "statement": "New detections from this sensor's protocols",
+          "value": 0
+        },
+        {
+          "field": "sensors.wlan-demo0.expected_new_detections",
+          "ref": "computed:1485271443cb",
+          "statement": "New detections expected from its reference share",
+          "value": 15.43
+        },
+        {
+          "field": "sensors.wlan-demo0.entity_count",
+          "ref": "computed:1485271443cb",
+          "statement": "Entities covered by this sensor",
+          "value": 9
+        },
+        {
+          "field": "producing_sensor_count",
+          "ref": "computed:1485271443cb",
+          "statement": "Other sensors still producing",
+          "value": 4
+        }
+      ],
+      "confidence": "high",
+      "finding_id": "F-sensor-1",
+      "grounded": true,
+      "hypotheses": [
+        {
+          "hypothesis_id": "h1",
+          "kind": "sensor_or_collection",
+          "rank": 1,
+          "statement": "The receiver, its assignment, or its ingestion path stopped producing observations.",
+          "status": "supported",
+          "supporting_refs": [
+            "computed:1485271443cb"
+          ],
+          "weakening_refs": []
+        },
+        {
+          "hypothesis_id": "h3",
+          "kind": "environmental",
+          "rank": 2,
+          "statement": "Band-wide interference or an RF environment change affected this sensor's protocols.",
+          "status": "open",
+          "supporting_refs": [],
+          "weakening_refs": []
+        },
+        {
+          "hypothesis_id": "h2",
+          "kind": "needs_review",
+          "rank": 3,
+          "statement": "Every device covered by wlan-demo0 stopped transmitting at the same time.",
+          "status": "weakened",
+          "supporting_refs": [],
+          "weakening_refs": [
+            "computed:1485271443cb"
+          ]
+        }
+      ],
+      "observed_facts": [
+        {
+          "field": "device_id",
+          "ref": "sensor:wlan-demo0@snapshot:current:39f6171e2596",
+          "statement": "Sensor assignment present in the current snapshot",
+          "value": "wlan-demo0"
+        },
+        {
+          "field": "events_accepted",
+          "ref": "snapshot:current:39f6171e2596",
+          "statement": "Events accepted by the backend at the current snapshot",
+          "value": 78
+        }
+      ],
+      "title": "Sensor wlan-demo0 produced no new observations"
+    },
+    {
+      "assessment": "Entities expected at a meaningful rate, and silent sensors, are reported as separate findings. Absence is missing evidence, not proof of departure.",
+      "category": "not_reobserved",
+      "computed_results": [
+        {
+          "field": "not_reobserved_count",
+          "ref": "computed:cf2c1489e957",
+          "statement": "Entities with no new detections since the reference",
+          "value": 9
+        },
+        {
+          "field": "absent_despite_expectation_count",
+          "ref": "computed:cf2c1489e957",
+          "statement": "Of these, absent despite an expected detection rate",
+          "value": 0
+        },
+        {
+          "field": "silent_sensor_count",
+          "ref": "computed:cf2c1489e957",
+          "statement": "Sensors silent despite expected traffic",
+          "value": 1
+        }
+      ],
+      "confidence": "high",
+      "finding_id": "F-gap-2",
+      "grounded": true,
+      "hypotheses": [
+        {
+          "hypothesis_id": "h1",
+          "kind": "sensor_or_collection",
+          "rank": 1,
+          "statement": "The current window is too short to expect every recurring entity to transmit again.",
+          "status": "open",
+          "supporting_refs": [],
+          "weakening_refs": []
+        },
+        {
+          "hypothesis_id": "h2",
+          "kind": "needs_review",
+          "rank": 2,
+          "statement": "Some entities stopped transmitting or left the area.",
+          "status": "open",
+          "supporting_refs": [],
+          "weakening_refs": []
+        }
+      ],
+      "observed_facts": [
+        {
+          "field": "events_accepted",
+          "ref": "snapshot:current:39f6171e2596",
+          "statement": "Events accepted by the backend at the current snapshot",
+          "value": 78
+        },
+        {
+          "field": "events_accepted",
+          "ref": "snapshot:baseline:f166f9625798",
+          "statement": "Events accepted by the backend at the reference snapshot",
+          "value": 42
+        }
+      ],
+      "title": "9 reference entities were not re-observed in the current window"
+    },
+    {
+      "assessment": "All returned detections are within the API cap. Rejections and drops are as reported by the backend's own accounting.",
+      "category": "collection_quality",
+      "computed_results": [
+        {
+          "field": "entity_count",
+          "ref": "computed:48631e92e3c0",
+          "statement": "Entities in the current snapshot (environment summary)",
+          "value": 21
+        }
+      ],
+      "confidence": "high",
+      "finding_id": "F-col-3",
+      "grounded": true,
+      "hypotheses": [],
+      "observed_facts": [
+        {
+          "field": "events_rejected",
+          "ref": "snapshot:current:39f6171e2596",
+          "statement": "Events rejected by normalization",
+          "value": 0
+        },
+        {
+          "field": "events_dropped",
+          "ref": "snapshot:current:39f6171e2596",
+          "statement": "Events dropped",
+          "value": 0
+        },
+        {
+          "field": "detections_returned",
+          "ref": "snapshot:current:39f6171e2596",
+          "statement": "Detections returned by the status API",
+          "value": 78
+        }
+      ],
+      "title": "Collection health at the current snapshot"
+    }
+  ],
+  "grounding": {
+    "citations_checked": 18,
+    "findings": {
+      "F-col-3": true,
+      "F-gap-2": true,
+      "F-sensor-1": true
+    },
+    "issues": [],
+    "passed": true,
+    "schema_errors": [],
+    "warnings": []
+  },
+  "investigation_id": "INV-4118662240ca",
+  "limitations": [
+    "Evidence comes from synthetic demo replay. It does not demonstrate live decoder accuracy, receiver sensitivity, or performance in an uncontrolled environment.",
+    "Assessment is built from captured /api/status snapshots. Observations beyond the backend's returned detection window are not citable.",
+    "RF observations identify emitters and associations, not people or intent. No finding is evidence of hostile activity.",
+    "Not being re-observed between two snapshots is missing evidence, not proof that a transmitter is gone."
+  ],
+  "provider": {
+    "model": null,
+    "name": "deterministic"
+  },
+  "recommendations": [
+    {
+      "action": "Capture another snapshot after a window that covers each recurring entity's normal cadence, then rerun compare_baselines.",
+      "executed": false,
+      "permission": "read_only",
+      "rationale": "Separates true departures from short-window non-observation.",
+      "recommendation_id": "R1",
+      "tool": "compare_baselines"
+    },
+    {
+      "action": "Check wlan-demo0 process, assignment, and ingestion logs, then capture a new snapshot.",
+      "executed": false,
+      "permission": "read_only",
+      "rationale": "Confirms or rules out a collection fault before any device absence is assessed.",
+      "recommendation_id": "R2",
+      "tool": "get_sensor_health"
+    }
+  ],
+  "schema_version": "1.0",
+  "scope": {
+    "current_snapshot_id": "snapshot:current:39f6171e2596",
+    "question": "What changed in this monitored environment since the baseline, and what evidence supports it?",
+    "reference_snapshot_id": "snapshot:baseline:f166f9625798"
+  },
+  "tool_audit": [
+    {
+      "arguments": {
+        "snapshot_id": "snapshot:baseline:f166f9625798"
+      },
+      "duration_ms": 0.144,
+      "evidence_ref_count": 6,
+      "result_id": "computed:89035c9f5314",
+      "sequence": 1,
+      "status": "ok",
+      "tool": "get_environment_summary"
+    },
+    {
+      "arguments": {
+        "snapshot_id": "snapshot:current:39f6171e2596"
+      },
+      "duration_ms": 0.108,
+      "evidence_ref_count": 6,
+      "result_id": "computed:48631e92e3c0",
+      "sequence": 2,
+      "status": "ok",
+      "tool": "get_environment_summary"
+    },
+    {
+      "arguments": {
+        "current_snapshot_id": "snapshot:current:39f6171e2596",
+        "reference_snapshot_id": "snapshot:baseline:f166f9625798"
+      },
+      "duration_ms": 1.168,
+      "evidence_ref_count": 3,
+      "result_id": "computed:cf2c1489e957",
+      "sequence": 3,
+      "status": "ok",
+      "tool": "compare_baselines"
+    },
+    {
+      "arguments": {
+        "current_snapshot_id": "snapshot:current:39f6171e2596",
+        "reference_snapshot_id": "snapshot:baseline:f166f9625798"
+      },
+      "duration_ms": 0.21,
+      "evidence_ref_count": 7,
+      "result_id": "computed:1485271443cb",
+      "sequence": 4,
+      "status": "ok",
+      "tool": "get_sensor_health"
+    }
+  ]
+}

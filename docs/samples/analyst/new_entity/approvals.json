@@ -1,0 +1,14 @@
+{
+  "executed_actions": [],
+  "granted": [],
+  "requested": [
+    {
+      "action": "Request operator approval for a bounded passive capture to corroborate the signal on ble:02:00:00:00:99:01.",
+      "executed": false,
+      "permission": "requires_approval",
+      "rationale": "Strong-signal findings rest on few observations; more passive samples would confirm or weaken the proximity hypothesis.",
+      "recommendation_id": "R2",
+      "tool": "start_passive_capture"
+    }
+  ]
+}

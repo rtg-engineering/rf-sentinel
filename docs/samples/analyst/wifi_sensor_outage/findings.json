@@ -1,0 +1,188 @@
+[
+  {
+    "assessment": "9 entities on this sensor were not re-observed while other sensors kept producing. Treat these devices as unobserved, not departed, until the sensor is verified.",
+    "category": "sensor_gap",
+    "computed_results": [
+      {
+        "field": "sensors.wlan-demo0.status",
+        "ref": "computed:1485271443cb",
+        "statement": "Sensor status (sensor health)",
+        "value": "silent_unexpectedly"
+      },
+      {
+        "field": "sensors.wlan-demo0.new_detections",
+        "ref": "computed:1485271443cb",
+        "statement": "New detections from this sensor's protocols",
+        "value": 0
+      },
+      {
+        "field": "sensors.wlan-demo0.expected_new_detections",
+        "ref": "computed:1485271443cb",
+        "statement": "New detections expected from its reference share",
+        "value": 15.43
+      },
+      {
+        "field": "sensors.wlan-demo0.entity_count",
+        "ref": "computed:1485271443cb",
+        "statement": "Entities covered by this sensor",
+        "value": 9
+      },
+      {
+        "field": "producing_sensor_count",
+        "ref": "computed:1485271443cb",
+        "statement": "Other sensors still producing",
+        "value": 4
+      }
+    ],
+    "confidence": "high",
+    "finding_id": "F-sensor-1",
+    "grounded": true,
+    "hypotheses": [
+      {
+        "hypothesis_id": "h1",
+        "kind": "sensor_or_collection",
+        "rank": 1,
+        "statement": "The receiver, its assignment, or its ingestion path stopped producing observations.",
+        "status": "supported",
+        "supporting_refs": [
+          "computed:1485271443cb"
+        ],
+        "weakening_refs": []
+      },
+      {
+        "hypothesis_id": "h3",
+        "kind": "environmental",
+        "rank": 2,
+        "statement": "Band-wide interference or an RF environment change affected this sensor's protocols.",
+        "status": "open",
+        "supporting_refs": [],
+        "weakening_refs": []
+      },
+      {
+        "hypothesis_id": "h2",
+        "kind": "needs_review",
+        "rank": 3,
+        "statement": "Every device covered by wlan-demo0 stopped transmitting at the same time.",
+        "status": "weakened",
+        "supporting_refs": [],
+        "weakening_refs": [
+          "computed:1485271443cb"
+        ]
+      }
+    ],
+    "observed_facts": [
+      {
+        "field": "device_id",
+        "ref": "sensor:wlan-demo0@snapshot:current:39f6171e2596",
+        "statement": "Sensor assignment present in the current snapshot",
+        "value": "wlan-demo0"
+      },
+      {
+        "field": "events_accepted",
+        "ref": "snapshot:current:39f6171e2596",
+        "statement": "Events accepted by the backend at the current snapshot",
+        "value": 78
+      }
+    ],
+    "title": "Sensor wlan-demo0 produced no new observations"
+  },
+  {
+    "assessment": "Entities expected at a meaningful rate, and silent sensors, are reported as separate findings. Absence is missing evidence, not proof of departure.",
+    "category": "not_reobserved",
+    "computed_results": [
+      {
+        "field": "not_reobserved_count",
+        "ref": "computed:cf2c1489e957",
+        "statement": "Entities with no new detections since the reference",
+        "value": 9
+      },
+      {
+        "field": "absent_despite_expectation_count",
+        "ref": "computed:cf2c1489e957",
+        "statement": "Of these, absent despite an expected detection rate",
+        "value": 0
+      },
+      {
+        "field": "silent_sensor_count",
+        "ref": "computed:cf2c1489e957",
+        "statement": "Sensors silent despite expected traffic",
+        "value": 1
+      }
+    ],
+    "confidence": "high",
+    "finding_id": "F-gap-2",
+    "grounded": true,
+    "hypotheses": [
+      {
+        "hypothesis_id": "h1",
+        "kind": "sensor_or_collection",
+        "rank": 1,
+        "statement": "The current window is too short to expect every recurring entity to transmit again.",
+        "status": "open",
+        "supporting_refs": [],
+        "weakening_refs": []
+      },
+      {
+        "hypothesis_id": "h2",
+        "kind": "needs_review",
+        "rank": 2,
+        "statement": "Some entities stopped transmitting or left the area.",
+        "status": "open",
+        "supporting_refs": [],
+        "weakening_refs": []
+      }
+    ],
+    "observed_facts": [
+      {
+        "field": "events_accepted",
+        "ref": "snapshot:current:39f6171e2596",
+        "statement": "Events accepted by the backend at the current snapshot",
+        "value": 78
+      },
+      {
+        "field": "events_accepted",
+        "ref": "snapshot:baseline:f166f9625798",
+        "statement": "Events accepted by the backend at the reference snapshot",
+        "value": 42
+      }
+    ],
+    "title": "9 reference entities were not re-observed in the current window"
+  },
+  {
+    "assessment": "All returned detections are within the API cap. Rejections and drops are as reported by the backend's own accounting.",
+    "category": "collection_quality",
+    "computed_results": [
+      {
+        "field": "entity_count",
+        "ref": "computed:48631e92e3c0",
+        "statement": "Entities in the current snapshot (environment summary)",
+        "value": 21
+      }
+    ],
+    "confidence": "high",
+    "finding_id": "F-col-3",
+    "grounded": true,
+    "hypotheses": [],
+    "observed_facts": [
+      {
+        "field": "events_rejected",
+        "ref": "snapshot:current:39f6171e2596",
+        "statement": "Events rejected by normalization",
+        "value": 0
+      },
+      {
+        "field": "events_dropped",
+        "ref": "snapshot:current:39f6171e2596",
+        "statement": "Events dropped",
+        "value": 0
+      },
+      {
+        "field": "detections_returned",
+        "ref": "snapshot:current:39f6171e2596",
+        "statement": "Detections returned by the status API",
+        "value": 78
+      }
+    ],
+    "title": "Collection health at the current snapshot"
+  }
+]

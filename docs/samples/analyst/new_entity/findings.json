@@ -1,0 +1,328 @@
+[
+  {
+    "assessment": "New relative to the reference snapshot. Origin is not established from one window of evidence.",
+    "category": "new_entity",
+    "computed_results": [
+      {
+        "field": "new_entities.0.key",
+        "ref": "computed:85a29c9c97cd",
+        "statement": "Not present in the reference snapshot (baseline comparison)",
+        "value": "ble:02:00:00:00:99:01"
+      }
+    ],
+    "confidence": "medium",
+    "finding_id": "F-new-1",
+    "grounded": true,
+    "hypotheses": [
+      {
+        "hypothesis_id": "h1",
+        "kind": "benign",
+        "rank": 1,
+        "statement": "A device that was not transmitting during the reference window began transmitting.",
+        "status": "open",
+        "supporting_refs": [
+          "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d"
+        ],
+        "weakening_refs": []
+      },
+      {
+        "hypothesis_id": "h3",
+        "kind": "configuration_change",
+        "rank": 2,
+        "statement": "A known device rotated to a new random BLE address; the new identifier may not be a new device.",
+        "status": "open",
+        "supporting_refs": [
+          "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d"
+        ],
+        "weakening_refs": []
+      },
+      {
+        "hypothesis_id": "h2",
+        "kind": "sensor_or_collection",
+        "rank": 3,
+        "statement": "The device was present before but was not received during the reference window (coverage or collection gap).",
+        "status": "open",
+        "supporting_refs": [],
+        "weakening_refs": [
+          "snapshot:baseline:05fca49b4b38"
+        ]
+      }
+    ],
+    "observed_facts": [
+      {
+        "field": "key",
+        "ref": "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d",
+        "statement": "Validation New Beacon is present in the current snapshot",
+        "value": "ble:02:00:00:00:99:01"
+      },
+      {
+        "field": "detections",
+        "ref": "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d",
+        "statement": "Detections recorded for this entity",
+        "value": 2
+      }
+    ],
+    "title": "New BTLE entity: Validation New Beacon"
+  },
+  {
+    "assessment": "The inferred association changed between snapshots. Passive inference shows which BSSID the station exchanged frames with, not why.",
+    "category": "relationship_change",
+    "computed_results": [
+      {
+        "field": "relationship_changes.0.from_bssid",
+        "ref": "computed:85a29c9c97cd",
+        "statement": "Baseline comparison: previous BSSID",
+        "value": "02:10:7A:00:30:11"
+      },
+      {
+        "field": "relationship_changes.0.to_bssid",
+        "ref": "computed:85a29c9c97cd",
+        "statement": "Baseline comparison: new BSSID",
+        "value": "02:10:7A:00:10:01"
+      }
+    ],
+    "confidence": "medium",
+    "finding_id": "F-rel-2",
+    "grounded": true,
+    "hypotheses": [
+      {
+        "hypothesis_id": "h1",
+        "kind": "benign",
+        "rank": 1,
+        "statement": "Normal roaming or re-association to a different access point.",
+        "status": "open",
+        "supporting_refs": [
+          "entity:wifi:station:72:94:11:3B:0C:90:@snapshot:current:ad5aecc5d02d"
+        ],
+        "weakening_refs": []
+      },
+      {
+        "hypothesis_id": "h2",
+        "kind": "configuration_change",
+        "rank": 2,
+        "statement": "Network reconfiguration moved the station.",
+        "status": "open",
+        "supporting_refs": [],
+        "weakening_refs": []
+      },
+      {
+        "hypothesis_id": "h3",
+        "kind": "sensor_or_collection",
+        "rank": 3,
+        "statement": "Passive frame-address inference misattributed the association.",
+        "status": "open",
+        "supporting_refs": [],
+        "weakening_refs": []
+      }
+    ],
+    "observed_facts": [
+      {
+        "field": "bssid",
+        "ref": "entity:wifi:station:72:94:11:3B:0C:90:@snapshot:baseline:05fca49b4b38",
+        "statement": "Associated BSSID in the reference snapshot",
+        "value": "02:10:7A:00:30:11"
+      },
+      {
+        "field": "bssid",
+        "ref": "entity:wifi:station:72:94:11:3B:0C:90:@snapshot:current:ad5aecc5d02d",
+        "statement": "Associated BSSID in the current snapshot",
+        "value": "02:10:7A:00:10:01"
+      },
+      {
+        "field": "ssid",
+        "ref": "entity:wifi:station:72:94:11:3B:0C:90:@snapshot:current:ad5aecc5d02d",
+        "statement": "Network name of the current association",
+        "value": "FieldLab-AP-01"
+      }
+    ],
+    "title": "WiFi station 72:94:11:3B:0C:90 changed access point"
+  },
+  {
+    "assessment": "Above the -42 dBFS proximity-review threshold. Based on very few observations; corroborate before acting.",
+    "category": "signal_change",
+    "computed_results": [
+      {
+        "field": "signal_changes.0.current_rssi_dbfs",
+        "ref": "computed:85a29c9c97cd",
+        "statement": "Baseline comparison: current RSSI (dBFS)",
+        "value": -25.0
+      },
+      {
+        "field": "thresholds.strong_signal_dbfs",
+        "ref": "computed:85a29c9c97cd",
+        "statement": "Proximity-review threshold (dBFS)",
+        "value": -42.0
+      },
+      {
+        "field": "signal_changes.0.observation_count",
+        "ref": "computed:85a29c9c97cd",
+        "statement": "Linked observations in the current snapshot",
+        "value": 2
+      },
+      {
+        "field": "signal_changes.0.observation_rssi_span_db",
+        "ref": "computed:85a29c9c97cd",
+        "statement": "RSSI span across linked observations (dB)",
+        "value": 40.0
+      }
+    ],
+    "confidence": "low",
+    "finding_id": "F-sig-3",
+    "grounded": true,
+    "hypotheses": [
+      {
+        "hypothesis_id": "h3",
+        "kind": "sensor_or_collection",
+        "rank": 1,
+        "statement": "A single strong reading is a measurement artifact.",
+        "status": "supported",
+        "supporting_refs": [
+          "computed:85a29c9c97cd"
+        ],
+        "weakening_refs": []
+      },
+      {
+        "hypothesis_id": "h1",
+        "kind": "environmental",
+        "rank": 2,
+        "statement": "The emitter is physically closer to the receiver than before.",
+        "status": "open",
+        "supporting_refs": [
+          "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d"
+        ],
+        "weakening_refs": []
+      },
+      {
+        "hypothesis_id": "h2",
+        "kind": "configuration_change",
+        "rank": 3,
+        "statement": "Transmit power or antenna orientation changed.",
+        "status": "open",
+        "supporting_refs": [],
+        "weakening_refs": []
+      }
+    ],
+    "observed_facts": [
+      {
+        "field": "last_rssi_dbfs",
+        "ref": "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d",
+        "statement": "Latest RSSI (dBFS) on the entity",
+        "value": -25
+      },
+      {
+        "field": "rssi_dbfs",
+        "ref": "event:validation-00000022",
+        "statement": "Observed RSSI (dBFS) in a linked detection",
+        "value": -65
+      },
+      {
+        "field": "rssi_dbfs",
+        "ref": "event:validation-00000024",
+        "statement": "Observed RSSI (dBFS) in a linked detection",
+        "value": -25
+      }
+    ],
+    "title": "Strong signal from Validation New Beacon"
+  },
+  {
+    "assessment": "No absent entity was expected at a meaningful rate in this window. Absence across one short window is not evidence of departure.",
+    "category": "not_reobserved",
+    "computed_results": [
+      {
+        "field": "not_reobserved_count",
+        "ref": "computed:85a29c9c97cd",
+        "statement": "Entities with no new detections since the reference",
+        "value": 19
+      },
+      {
+        "field": "absent_despite_expectation_count",
+        "ref": "computed:85a29c9c97cd",
+        "statement": "Of these, absent despite an expected detection rate",
+        "value": 0
+      },
+      {
+        "field": "silent_sensor_count",
+        "ref": "computed:85a29c9c97cd",
+        "statement": "Sensors silent despite expected traffic",
+        "value": 0
+      }
+    ],
+    "confidence": "high",
+    "finding_id": "F-gap-4",
+    "grounded": true,
+    "hypotheses": [
+      {
+        "hypothesis_id": "h1",
+        "kind": "sensor_or_collection",
+        "rank": 1,
+        "statement": "The current window is too short to expect every recurring entity to transmit again.",
+        "status": "supported",
+        "supporting_refs": [
+          "computed:85a29c9c97cd"
+        ],
+        "weakening_refs": []
+      },
+      {
+        "hypothesis_id": "h2",
+        "kind": "needs_review",
+        "rank": 2,
+        "statement": "Some entities stopped transmitting or left the area.",
+        "status": "open",
+        "supporting_refs": [],
+        "weakening_refs": []
+      }
+    ],
+    "observed_facts": [
+      {
+        "field": "events_accepted",
+        "ref": "snapshot:current:ad5aecc5d02d",
+        "statement": "Events accepted by the backend at the current snapshot",
+        "value": 25
+      },
+      {
+        "field": "events_accepted",
+        "ref": "snapshot:baseline:05fca49b4b38",
+        "statement": "Events accepted by the backend at the reference snapshot",
+        "value": 21
+      }
+    ],
+    "title": "19 reference entities were not re-observed in the current window"
+  },
+  {
+    "assessment": "All returned detections are within the API cap. Rejections and drops are as reported by the backend's own accounting.",
+    "category": "collection_quality",
+    "computed_results": [
+      {
+        "field": "entity_count",
+        "ref": "computed:291b5ced9341",
+        "statement": "Entities in the current snapshot (environment summary)",
+        "value": 22
+      }
+    ],
+    "confidence": "high",
+    "finding_id": "F-col-5",
+    "grounded": true,
+    "hypotheses": [],
+    "observed_facts": [
+      {
+        "field": "events_rejected",
+        "ref": "snapshot:current:ad5aecc5d02d",
+        "statement": "Events rejected by normalization",
+        "value": 0
+      },
+      {
+        "field": "events_dropped",
+        "ref": "snapshot:current:ad5aecc5d02d",
+        "statement": "Events dropped",
+        "value": 0
+      },
+      {
+        "field": "detections_returned",
+        "ref": "snapshot:current:ad5aecc5d02d",
+        "statement": "Detections returned by the status API",
+        "value": 25
+      }
+    ],
+    "title": "Collection health at the current snapshot"
+  }
+]

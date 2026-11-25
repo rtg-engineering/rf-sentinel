@@ -10,17 +10,17 @@
 
 RF Sentinel listens across Bluetooth, WiFi, Zigbee/802.15.4, TPMS and other sub-GHz activity, and wider SDR-observed bands. It turns raw signals into one picture of the devices in your environment, learns what normal looks like, and explains changes with evidence an engineer can check.
 
-**[Request a demo or evaluation license →](https://rtgspectrum.com/contact/)** · [Try it without hardware](#try-it-yourself) · [Product page](https://rtgspectrum.com/rf-sentinel/)
+**[Request a demo or evaluation license →](https://rtgspectrum.com/contact/)** · [Assessment pilot](docs/pilot.md) · [Evaluation guide](docs/evaluation.md) · [Try it without hardware](#try-it-yourself) · [Product page](https://rtgspectrum.com/rf-sentinel/)
 
 ![RF Sentinel Analyst: baseline, change, investigate, explain, evidence](docs/media/rf-sentinel-analyst-walkthrough.gif)
 
 <sub>Shipped dashboard on synthetic replay: set a baseline, new activity arrives, the Analyst explains what changed and links each finding to the detections behind it.</sub>
 
-**On this page:** [Why](#why-teams-use-rf-sentinel) · [Who it is for](#who-it-is-for) · [What you get](#what-you-get) · [How it works](#how-it-works) · [Proof](#proven-with-evidence) · [Tour](#product-tour) · [Try it](#try-it-yourself) · [Work with RTG](#working-with-rtg) · [Technical reference](#technical-reference)
+**On this page:** [Why](#why-teams-use-rf-sentinel) · [Who it is for](#who-it-is-for) · [What you get](#what-you-get) · [How it works](#how-it-works) · [Compare](#how-it-compares) · [Proof](#proven-with-evidence) · [Tour](#product-tour) · [Try it](#try-it-yourself) · [Work with RTG](#working-with-rtg) · [Technical reference](#technical-reference)
 
 ## Why teams use RF Sentinel
 
-- **See every wireless device in one place.** Bluetooth, WiFi, Zigbee, TPMS, sub-GHz, and more are combined into a single picture, instead of a separate tool per protocol.
+- **View supported wireless detections in one place.** Bluetooth, WiFi, Zigbee, TPMS, sub-GHz, and more are combined into a single picture, instead of a separate tool per protocol. [Protocol status](docs/evaluation.md#5-hardware-and-protocol-status) shows what is documented live and what is demonstrated in replay.
 - **Know what is normal.** RF Sentinel learns which devices recur and when, so the unusual stands out.
 - **Understand what changed, with proof.** The Analyst explains each change, cites the detections behind it, and weighs benign and sensor-fault explanations before suspicious ones.
 - **Trust the numbers.** Performance claims come from published, reproducible measurements.
@@ -64,6 +64,19 @@ flowchart LR
 5. **Investigate.** The Analyst compares the current state with a baseline using read-only tools, checks sensor health before calling anything missing, and re-checks every cited value in code. It proposes next steps and never executes them.
 6. **Report.** Results appear in the dashboard, with drill-down to the underlying detections, and as HTML/JSON reports and checksummed evidence bundles.
 
+## How it compares
+
+| | RF Sentinel | Kismet | Nzyme |
+|---|---|---|---|
+| Best for | Explaining what changed, with verifiable evidence | Broadest passive capture across radios | WiFi/Bluetooth/Ethernet threat detection |
+| Price | Commercial license; evaluations quoted | Free, open source | Free (SSPL) |
+| Baseline of known devices | ✓ | ✓ | ✓ |
+| Investigation report explaining each change | ✓ | Not stated | Not stated |
+| Every claim cites evidence, re-checked by code | ✓ | Not stated | Not stated |
+| Separates a failed sensor from departed devices | ✓ | Not stated | Not stated |
+
+Kismet supports far more hardware and is the better choice for broad capture. RF Sentinel's difference is evidence-backed investigation. Competitor facts come from their public pages, read 2026-11-25; "Not stated" means we found no such claim. See the [full comparison, method, and sources](docs/comparison.md).
+
 ## Proven, with evidence
 
 Every published number comes from a captured run. Nothing is entered by hand.
@@ -79,6 +92,25 @@ Every published number comes from a captured run. Nothing is entered by hand.
 ![RF Sentinel validation result card](docs/media/rf-sentinel-validation-card.png)
 
 Reproduce it with `./scripts/validate_demo.sh`. Verify the published bundle without Docker with `python3 scripts/verify_evidence_bundle.py <bundle>.tar.gz`; the bundle is attached to the [`validation-986956f` release](https://github.com/rtg-engineering/rf-sentinel/releases/tag/validation-986956f). The full result is in [JSON](docs/validation/latest-public-result.json), and the methodology and limits are in [`docs/validation.md`](docs/validation.md).
+
+### Analyst evaluation
+
+The Analyst is scored on held-out scenarios: a new device, an access-point outage, a receiver outage, and a quiet control where nothing changes. Ground truth is held separately from the evidence the Analyst sees.
+
+| Measured on commit `b534cbd` | Deterministic | LLM-assisted (`gpt-6-astra`) |
+|---|---|---|
+| Scenario runs passed | 4 / 4 | 12 / 12 (3 runs each) |
+| Expected changes found | 6 / 6 | 18 / 18 |
+| False findings on the quiet control and other scenarios | 0 | 0 |
+| Unsupported findings | 0 of 13 | 0 of 36 |
+| Citations re-checked by code | 74 | 361 |
+| Actions executed | 0 | 0 |
+| Same findings on every run | Yes | Yes |
+| Mean model tokens per investigation | n/a | ≈27k |
+
+On these scenarios the deterministic analyst detects everything the LLM does. It needs no model, and it is what the dashboard runs. The optional LLM path writes richer, more heavily cited explanations through the same read-only tools and checks. The scenario set is small, so these results show behavior on known cases, not a general accuracy rate. Reproduce them with `python3 scripts/analyst_scorecard.py`. The full result is in [JSON](docs/validation/analyst-scorecard.json).
+
+![RF Sentinel Analyst scorecard](docs/media/rf-sentinel-analyst-scorecard.png)
 
 These results measure the platform on synthetic replay. They do not measure live RF decoder accuracy, receiver sensitivity, or performance in an uncontrolled environment. Those are characterized per deployment.
 
@@ -114,9 +146,38 @@ docker compose -f docker-compose.demo.yml up --build
 
 Open `http://127.0.0.1:8080`. Use `RF_SENTINEL_DEMO_PORT=8081` if port 8080 is busy. You will see the detection table fill across protocol families, along with RF health metrics, WiFi AP/station topology, and 2.4 GHz activity. **Analytics** opens pattern-of-life review. **Investigate** sets a baseline and reports what changed. See [`docs/demo.md`](docs/demo.md) for the full workflow.
 
+## Which RTG tool do I need?
+
+RF Sentinel is part of the RTG Spectrum product family.
+
+| Need | RTG product |
+|---|---|
+| Know which wireless devices are around and what changed | **RF Sentinel** (this repository) |
+| Measure LTE/5G cells, neighbors, and coverage | [Cellular Survey](https://rtgspectrum.com/cellular-survey/) |
+| Survey WiFi environments, including HaLow | [AirScope](https://rtgspectrum.com/airscope/) |
+| Inspect IQ recordings and spectrum | [SDR-Shark](https://rtgspectrum.com/sdr-shark/) |
+| Correlate evidence across RTG applications | [Trace Analyzer](https://rtgspectrum.com/trace-analyzer/) |
+
 ## Working with RTG
 
-RF Sentinel is commercial software from RTG. We work with teams in several ways:
+RF Sentinel is commercial software from RTG.
+
+### Start with an RF Environment Assessment Pilot
+
+A fixed-scope engagement on your authorized environment or recorded data:
+
+1. Connect one source.
+2. Establish a baseline.
+3. Monitor through planned or real changes.
+4. Receive an evidence report and bundle that your team can verify line by line, with a readout and deployment recommendations.
+
+Scope and pricing follow a short discovery call. **[What the pilot includes →](docs/pilot.md)** · Prefer to try it yourself first? Follow the **[evaluation guide](docs/evaluation.md)**.
+
+[![Sample Analyst report: a receiver outage identified as a collection fault, not nine departed devices](docs/media/rf-sentinel-analyst-sample-report.png)](docs/pilot.md#sample-deliverables)
+
+<sub>From a sample deliverable: when the WiFi receiver goes quiet, the report identifies a likely collection fault, with cited evidence, instead of claiming nine devices left.</sub>
+
+### Other ways to work with us
 
 - **Evaluation.** A guided demo on your use case, then an evaluation license to run on your own hardware or with replayed data.
 - **Licensing.** A commercial license for deployment in your environment or product.

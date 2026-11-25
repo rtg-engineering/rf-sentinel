@@ -1,0 +1,77 @@
+{
+  "args": {
+    "snapshot_id": "snapshot:baseline:f166f9625798"
+  },
+  "collection": {
+    "captured_at": "2026-11-22T12:00:00+00:00",
+    "detections_cap": 120,
+    "detections_may_be_truncated": false,
+    "detections_returned": 42,
+    "entity_count": 21,
+    "events_accepted": 42,
+    "events_dropped": 0,
+    "events_rejected": 0,
+    "label": "baseline",
+    "replay_complete": false,
+    "running": false,
+    "snapshot_id": "snapshot:baseline:f166f9625798",
+    "worker_alive": false
+  },
+  "data_quality_notes": [],
+  "entities_by_protocol": {
+    "BTC": 2,
+    "BTLE": 3,
+    "CELLULAR": 1,
+    "FM": 1,
+    "LFMF": 1,
+    "TPMS": 1,
+    "WALKIE": 1,
+    "WIFI": 9,
+    "ZIGBEE": 2
+  },
+  "entity_count": 21,
+  "evidence_refs": [
+    "snapshot:baseline:f166f9625798",
+    "sensor:demo-bladerf:0@snapshot:baseline:f166f9625798",
+    "sensor:demo-hackrf:0@snapshot:baseline:f166f9625798",
+    "sensor:demo-rtlsdr:0@snapshot:baseline:f166f9625798",
+    "sensor:demo-sdrplay:0@snapshot:baseline:f166f9625798",
+    "sensor:wlan-demo0@snapshot:baseline:f166f9625798"
+  ],
+  "sensors": {
+    "demo-bladerf:0": {
+      "band": "BTC+BTLE shared 2.4 GHz ISM public demo",
+      "mode": "demo",
+      "protocol": "BTC",
+      "ref": "sensor:demo-bladerf:0@snapshot:baseline:f166f9625798"
+    },
+    "demo-hackrf:0": {
+      "band": "Zigbee, sub-GHz, walkie, and cellular public demo sweep",
+      "mode": "demo",
+      "protocol": "ZIGBEE",
+      "ref": "sensor:demo-hackrf:0@snapshot:baseline:f166f9625798"
+    },
+    "demo-rtlsdr:0": {
+      "band": "Broadcast FM public demo sweep",
+      "mode": "demo",
+      "protocol": "fm",
+      "ref": "sensor:demo-rtlsdr:0@snapshot:baseline:f166f9625798"
+    },
+    "demo-sdrplay:0": {
+      "band": "VLF/LF/MF public demo awareness",
+      "mode": "demo",
+      "protocol": "lfmf",
+      "ref": "sensor:demo-sdrplay:0@snapshot:baseline:f166f9625798"
+    },
+    "wlan-demo0": {
+      "band": "WiFi monitor channels 1, 6, and 11",
+      "mode": "demo",
+      "protocol": "wifi",
+      "ref": "sensor:wlan-demo0@snapshot:baseline:f166f9625798"
+    }
+  },
+  "snapshot_id": "snapshot:baseline:f166f9625798",
+  "tool": "get_environment_summary",
+  "wifi_ap_count": 3,
+  "wifi_station_count": 6
+}

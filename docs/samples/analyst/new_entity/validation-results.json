@@ -1,0 +1,14 @@
+{
+  "citations_checked": 31,
+  "findings": {
+    "F-col-5": true,
+    "F-gap-4": true,
+    "F-new-1": true,
+    "F-rel-2": true,
+    "F-sig-3": true
+  },
+  "issues": [],
+  "passed": true,
+  "schema_errors": [],
+  "warnings": []
+}
