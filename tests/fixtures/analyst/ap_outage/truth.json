@@ -1,0 +1,24 @@
+{
+ "expected": [
+  {
+   "category": "missing_entity",
+   "hypothesis_weakened": "sensor_or_collection",
+   "needle": "02:10:7A:00:30:11"
+  },
+  {
+   "category": "missing_entity",
+   "needle": "72:94:11:3B:0C:90"
+  }
+ ],
+ "forbidden": [
+  {
+   "category": "sensor_gap"
+  },
+  {
+   "category": "new_entity"
+  },
+  {
+   "category": "relationship_change"
+  }
+ ]
+}

@@ -57,7 +57,9 @@ About 50 seconds of the shipped dashboard running the same scripted scenario: ba
 
 ## Analyst (read-only investigation)
 
-`python3 scripts/analyst_demo.py --build` replays a scripted scenario through the Docker backend, captures before/after snapshots over HTTP, and produces an evidence-backed report: what changed, the observed and computed facts behind each finding, competing explanations, and proposed next steps. Every cited value is re-checked against the evidence by code, and nothing is executed. An optional Pydantic AI provider (`pip install -e '.[analyst-llm]'`) can plan and write the investigation through the same read-only tools and checks. See [docs/analyst.md](docs/analyst.md).
+`python3 scripts/analyst_demo.py --build` replays a scripted scenario through the Docker backend, captures before/after snapshots over HTTP, and produces an evidence-backed report: what changed, the observed and computed facts behind each finding, competing explanations, and proposed next steps. Every cited value is re-checked against the evidence by code, and nothing is executed. An optional Pydantic AI provider (`pip install -e '.[analyst-llm]'`) can plan and write the investigation through the same read-only tools and checks. In the dashboard, **Investigate** sets a baseline and reports what changed since. Each finding links to the detections behind it. See [docs/analyst.md](docs/analyst.md).
+
+![RF Sentinel Analyst walkthrough](docs/media/rf-sentinel-analyst-walkthrough.gif)
 
 ## Visual Evidence
 

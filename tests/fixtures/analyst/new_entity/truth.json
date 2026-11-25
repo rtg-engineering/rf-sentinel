@@ -1,0 +1,25 @@
+{
+ "expected": [
+  {
+   "category": "new_entity",
+   "needle": "02:00:00:00:99:01"
+  },
+  {
+   "also": "02:10:7A:00:10:01",
+   "category": "relationship_change",
+   "needle": "72:94:11:3B:0C:90"
+  },
+  {
+   "category": "signal_change",
+   "needle": "02:00:00:00:99:01"
+  }
+ ],
+ "forbidden": [
+  {
+   "category": "missing_entity"
+  },
+  {
+   "category": "sensor_gap"
+  }
+ ]
+}

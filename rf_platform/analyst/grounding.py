@@ -10,6 +10,9 @@ from .schemas import DRAFT, validate
 from .tools import RESTRICTED_TOOLS
 
 OBSERVATION_PREFIXES = ("snapshot:", "entity:", "event:", "sensor:")
+# Findings about novelty or absence must carry their own competing explanations, including a
+# sensor/collection one, so no reader sees "gone" or "new" without the alternatives.
+NEEDS_ALTERNATIVES = ("new_entity", "missing_entity", "sensor_gap", "not_reobserved")
 # Standalone numbers only: digits inside MACs, IDs, or names (72:94:..., FM 101.7) are not claims.
 _NUMBER = re.compile(r"(?<![\w:.\-])-?\d+(?:\.\d+)?(?![\w:])")
 
@@ -26,8 +29,8 @@ def _numbers(text: str) -> list[str]:
     return re.findall(r"-?\d+(?:\.\d+)?", text)
 
 
-FLAGGED = (("new_entities", "new_entity"), ("relationship_changes", "relationship_change"),
-           ("signal_changes", "signal_change"))
+FLAGGED = (("new_entities", "new_entity", "key"), ("relationship_changes", "relationship_change", "key"),
+           ("signal_changes", "signal_change", "key"), ("silent_sensors", "sensor_gap", "device_id"))
 
 
 def uncovered_changes(draft: dict[str, Any], store: EvidenceStore) -> list[dict[str, str]]:
@@ -36,16 +39,19 @@ def uncovered_changes(draft: dict[str, Any], store: EvidenceStore) -> list[dict[
     for result in store.computed.values():
         if result.get("tool") != "compare_baselines":
             continue
-        for list_name, category in FLAGGED:
-            for item in result.get(list_name, []):
-                key = str(item.get("key"))
-                covered = any(
-                    f.get("category") == category and any(
-                        key in str(fact.get("ref")) or str(fact.get("value")) == key
-                        for fact in [*f.get("observed_facts", []), *f.get("computed_results", [])])
-                    for f in draft.get("findings", []))
-                if not covered:
-                    missing.append({"category": category, "key": key})
+        items = [(c, str(i.get(field))) for name, c, field in FLAGGED for i in result.get(name, [])]
+        # An expected-but-absent entity needs its own finding only when its sensor is still producing;
+        # otherwise the sensor_gap finding explains it.
+        items += [("missing_entity", str(i["key"])) for i in result.get("absent_despite_expectation", [])
+                  if i.get("sensor_status") == "producing"]
+        for category, key in items:
+            covered = any(
+                f.get("category") == category and any(
+                    key in str(fact.get("ref")) or str(fact.get("value")) == key
+                    for fact in [*f.get("observed_facts", []), *f.get("computed_results", [])])
+                for f in draft.get("findings", []))
+            if not covered:
+                missing.append({"category": category, "key": key})
     return missing
 
 
@@ -88,7 +94,17 @@ def check(draft: dict[str, Any], store: EvidenceStore, executed_actions: list[An
                 elif not _same(actual, item["value"]):
                     issue(fid, where, f"stated value {item['value']!r} does not match evidence value {actual!r}")
                 values.append(str(item["value"]))
+        if finding["category"] in NEEDS_ALTERNATIVES:
+            kinds = {h["kind"] for h in finding["hypotheses"]}
+            if len(finding["hypotheses"]) < 2 or "sensor_or_collection" not in kinds:
+                issue(fid, "hypotheses", f"{finding['category']} findings need at least two hypotheses, "
+                                         "including a sensor_or_collection explanation")
         for h in finding["hypotheses"]:
+            # A status is a claim about evidence, so it must cite that evidence.
+            if h["status"] == "supported" and not h["supporting_refs"]:
+                issue(fid, f"hypotheses.{h['hypothesis_id']}", "marked supported without supporting_refs")
+            if h["status"] == "weakened" and not h["weakening_refs"]:
+                issue(fid, f"hypotheses.{h['hypothesis_id']}", "marked weakened without weakening_refs")
             for side in ("supporting_refs", "weakening_refs"):
                 for ref in h[side]:
                     citations += 1

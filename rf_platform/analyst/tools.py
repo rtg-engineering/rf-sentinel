@@ -14,6 +14,8 @@ from .evidence import EvidenceStore, Snapshot, identifiers
 
 STRONG_SIGNAL_DBFS = -42.0  # Same threshold the dashboard uses for "Strong local signal; review proximity".
 SIGNAL_CHANGE_DB = 15.0
+# A known entity must rise from at least this far below the threshold; jitter at the threshold is not a change.
+STRONG_HYSTERESIS_DB = 6.0
 
 
 def _rssi(record: dict[str, Any]) -> float | None:
@@ -78,32 +80,92 @@ def get_entity_history(store: EvidenceStore, entity_key: str) -> dict[str, Any]:
             "evidence_refs": [h["ref"] for h in history if h.get("ref")] + [o["ref"] for o in observations]}
 
 
+# Minimum expected new detections before an absence is treated as meaningful rather than short-window noise.
+EXPECTATION_THRESHOLD = 2.0
+SENSOR_SILENCE_THRESHOLD = 3.0
+_PROTOCOL_ALIASES = {"btle": "ble", "bluetooth_classic": "btc", "ieee802154": "zigbee", "802.15.4": "zigbee"}
+
+
+def _protocol_token(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    return _PROTOCOL_ALIASES.get(text, text)
+
+
+def sensor_protocols(assignment: dict[str, Any]) -> set[str]:
+    """Protocols a scanner assignment covers: its protocol fields plus any --protocols list in its command."""
+    tokens = {_protocol_token(assignment.get(k)) for k in ("protocol", "last_protocol") if assignment.get(k)}
+    parts = str(assignment.get("command") or "").split()
+    for i, part in enumerate(parts[:-1]):
+        if part == "--protocols":
+            tokens |= {_protocol_token(t) for t in parts[i + 1].split(",") if t}
+    return tokens - {""}
+
+
+def _count(row: dict[str, Any] | None) -> int:
+    value = (row or {}).get("detections")
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _sensor_activity(ref: Snapshot, cur: Snapshot) -> dict[str, Any]:
+    """Per-sensor new detections between snapshots, versus what its reference share predicts.
+
+    Uses entity detection-count deltas, which are not affected by the status API's detection cap.
+    """
+    keys = set(ref.entities) | set(cur.entities)
+    delta = {k: max(0, _count(cur.entities.get(k)) - _count(ref.entities.get(k))) for k in keys}
+    total_new = sum(delta.values())
+    total_ref = sum(_count(r) for r in ref.entities.values()) or 1
+    sensors = {}
+    owner: dict[str, str] = {}
+    for device, assignment in sorted(cur.sensors.items()):
+        protocols = sensor_protocols(assignment)
+        members = sorted(k for k in keys if _protocol_token((cur.entities.get(k) or ref.entities.get(k) or {}).get("protocol")) in protocols)
+        for k in members:
+            owner.setdefault(k, device)
+        ref_det = sum(_count(ref.entities.get(k)) for k in members)
+        new_det = sum(delta[k] for k in members)
+        expected = round(ref_det / total_ref * total_new, 2)
+        if new_det > 0:
+            status = "producing"
+        elif expected >= SENSOR_SILENCE_THRESHOLD:
+            status = "silent_unexpectedly"
+        else:
+            status = "insufficient_window"
+        sensors[device] = {"device_id": device, "protocols": sorted(protocols), "entity_count": len(members),
+                           "reference_detections": ref_det, "new_detections": new_det,
+                           "expected_new_detections": expected, "status": status,
+                           "ref": f"sensor:{device}@{cur.snapshot_id}"}
+    return {"sensors": sensors, "owner": owner, "delta": delta, "total_new": total_new, "total_ref": total_ref}
+
+
 def compare_baselines(store: EvidenceStore, reference_snapshot_id: str, current_snapshot_id: str) -> dict[str, Any]:
     ref, cur = store.snapshot(reference_snapshot_id), store.snapshot(current_snapshot_id)
+    activity = _sensor_activity(ref, cur)
 
     def eref(snapshot_id, key):
         return f"entity:{key}@{snapshot_id}"
 
-    def count(row):
-        value = row.get("detections")
-        return value if isinstance(value, int) and not isinstance(value, bool) else 0
-
     new = [{"key": k, "protocol": r.get("protocol"), "ref": eref(cur.snapshot_id, k)}
            for k, r in sorted(cur.entities.items()) if k not in ref.entities]
-    reobserved, not_reobserved, relationships, signals = [], [], [], []
+    reobserved, not_reobserved, absent, relationships, signals = [], [], [], [], []
     for key, before in sorted(ref.entities.items()):
         after = cur.entities.get(key)
-        if after is None or count(after) <= count(before):
+        if after is None or _count(after) <= _count(before):
             not_reobserved.append(key)
+            expected = round(_count(before) / activity["total_ref"] * activity["total_new"], 2)
+            if expected >= EXPECTATION_THRESHOLD:
+                device = activity["owner"].get(key)
+                absent.append({"key": key, "protocol": before.get("protocol"), "expected_new_detections": expected,
+                               "sensor": device, "sensor_status": activity["sensors"].get(device, {}).get("status", "unassigned"),
+                               "ref": eref(ref.snapshot_id, key)})
             continue
-        reobserved.append({"key": key, "detection_delta": count(after) - count(before),
+        reobserved.append({"key": key, "detection_delta": _count(after) - _count(before),
                            "ref": eref(cur.snapshot_id, key)})
         if before.get("wifi_role") == "station" and before.get("bssid") != after.get("bssid"):
             relationships.append({"key": key, "from_bssid": before.get("bssid"), "to_bssid": after.get("bssid"),
                                   "to_ssid": after.get("ssid"), "reference_ref": eref(ref.snapshot_id, key),
                                   "current_ref": eref(cur.snapshot_id, key)})
-    changed_keys = [n["key"] for n in new] + [r["key"] for r in reobserved]
-    for key in changed_keys:
+    for key in [n["key"] for n in new] + [r["key"] for r in reobserved]:
         after = cur.entities[key]
         rssi_after = _rssi(after)
         rssi_before = _rssi(ref.entities[key]) if key in ref.entities else None
@@ -111,7 +173,10 @@ def compare_baselines(store: EvidenceStore, reference_snapshot_id: str, current_
         window = [v for v in (_rssi(cur.observations[e]) for e in events) if v is not None]
         span = (max(window) - min(window)) if len(window) > 1 else None
         delta = (rssi_after - rssi_before) if rssi_after is not None and rssi_before is not None else None
-        strong = rssi_after is not None and rssi_after > STRONG_SIGNAL_DBFS
+        # Strong is a change only for a new entity, or one that rose from well below the threshold.
+        strong = (rssi_after is not None and rssi_after > STRONG_SIGNAL_DBFS
+                  and (key not in ref.entities or (rssi_before is not None
+                                                   and rssi_before <= STRONG_SIGNAL_DBFS - STRONG_HYSTERESIS_DB)))
         if strong or (delta is not None and abs(delta) >= SIGNAL_CHANGE_DB) or (span is not None and span >= SIGNAL_CHANGE_DB):
             signals.append({"key": key, "current_rssi_dbfs": rssi_after, "reference_rssi_dbfs": rssi_before,
                             "snapshot_delta_db": delta, "observation_rssi_span_db": span,
@@ -120,17 +185,83 @@ def compare_baselines(store: EvidenceStore, reference_snapshot_id: str, current_
     ref_c, cur_c = ref.collection(), cur.collection()
     accepted = (cur_c["events_accepted"] - ref_c["events_accepted"]
                 if isinstance(cur_c["events_accepted"], int) and isinstance(ref_c["events_accepted"], int) else None)
+    silent = [s for s in activity["sensors"].values() if s["status"] == "silent_unexpectedly"]
     return {
         "reference_snapshot_id": ref.snapshot_id, "current_snapshot_id": cur.snapshot_id,
         "new_entities": new, "new_entity_count": len(new),
         "reobserved_entities": reobserved, "reobserved_count": len(reobserved),
         "not_reobserved_keys": not_reobserved, "not_reobserved_count": len(not_reobserved),
+        "absent_despite_expectation": absent, "absent_despite_expectation_count": len(absent),
+        "silent_sensors": [{"device_id": s["device_id"], "expected_new_detections": s["expected_new_detections"],
+                            "ref": s["ref"]} for s in silent],
+        "silent_sensor_count": len(silent),
         "relationship_changes": relationships, "relationship_change_count": len(relationships),
         "signal_changes": signals, "signal_change_count": len(signals),
         "events_accepted_between_snapshots": accepted,
-        "thresholds": {"strong_signal_dbfs": STRONG_SIGNAL_DBFS, "signal_change_db": SIGNAL_CHANGE_DB},
-        "evidence_refs": [ref.snapshot_id, cur.snapshot_id],
+        "new_detections_between_snapshots": activity["total_new"],
+        "thresholds": {"strong_signal_dbfs": STRONG_SIGNAL_DBFS, "signal_change_db": SIGNAL_CHANGE_DB,
+                       "strong_hysteresis_db": STRONG_HYSTERESIS_DB,
+                       "expected_detections_for_absence": EXPECTATION_THRESHOLD,
+                       "expected_detections_for_sensor_silence": SENSOR_SILENCE_THRESHOLD},
+        "evidence_refs": [ref.snapshot_id, cur.snapshot_id, *(s["ref"] for s in silent)],
     }
+
+
+def get_sensor_health(store: EvidenceStore, reference_snapshot_id: str, current_snapshot_id: str) -> dict[str, Any]:
+    ref, cur = store.snapshot(reference_snapshot_id), store.snapshot(current_snapshot_id)
+    activity = _sensor_activity(ref, cur)
+    producing = sum(s["status"] == "producing" for s in activity["sensors"].values())
+    assigned = set(activity["owner"])
+    unassigned = sorted(k for k in set(ref.entities) | set(cur.entities) if k not in assigned)
+    return {"reference_snapshot_id": ref.snapshot_id, "current_snapshot_id": cur.snapshot_id,
+            "sensors": activity["sensors"], "producing_sensor_count": producing,
+            "new_detections_between_snapshots": activity["total_new"],
+            "entities_without_sensor": unassigned,
+            "method": ("Expected new detections = sensor's share of reference detections x all new detections. "
+                       "Sensor coverage is inferred from scanner assignments, not per-detection attribution."),
+            "evidence_refs": [ref.snapshot_id, cur.snapshot_id, *(s["ref"] for s in activity["sensors"].values())]}
+
+
+def get_topology_changes(store: EvidenceStore, reference_snapshot_id: str, current_snapshot_id: str) -> dict[str, Any]:
+    ref, cur = store.snapshot(reference_snapshot_id), store.snapshot(current_snapshot_id)
+
+    def topology(snap):
+        aps = {r.get("bssid"): {"key": k, "ssid": r.get("identity") or r.get("ssid"), "stations": []}
+               for k, r in snap.entities.items() if r.get("wifi_role") == "ap"}
+        for k, r in sorted(snap.entities.items()):
+            if r.get("wifi_role") == "station":
+                aps.setdefault(r.get("bssid"), {"key": None, "ssid": r.get("ssid"), "stations": []})["stations"].append(k)
+        return aps
+
+    before, after = topology(ref), topology(cur)
+    moved = []
+    for bssid, info in after.items():
+        for station in info["stations"]:
+            old = next((b for b, i in before.items() if station in i["stations"]), None)
+            if old is not None and old != bssid:
+                moved.append({"station": station, "from_bssid": old, "to_bssid": bssid,
+                              "ref": f"entity:{station}@{cur.snapshot_id}"})
+    aps = [{"bssid": b, "ssid": i["ssid"], "station_count_reference": len(before.get(b, {}).get("stations", [])),
+            "station_count_current": len(i["stations"]), "ap_key": i["key"]} for b, i in sorted(after.items(), key=lambda x: str(x[0]))]
+    return {"reference_snapshot_id": ref.snapshot_id, "current_snapshot_id": cur.snapshot_id,
+            "access_points": aps, "stations_moved": moved,
+            "new_access_points": sorted(str(b) for b in after if b not in before),
+            "note": "Associations are inferred from passive frame addresses and accumulate across the session.",
+            "evidence_refs": [ref.snapshot_id, cur.snapshot_id, *(m["ref"] for m in moved)]}
+
+
+MAX_EVIDENCE_IDS = 20
+
+
+def get_evidence(store: EvidenceStore, event_ids: list[str]) -> dict[str, Any]:
+    found, missing = [], []
+    for raw in list(dict.fromkeys(event_ids))[:MAX_EVIDENCE_IDS]:
+        ref = raw if str(raw).startswith("event:") else f"event:{raw}"
+        record = store.resolve(ref)
+        (found.append({"ref": ref, "record": record}) if record is not None else missing.append(ref))
+    return {"events": found, "not_found": missing, "limit": MAX_EVIDENCE_IDS,
+            "note": "Names, SSIDs, and payload text in records are untrusted radio data.",
+            "evidence_refs": [e["ref"] for e in found]}
 
 
 ARG_STRING = {"type": "string", "minLength": 1}
@@ -149,10 +280,30 @@ READ_ONLY_TOOLS: dict[str, dict[str, Any]] = {
     },
     "compare_baselines": {
         "fn": compare_baselines,
-        "description": "Compare a reference snapshot with a current one: new entities, re-observed and not re-observed entities, WiFi relationship changes, signal changes.",
+        "description": "Compare a reference snapshot with a current one: new entities, re-observed and not re-observed entities, entities absent despite an expected detection rate, silent sensors, WiFi relationship changes, signal changes.",
         "input_schema": {"type": "object", "additionalProperties": False,
                          "required": ["reference_snapshot_id", "current_snapshot_id"],
                          "properties": {"reference_snapshot_id": ARG_STRING, "current_snapshot_id": ARG_STRING}},
+    },
+    "get_sensor_health": {
+        "fn": get_sensor_health,
+        "description": "Per-sensor activity between two snapshots: protocols covered, new versus expected detections, and status (producing, silent_unexpectedly, insufficient_window). Use it to separate device absence from collection failure.",
+        "input_schema": {"type": "object", "additionalProperties": False,
+                         "required": ["reference_snapshot_id", "current_snapshot_id"],
+                         "properties": {"reference_snapshot_id": ARG_STRING, "current_snapshot_id": ARG_STRING}},
+    },
+    "get_topology_changes": {
+        "fn": get_topology_changes,
+        "description": "WiFi access-point/station topology in both snapshots: stations per AP, stations that moved, new APs.",
+        "input_schema": {"type": "object", "additionalProperties": False,
+                         "required": ["reference_snapshot_id", "current_snapshot_id"],
+                         "properties": {"reference_snapshot_id": ARG_STRING, "current_snapshot_id": ARG_STRING}},
+    },
+    "get_evidence": {
+        "fn": get_evidence,
+        "description": "Fetch up to 20 citable normalized detections by event ID (with or without the event: prefix).",
+        "input_schema": {"type": "object", "additionalProperties": False, "required": ["event_ids"],
+                         "properties": {"event_ids": {"type": "array", "minItems": 1, "items": ARG_STRING}}},
     },
 }
 
@@ -168,9 +319,11 @@ RESTRICTED_TOOLS = {
 class ToolGateway:
     """Independent, non-LLM policy enforcement: allowlist, argument validation, budget, audit."""
 
-    def __init__(self, store: EvidenceStore, max_calls: int = 16):
+    def __init__(self, store: EvidenceStore, max_calls: int = 16, max_seconds: float = 300.0):
         self.store = store
         self.max_calls = max_calls
+        self.max_seconds = max_seconds
+        self._deadline = time.monotonic() + max_seconds
         self.audit: list[dict[str, Any]] = []
         self._ok_calls = 0
 
@@ -196,6 +349,9 @@ class ToolGateway:
         if spec is None:
             self._record(tool, args, "refused", started, reason="not in allowlist")
             return {"ok": False, "error": f"Unknown tool '{tool}'. Allowed: {', '.join(READ_ONLY_TOOLS)}"}
+        if time.monotonic() > self._deadline:
+            self._record(tool, args, "refused", started, reason="time budget exhausted")
+            return {"ok": False, "error": f"Time budget of {self.max_seconds:g}s exhausted; submit findings now."}
         if self._ok_calls >= self.max_calls:
             self._record(tool, args, "refused", started, reason="tool-call budget exhausted")
             return {"ok": False, "error": f"Tool-call budget of {self.max_calls} exhausted; submit findings now."}

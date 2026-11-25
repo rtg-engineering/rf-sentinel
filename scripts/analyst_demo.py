@@ -24,7 +24,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.generate_demo_events import build_validation_events  # noqa: E402
-from rf_platform.analyst.evaluate import evaluate, truth_from_fixture  # noqa: E402
+from rf_platform.analyst.evaluate import evaluate  # noqa: E402
 from rf_platform.analyst.evidence import EvidenceStore, Snapshot, capture_status  # noqa: E402
 from rf_platform.analyst.investigate import run_investigation  # noqa: E402
 from rf_platform.analyst.report import write_bundle  # noqa: E402
@@ -107,7 +107,9 @@ def main() -> int:
     store = EvidenceStore(snapshots)
     investigation = run_investigation(store, provider, provenance="synthetic_replay")
     bundle = write_bundle(work / "bundle", investigation, store)
-    result = evaluate(investigation, truth_from_fixture(events))
+    # Same scenario as tests/fixtures/analyst/new_entity; its truth is read by the evaluator only.
+    truth = json.loads((ROOT / "tests/fixtures/analyst/new_entity/truth.json").read_text())
+    result = evaluate(investigation, truth)
     (work / "evaluation.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     for check, ok in result["checks"].items():
         print(f"{'PASS' if ok else 'FAIL'}  {check}")

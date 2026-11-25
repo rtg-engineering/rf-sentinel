@@ -142,22 +142,97 @@ class DeterministicAnalyst:
                 "confidence": "low" if few else "medium",
             })
 
+        health_call = gateway.call("get_sensor_health", {"reference_snapshot_id": ref_id, "current_snapshot_id": cur_id})
+        health, hid = (health_call["data"], health_call["result_id"]) if health_call["ok"] else ({"sensors": {}}, None)
+
+        for gap in comparison["silent_sensors"]:
+            device = gap["device_id"]
+            sensor = health["sensors"].get(device, {})
+            sref = gap["ref"]
+            computed = [fact("Sensor status (sensor health)", hid, health, f"sensors.{device}.status"),
+                        fact("New detections from this sensor's protocols", hid, health, f"sensors.{device}.new_detections"),
+                        fact("New detections expected from its reference share", hid, health, f"sensors.{device}.expected_new_detections"),
+                        fact("Entities covered by this sensor", hid, health, f"sensors.{device}.entity_count"),
+                        fact("Other sensors still producing", hid, health, "producing_sensor_count")] if hid else []
+            findings.append({
+                "finding_id": f"F-sensor-{len(findings) + 1}", "category": "sensor_gap",
+                "title": f"Sensor {device} produced no new observations",
+                "observed_facts": [fact("Sensor assignment present in the current snapshot", sref, store.resolve(sref), "device_id"),
+                                   fact("Events accepted by the backend at the current snapshot", cur_id, store.resolve(cur_id), "events_accepted")],
+                "computed_results": computed,
+                "hypotheses": [
+                    {"hypothesis_id": "h1", "statement": "The receiver, its assignment, or its ingestion path stopped producing observations.",
+                     "kind": "sensor_or_collection", "status": "supported" if hid else "open",
+                     "supporting_refs": [hid] if hid else [], "weakening_refs": []},
+                    {"hypothesis_id": "h2", "statement": f"Every device covered by {device} stopped transmitting at the same time.",
+                     "kind": "needs_review", "status": "weakened" if hid else "open",
+                     "supporting_refs": [], "weakening_refs": [hid] if hid else []},
+                    {"hypothesis_id": "h3", "statement": "Band-wide interference or an RF environment change affected this sensor's protocols.",
+                     "kind": "environmental", "status": "open", "supporting_refs": [], "weakening_refs": []},
+                ],
+                "assessment": (f"{sensor.get('entity_count', 'Its')} entities on this sensor were not re-observed while other sensors kept producing. "
+                               "Treat these devices as unobserved, not departed, until the sensor is verified."),
+                "confidence": "high" if hid else "medium",
+            })
+
+        for i, item in enumerate(comparison["absent_despite_expectation"]):
+            if item["sensor_status"] != "producing":
+                continue  # explained by a sensor_gap finding, or not attributable to a sensor
+            key, device = item["key"], item["sensor"]
+            before = store.resolve(item["ref"]) or {}
+            current_ref = f"entity:{key}@{cur_id}"
+            current = store.resolve(current_ref)
+            observed = [fact(f"{before.get('identity') or key} detections in the reference snapshot", item["ref"], before, "detections")]
+            if current is not None:
+                observed.append(fact("Detections in the current snapshot (unchanged)", current_ref, current, "detections"))
+            computed = [fact("New detections expected from its reference rate", cid, comparison,
+                             f"absent_despite_expectation.{i}.expected_new_detections")]
+            if hid:
+                computed += [fact("Status of the sensor covering it", hid, health, f"sensors.{device}.status"),
+                             fact("New detections that sensor produced from other devices", hid, health, f"sensors.{device}.new_detections")]
+            wifi = str(before.get("protocol")).upper() == "WIFI"
+            findings.append({
+                "finding_id": f"F-missing-{len(findings) + 1}", "category": "missing_entity",
+                "title": f"Expected {before.get('protocol') or 'RF'} entity not re-observed: {before.get('identity') or key}",
+                "observed_facts": observed,
+                "computed_results": computed,
+                "hypotheses": [
+                    {"hypothesis_id": "h1", "statement": "The device powered off, left the area, or stopped transmitting.",
+                     "kind": "benign", "status": "open", "supporting_refs": [], "weakening_refs": []},
+                    {"hypothesis_id": "h2", "statement": ("The access point changed channel or BSSID, or the station associated elsewhere."
+                                                          if wifi else "The device changed channel, mode, or identifier."),
+                     "kind": "configuration_change", "status": "open", "supporting_refs": [], "weakening_refs": []},
+                    {"hypothesis_id": "h3", "statement": "The receiver failed to hear it.",
+                     "kind": "sensor_or_collection", "status": "weakened" if hid else "open",
+                     "supporting_refs": [], "weakening_refs": [hid] if hid else []},
+                    {"hypothesis_id": "h4", "statement": "Path loss or interference specific to this device's location.",
+                     "kind": "environmental", "status": "open", "supporting_refs": [], "weakening_refs": []},
+                ],
+                "assessment": "Absent at a rate its history predicts, while its sensor kept producing. Absence is still not proof of departure.",
+                "confidence": "medium",
+            })
+
         n_missing = comparison["not_reobserved_count"]
         if n_missing:
+            explained = comparison["absent_despite_expectation_count"] or comparison["silent_sensor_count"]
             findings.append({
                 "finding_id": f"F-gap-{len(findings) + 1}", "category": "not_reobserved",
                 "title": f"{n_missing} reference entities were not re-observed in the current window",
                 "observed_facts": [fact("Events accepted by the backend at the current snapshot", cur_id, store.resolve(cur_id), "events_accepted"),
                                    fact("Events accepted by the backend at the reference snapshot", ref_id, store.resolve(ref_id), "events_accepted")],
                 "computed_results": [fact("Entities with no new detections since the reference", cid, comparison, "not_reobserved_count"),
-                                     fact("Events accepted between snapshots", cid, comparison, "events_accepted_between_snapshots")],
+                                     fact("Of these, absent despite an expected detection rate", cid, comparison, "absent_despite_expectation_count"),
+                                     fact("Sensors silent despite expected traffic", cid, comparison, "silent_sensor_count")],
                 "hypotheses": [
                     {"hypothesis_id": "h1", "statement": "The current window is too short to expect every recurring entity to transmit again.",
-                     "kind": "sensor_or_collection", "status": "supported", "supporting_refs": [cid], "weakening_refs": []},
+                     "kind": "sensor_or_collection", "status": "open" if explained else "supported",
+                     "supporting_refs": [] if explained else [cid], "weakening_refs": []},
                     {"hypothesis_id": "h2", "statement": "Some entities stopped transmitting or left the area.",
                      "kind": "needs_review", "status": "open", "supporting_refs": [], "weakening_refs": []},
                 ],
-                "assessment": "Absence across one short window is not evidence of departure. Reassess over a window that spans each entity's normal cadence.",
+                "assessment": ("Entities expected at a meaningful rate, and silent sensors, are reported as separate findings. "
+                               "Absence is missing evidence, not proof of departure." if explained else
+                               "No absent entity was expected at a meaningful rate in this window. Absence across one short window is not evidence of departure."),
                 "confidence": "high",
             })
 
@@ -181,10 +256,16 @@ class DeterministicAnalyst:
             "recommendation_id": "R1", "action": "Capture another snapshot after a window that covers each recurring entity's normal cadence, then rerun compare_baselines.",
             "rationale": "Separates true departures from short-window non-observation.", "tool": "compare_baselines",
             "permission": "read_only", "executed": False}]
+        for gap in comparison["silent_sensors"]:
+            recommendations.append({
+                "recommendation_id": f"R{len(recommendations) + 1}",
+                "action": f"Check {gap['device_id']} process, assignment, and ingestion logs, then capture a new snapshot.",
+                "rationale": "Confirms or rules out a collection fault before any device absence is assessed.",
+                "tool": "get_sensor_health", "permission": "read_only", "executed": False})
         signal_keys = [s["key"] for s in comparison["signal_changes"]]
         if signal_keys:
             recommendations.append({
-                "recommendation_id": "R2",
+                "recommendation_id": f"R{len(recommendations) + 1}",
                 "action": f"Request operator approval for a bounded passive capture to corroborate the signal on {signal_keys[0]}.",
                 "rationale": "Strong-signal findings rest on few observations; more passive samples would confirm or weaken the proximity hypothesis.",
                 "tool": "start_passive_capture", "permission": "requires_approval", "executed": False})
