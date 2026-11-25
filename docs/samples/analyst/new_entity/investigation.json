@@ -379,9 +379,41 @@
       "tool": "get_environment_summary",
       "wifi_ap_count": 3,
       "wifi_station_count": 6
+    },
+    "computed:f95c56edec96": {
+      "args": {
+        "current_snapshot_id": "snapshot:current:ad5aecc5d02d",
+        "entity_key": "ble:02:00:00:00:99:01",
+        "reference_snapshot_id": "snapshot:baseline:05fca49b4b38"
+      },
+      "candidate_count": 1,
+      "candidates": [
+        {
+          "identity": "Demo Beacon-01",
+          "key": "ble:D0:EF:42:10:AA:01",
+          "ref": "entity:ble:D0:EF:42:10:AA:01@snapshot:baseline:05fca49b4b38"
+        }
+      ],
+      "entity_key": "ble:02:00:00:00:99:01",
+      "evidence_refs": [
+        "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d",
+        "entity:ble:D0:EF:42:10:AA:01@snapshot:baseline:05fca49b4b38"
+      ],
+      "fingerprint": {
+        "appearance": "Generic Sensor",
+        "company_id": 4095,
+        "protocol": "BTLE",
+        "uuid16": [
+          "0x180A",
+          "0xFEAA"
+        ]
+      },
+      "fingerprint_informative": true,
+      "note": "Shared fingerprint plus silence of the earlier identifier. Possible, not proven, same device.",
+      "tool": "find_identity_candidates"
     }
   },
-  "created_at": "2026-11-25T15:27:55.134471+00:00",
+  "created_at": "2026-11-25T15:59:06.658274+00:00",
   "evidence": {
     "provenance": "synthetic_replay",
     "snapshots": [
@@ -428,6 +460,18 @@
           "ref": "computed:85a29c9c97cd",
           "statement": "Not present in the reference snapshot (baseline comparison)",
           "value": "ble:02:00:00:00:99:01"
+        },
+        {
+          "field": "candidate_count",
+          "ref": "computed:f95c56edec96",
+          "statement": "Earlier identifiers with the same fingerprint that went quiet",
+          "value": 1
+        },
+        {
+          "field": "candidates.0.key",
+          "ref": "computed:f95c56edec96",
+          "statement": "Closest identity candidate",
+          "value": "ble:D0:EF:42:10:AA:01"
         }
       ],
       "confidence": "medium",
@@ -435,21 +479,22 @@
       "grounded": true,
       "hypotheses": [
         {
-          "hypothesis_id": "h1",
-          "kind": "benign",
+          "hypothesis_id": "h3",
+          "kind": "configuration_change",
           "rank": 1,
-          "statement": "A device that was not transmitting during the reference window began transmitting.",
+          "statement": "The same device as Demo Beacon-01, now under a new (rotated) address: it shares the advertising fingerprint, and that identifier went quiet. A fingerprint match is not proof of identity.",
           "status": "open",
           "supporting_refs": [
-            "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d"
+            "computed:f95c56edec96",
+            "entity:ble:D0:EF:42:10:AA:01@snapshot:baseline:05fca49b4b38"
           ],
           "weakening_refs": []
         },
         {
-          "hypothesis_id": "h3",
-          "kind": "configuration_change",
+          "hypothesis_id": "h1",
+          "kind": "benign",
           "rank": 2,
-          "statement": "A known device rotated to a new random BLE address; the new identifier may not be a new device.",
+          "statement": "A device that was not transmitting during the reference window began transmitting.",
           "status": "open",
           "supporting_refs": [
             "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d"
@@ -747,7 +792,7 @@
     }
   ],
   "grounding": {
-    "citations_checked": 31,
+    "citations_checked": 34,
     "findings": {
       "F-col-5": true,
       "F-gap-4": true,
@@ -760,7 +805,7 @@
     "schema_errors": [],
     "warnings": []
   },
-  "investigation_id": "INV-341b832c2b3f",
+  "investigation_id": "INV-3c6f3cef30ca",
   "limitations": [
     "Evidence comes from synthetic demo replay. It does not demonstrate live decoder accuracy, receiver sensitivity, or performance in an uncontrolled environment.",
     "Assessment is built from captured /api/status snapshots. Observations beyond the backend's returned detection window are not citable.",
@@ -800,7 +845,7 @@
       "arguments": {
         "snapshot_id": "snapshot:baseline:05fca49b4b38"
       },
-      "duration_ms": 0.148,
+      "duration_ms": 0.149,
       "evidence_ref_count": 6,
       "result_id": "computed:bf227bc76456",
       "sequence": 1,
@@ -811,7 +856,7 @@
       "arguments": {
         "snapshot_id": "snapshot:current:ad5aecc5d02d"
       },
-      "duration_ms": 0.114,
+      "duration_ms": 0.108,
       "evidence_ref_count": 6,
       "result_id": "computed:291b5ced9341",
       "sequence": 2,
@@ -823,7 +868,7 @@
         "current_snapshot_id": "snapshot:current:ad5aecc5d02d",
         "reference_snapshot_id": "snapshot:baseline:05fca49b4b38"
       },
-      "duration_ms": 0.364,
+      "duration_ms": 0.369,
       "evidence_ref_count": 2,
       "result_id": "computed:85a29c9c97cd",
       "sequence": 3,
@@ -832,12 +877,25 @@
     },
     {
       "arguments": {
+        "current_snapshot_id": "snapshot:current:ad5aecc5d02d",
+        "entity_key": "ble:02:00:00:00:99:01",
+        "reference_snapshot_id": "snapshot:baseline:05fca49b4b38"
+      },
+      "duration_ms": 0.081,
+      "evidence_ref_count": 2,
+      "result_id": "computed:f95c56edec96",
+      "sequence": 4,
+      "status": "ok",
+      "tool": "find_identity_candidates"
+    },
+    {
+      "arguments": {
         "entity_key": "ble:02:00:00:00:99:01"
       },
-      "duration_ms": 0.097,
+      "duration_ms": 0.099,
       "evidence_ref_count": 3,
       "result_id": "computed:52fedd3a0928",
-      "sequence": 4,
+      "sequence": 5,
       "status": "ok",
       "tool": "get_entity_history"
     },
@@ -846,10 +904,10 @@
         "current_snapshot_id": "snapshot:current:ad5aecc5d02d",
         "reference_snapshot_id": "snapshot:baseline:05fca49b4b38"
       },
-      "duration_ms": 0.209,
+      "duration_ms": 0.21,
       "evidence_ref_count": 7,
       "result_id": "computed:527a37ef703c",
-      "sequence": 5,
+      "sequence": 6,
       "status": "ok",
       "tool": "get_sensor_health"
     }

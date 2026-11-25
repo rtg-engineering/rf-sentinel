@@ -39,6 +39,24 @@ def _facts(items, css, label):
     return f"<div><span class='tag {css}'>{label}</span><ul>{rows}</ul></div>"
 
 
+def _memory_section(inv: dict[str, Any]) -> str:
+    memory, notes = inv.get("memory"), inv.get("operator_context") or []
+    if not memory and not notes:
+        return ""
+    parts = ["<h2>Environment memory</h2>"]
+    if memory:
+        parts.append(f"<p>Compared against the {_e(memory.get('compared_against'))}"
+                     f"{' · baseline ' + _e(memory['baseline_id']) if memory.get('baseline_id') else ''}"
+                     f" · {_e(memory.get('prior_assessments'))} earlier assessment(s) on record.</p>")
+    if notes:
+        parts.append("<p class='muted'>Operator notes on entities cited below. Notes are recorded separately and "
+                     "never change evidence or findings.</p><ul>" + "".join(
+                         f"<li><strong>{_e(n['kind'].replace('_', ' '))}</strong> · <code>{_e(n['entity_key'])}</code>: "
+                         f"{_e(n['text'])} <span class='muted'>({_e(n['author'])}, {_e(n['created_at'][:10])})</span></li>"
+                         for n in notes) + "</ul>")
+    return "".join(parts)
+
+
 def render_html(inv: dict[str, Any]) -> str:
     g = inv["grounding"]
     status = "All findings grounded" if g["passed"] else f"Grounding FAILED: {len(g['issues'])} issue(s)"
@@ -52,6 +70,7 @@ def render_html(inv: dict[str, Any]) -> str:
              f"{g['citations_checked']} citations checked · {len(inv['executed_actions'])} actions executed · "
              f"{sum(1 for a in inv['tool_audit'] if a['status'] == 'ok')} read-only tool calls</div>",
              "<h2>Limitations</h2><ul>" + "".join(f"<li>{_e(x)}</li>" for x in inv["limitations"]) + "</ul>",
+             _memory_section(inv),
              "<h2>Findings</h2>"]
     for f in inv["findings"]:
         badge = "" if f.get("grounded") else "<span class='tag bad'>Unsupported</span>"

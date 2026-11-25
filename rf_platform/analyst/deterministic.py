@@ -68,14 +68,29 @@ class DeterministicAnalyst:
                 {"hypothesis_id": "h2", "statement": "The device was present before but was not received during the reference window (coverage or collection gap).",
                  "kind": "sensor_or_collection", "status": "open", "supporting_refs": [], "weakening_refs": [ref_id]},
             ]
+            computed_extra = []
             if row.get("address_type") == "random" or str(row.get("protocol")).upper() == "BTLE":
-                hyps.append({"hypothesis_id": "h3", "statement": "A known device rotated to a new random BLE address; the new identifier may not be a new device.",
-                             "kind": "configuration_change", "status": "open", "supporting_refs": [eref], "weakening_refs": []})
+                ident = gateway.call("find_identity_candidates", {"reference_snapshot_id": ref_id, "current_snapshot_id": cur_id,
+                                                                  "entity_key": key})
+                candidates = ident["data"]["candidates"] if ident["ok"] else []
+                if candidates:
+                    names = ", ".join(str(c.get("identity") or c["key"]) for c in candidates[:3])
+                    statement = (f"The same device as {names}, now under a new (rotated) address: it shares the advertising "
+                                 "fingerprint, and that identifier went quiet. A fingerprint match is not proof of identity.")
+                    computed_extra = [fact("Earlier identifiers with the same fingerprint that went quiet",
+                                           ident["result_id"], ident["data"], "candidate_count"),
+                                      fact("Closest identity candidate", ident["result_id"], ident["data"], "candidates.0.key")]
+                    hyps.append({"hypothesis_id": "h3", "statement": statement, "kind": "configuration_change", "status": "open",
+                                 "supporting_refs": [ident["result_id"], *(c["ref"] for c in candidates)], "weakening_refs": []})
+                else:
+                    hyps.append({"hypothesis_id": "h3", "statement": "A known device rotated to a new random BLE address; no earlier identifier with the same fingerprint went quiet.",
+                                 "kind": "configuration_change", "status": "open", "supporting_refs": [eref], "weakening_refs": []})
             findings.append({
                 "finding_id": f"F-new-{len(findings) + 1}", "category": "new_entity",
                 "title": f"New {row.get('protocol') or 'RF'} entity: {row.get('identity') or key}",
                 "observed_facts": facts,
-                "computed_results": [fact("Not present in the reference snapshot (baseline comparison)", cid, comparison, f"new_entities.{i}.key")],
+                "computed_results": [fact("Not present in the reference snapshot (baseline comparison)", cid, comparison, f"new_entities.{i}.key"),
+                                     *computed_extra],
                 "hypotheses": hyps,
                 "assessment": "New relative to the reference snapshot. Origin is not established from one window of evidence.",
                 "confidence": "medium",

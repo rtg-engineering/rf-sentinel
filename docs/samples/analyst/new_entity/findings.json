@@ -8,6 +8,18 @@
         "ref": "computed:85a29c9c97cd",
         "statement": "Not present in the reference snapshot (baseline comparison)",
         "value": "ble:02:00:00:00:99:01"
+      },
+      {
+        "field": "candidate_count",
+        "ref": "computed:f95c56edec96",
+        "statement": "Earlier identifiers with the same fingerprint that went quiet",
+        "value": 1
+      },
+      {
+        "field": "candidates.0.key",
+        "ref": "computed:f95c56edec96",
+        "statement": "Closest identity candidate",
+        "value": "ble:D0:EF:42:10:AA:01"
       }
     ],
     "confidence": "medium",
@@ -15,21 +27,22 @@
     "grounded": true,
     "hypotheses": [
       {
-        "hypothesis_id": "h1",
-        "kind": "benign",
+        "hypothesis_id": "h3",
+        "kind": "configuration_change",
         "rank": 1,
-        "statement": "A device that was not transmitting during the reference window began transmitting.",
+        "statement": "The same device as Demo Beacon-01, now under a new (rotated) address: it shares the advertising fingerprint, and that identifier went quiet. A fingerprint match is not proof of identity.",
         "status": "open",
         "supporting_refs": [
-          "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d"
+          "computed:f95c56edec96",
+          "entity:ble:D0:EF:42:10:AA:01@snapshot:baseline:05fca49b4b38"
         ],
         "weakening_refs": []
       },
       {
-        "hypothesis_id": "h3",
-        "kind": "configuration_change",
+        "hypothesis_id": "h1",
+        "kind": "benign",
         "rank": 2,
-        "statement": "A known device rotated to a new random BLE address; the new identifier may not be a new device.",
+        "statement": "A device that was not transmitting during the reference window began transmitting.",
         "status": "open",
         "supporting_refs": [
           "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d"

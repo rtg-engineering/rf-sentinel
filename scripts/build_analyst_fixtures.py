@@ -11,6 +11,9 @@ Scenarios:
   ap_outage           2 normal cycles; then 3 cycles without the Telemetry-GW AP or its station
   wifi_sensor_outage  2 normal cycles; then 3 cycles with no WiFi events at all
   quiet_control       2 normal cycles; then 3 more normal cycles (nothing should be reported as a change)
+
+Also writes tests/fixtures/analyst_memory/{day1,day2,day3}.json: one continuing environment for the
+persistent-memory tests (day1 baseline; day2 normal; day3 the Telemetry AP and its station go quiet).
 """
 from __future__ import annotations
 
@@ -89,6 +92,23 @@ def main() -> int:
                 print(f"{name}/{label}: {snapshot.snapshot_id} entities={len(snapshot.entities)} "
                       f"observations={len(snapshot.observations)}")
             (out / "truth.json").write_text(json.dumps(truth, indent=1, sort_keys=True) + "\n")
+        from scripts.generate_demo_events import build_events
+        normal = build_events(cycles=8)
+        days = {"day1": cycles(normal, 0, 2), "day2": cycles(normal, 2, 5),
+                "day3": [e for e in cycles(normal, 5, 8) if e.get("bssid") != TELEMETRY_BSSID]}
+        backend.ble_identity_cache.clear()
+        client.post("/api/clear", json={})
+        with backend.state_lock:
+            backend._reset_stats()
+            backend._demo_prime_state()
+        out = ROOT / "tests/fixtures/analyst_memory"
+        out.mkdir(parents=True, exist_ok=True)
+        for n, (label, events) in enumerate(days.items()):
+            for event in events:
+                backend._demo_ingest_payload(dict(event))
+            snapshot = Snapshot.from_status(client.get("/api/status").get_json(), label, f"2026-11-2{n + 2}T12:00:00+00:00")
+            (out / f"{label}.json").write_text(json.dumps(snapshot.to_dict(), indent=1, sort_keys=True) + "\n")
+            print(f"memory/{label}: {snapshot.snapshot_id} entities={len(snapshot.entities)} observations={len(snapshot.observations)}")
     return 0
 
 

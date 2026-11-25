@@ -28,6 +28,7 @@ A fixed-scope engagement that shows what RF Sentinel finds in **your** environme
 - **Collection health summary.** Which sensors produced data, any gaps, and how those gaps affect the conclusions.
 - **Scored results**, where planned changes were made: which known changes were found, and any false findings.
 - **Deployment recommendations.** Coverage, hardware, integration points, and the operational work a production rollout would need.
+- **Environment memory file.** The append-only record of every baseline, assessment, and operator note from the pilot. You can re-verify any assessment later.
 - **Readout session** with RTG engineers.
 
 ## Sample deliverables

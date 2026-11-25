@@ -43,6 +43,7 @@ RF Sentinel listens across Bluetooth, WiFi, Zigbee/802.15.4, TPMS and other sub-
 | **Track** | Entity resolution and identity tracking: Bluetooth Classic LAP/UAP, BLE metadata and manufacturers, WiFi AP/station topology, recurring TPMS IDs. |
 | **Understand** | Pattern-of-life: weekly and weekend recurrence, normal baselines, anomaly triage, strong-signal proximity review. |
 | **Investigate** | The read-only Analyst finds new and missing devices, relationship and signal changes, and silent sensors. Each finding has cited evidence, ranked explanations, and proposed next steps. |
+| **Remember** | Append-only environment memory: versioned baselines, "what changed since the last assessment", operator notes that never rewrite evidence, and assessments that can be re-verified later. |
 | **Prove** | Validation harness, published result card, verifiable evidence bundles, and recorded walkthroughs of the shipped dashboard. |
 | **Integrate** | Docker packaging, a protocol plugin model, a JSON status API, and an optional LLM provider (local or cloud) behind the same read-only tools and checks. |
 
@@ -183,7 +184,7 @@ Scope and pricing follow a short discovery call. **[What the pilot includes →]
 - **Licensing.** A commercial license for deployment in your environment or product.
 - **Integration.** Connect your SDRs, sensors, or existing event sources to the normalized pipeline, dashboards, and Analyst.
 - **Custom protocols and features.** New receiver plugins, reports, and deployment packaging for your mission.
-- **Roadmap partnership.** Help shape persistent environment memory, bounded investigation missions with operator approval, and multi-site fleet monitoring. These are on the roadmap and not yet shipped.
+- **Roadmap partnership.** Help shape bounded investigation missions with operator approval, and multi-site fleet monitoring. These are on the roadmap and not yet shipped.
 
 **[Contact RTG to discuss your RF environment →](https://rtgspectrum.com/contact/)**
 
@@ -200,8 +201,8 @@ More from RTG Spectrum:
 | Multi-protocol passive sensing, normalized events, entity tracking, dashboard, pattern-of-life | Shipped |
 | Measured validation harness and published evidence | Shipped |
 | Analyst: read-only, evidence-backed investigation with dashboard drill-down | Shipped |
-| Persistent environment memory: versioned baselines, "what changed since the last assessment" | Next |
-| Bounded investigation missions with an independent policy engine and operator approval | Planned |
+| Persistent environment memory: versioned baselines, "what changed since the last assessment", operator notes, reproducible history | Shipped |
+| Bounded investigation missions with an independent policy engine and operator approval | Next |
 | Multi-site fleet: distributed collectors with per-site baselines | Planned |
 
 Full plans: [`docs/product_strategy.md`](docs/product_strategy.md), [`docs/architecture.md`](docs/architecture.md), [`docs/milestones.md`](docs/milestones.md).

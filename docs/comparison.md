@@ -23,7 +23,7 @@ This compares RF Sentinel with two widely used passive wireless monitoring tools
 | Sub-GHz sensors / TPMS | ✓ **live** | ✓ (rtl_433) | Not stated |
 | Other bands (FM, VLF/LF/MF, cellular awareness) | Plugins; **replay** | Cellular (modem/DIAG), ADS-B, AIS, LoRa, and more | Ethernet, drone Remote ID |
 | Distributed sensors | **Planned** (multi-site fleet) | ✓ remote capture | Not stated on pages read |
-| Baseline of known devices/networks | ✓ snapshot baselines | ✓ device baseline (added 2026) | ✓ expected APs/SSIDs, timelines |
+| Baseline of known devices/networks | ✓ versioned, append-only baselines | ✓ device baseline (added 2026) | ✓ expected APs/SSIDs, timelines |
 | Alerts / intrusion detection | Anomaly triage in the dashboard | ✓ WIDS alerts, syslog/SIEM | ✓ detections, email/Splunk actions |
 | Pattern-of-life (recurrence by day and cadence) | ✓ | Trend-based alerts | Timelines of changes |
 | **Investigation report explaining each change** | ✓ Analyst | Not stated | Not stated |

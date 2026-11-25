@@ -250,6 +250,40 @@ def get_topology_changes(store: EvidenceStore, reference_snapshot_id: str, curre
             "evidence_refs": [ref.snapshot_id, cur.snapshot_id, *(m["ref"] for m in moved)]}
 
 
+def _fingerprint(row: dict[str, Any]) -> dict[str, Any]:
+    manufacturer = row.get("manufacturer") if isinstance(row.get("manufacturer"), dict) else {}
+    appearance = row.get("appearance") if isinstance(row.get("appearance"), dict) else {}
+    return {"protocol": row.get("protocol"), "company_id": manufacturer.get("company_id"),
+            "uuid16": sorted(row.get("uuid16") or []), "appearance": appearance.get("category")}
+
+
+def find_identity_candidates(store: EvidenceStore, reference_snapshot_id: str, current_snapshot_id: str,
+                             entity_key: str) -> dict[str, Any]:
+    """Earlier entities that could be the same device under a new identifier (e.g. a rotated BLE address).
+
+    A candidate shares the advertising fingerprint (protocol, manufacturer ID, service UUIDs, appearance)
+    and went quiet in the current window. A fingerprint match is not proof of identity.
+    """
+    ref, cur = store.snapshot(reference_snapshot_id), store.snapshot(current_snapshot_id)
+    row = cur.entities.get(entity_key)
+    if row is None:
+        raise KeyError(f"Unknown entity in current snapshot: {entity_key}")
+    print_ = _fingerprint(row)
+    informative = print_["company_id"] is not None or bool(print_["uuid16"])
+    candidates = []
+    if informative:
+        for key, before in sorted(ref.entities.items()):
+            if key == entity_key or _fingerprint(before) != print_:
+                continue
+            if _count(cur.entities.get(key)) > _count(before):
+                continue  # still transmitting under its own identifier
+            candidates.append({"key": key, "identity": before.get("identity"), "ref": f"entity:{key}@{ref.snapshot_id}"})
+    return {"entity_key": entity_key, "fingerprint": print_, "fingerprint_informative": informative,
+            "candidates": candidates, "candidate_count": len(candidates),
+            "note": "Shared fingerprint plus silence of the earlier identifier. Possible, not proven, same device.",
+            "evidence_refs": [f"entity:{entity_key}@{cur.snapshot_id}", *(c["ref"] for c in candidates)]}
+
+
 MAX_EVIDENCE_IDS = 20
 
 
@@ -298,6 +332,14 @@ READ_ONLY_TOOLS: dict[str, dict[str, Any]] = {
         "input_schema": {"type": "object", "additionalProperties": False,
                          "required": ["reference_snapshot_id", "current_snapshot_id"],
                          "properties": {"reference_snapshot_id": ARG_STRING, "current_snapshot_id": ARG_STRING}},
+    },
+    "find_identity_candidates": {
+        "fn": find_identity_candidates,
+        "description": "For an entity in the current snapshot, list earlier entities with the same advertising fingerprint that went quiet: possible same device under a new identifier (e.g. rotated BLE address). Not proof of identity.",
+        "input_schema": {"type": "object", "additionalProperties": False,
+                         "required": ["reference_snapshot_id", "current_snapshot_id", "entity_key"],
+                         "properties": {"reference_snapshot_id": ARG_STRING, "current_snapshot_id": ARG_STRING,
+                                        "entity_key": ARG_STRING}},
     },
     "get_evidence": {
         "fn": get_evidence,
