@@ -12,7 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 # Optional LLM provider for the read-only Analyst; deterministic analysis needs none of this.
-analyst-llm = ["pydantic-ai-slim[anthropic]>=2.74,<3; python_version >= '3.11'"]
+analyst-llm = ["pydantic-ai-slim[anthropic,openai]>=2.74,<3; python_version >= '3.11'"]
 
 [project.scripts]
 rf-sentinel-scan = "rf_platform.scanner:main"

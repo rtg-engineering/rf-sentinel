@@ -26,6 +26,29 @@ def _numbers(text: str) -> list[str]:
     return re.findall(r"-?\d+(?:\.\d+)?", text)
 
 
+FLAGGED = (("new_entities", "new_entity"), ("relationship_changes", "relationship_change"),
+           ("signal_changes", "signal_change"))
+
+
+def uncovered_changes(draft: dict[str, Any], store: EvidenceStore) -> list[dict[str, str]]:
+    """Changes flagged by any compare_baselines result that no finding of the matching category cites."""
+    missing = []
+    for result in store.computed.values():
+        if result.get("tool") != "compare_baselines":
+            continue
+        for list_name, category in FLAGGED:
+            for item in result.get(list_name, []):
+                key = str(item.get("key"))
+                covered = any(
+                    f.get("category") == category and any(
+                        key in str(fact.get("ref")) or str(fact.get("value")) == key
+                        for fact in [*f.get("observed_facts", []), *f.get("computed_results", [])])
+                    for f in draft.get("findings", []))
+                if not covered:
+                    missing.append({"category": category, "key": key})
+    return missing
+
+
 def check(draft: dict[str, Any], store: EvidenceStore, executed_actions: list[Any] | None = None) -> dict[str, Any]:
     """Return a grounding report. A finding is grounded only if every fact and reference verifies."""
     issues: list[dict[str, str]] = []
@@ -85,6 +108,9 @@ def check(draft: dict[str, Any], store: EvidenceStore, executed_actions: list[An
         if tool in RESTRICTED_TOOLS and rec["permission"] != "requires_approval":
             issues.append({"finding_id": "-", "where": f"recommendations.{rec['recommendation_id']}",
                            "problem": f"'{tool}' is restricted and must be marked requires_approval"})
+    for gap in uncovered_changes(draft, store):
+        issues.append({"finding_id": "-", "where": "coverage",
+                       "problem": f"flagged {gap['category']} for {gap['key']} has no {gap['category']} finding citing it"})
     if executed_actions:
         issues.append({"finding_id": "-", "where": "executed_actions",
                        "problem": f"{len(executed_actions)} action(s) executed; Phase 1 permits none"})

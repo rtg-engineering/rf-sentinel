@@ -162,6 +162,11 @@ class GroundingTest(unittest.TestCase):
         self.assertIn("restricted", self.failed(draft))
         self.assertIn("Phase 1 permits none", self.failed(self.draft, executed_actions=[{"tool": "start_passive_capture"}]))
 
+    def test_flagged_change_must_have_its_own_finding(self):
+        draft = copy.deepcopy(self.draft)
+        draft["findings"] = [f for f in draft["findings"] if f["category"] != "signal_change"]
+        self.assertIn("flagged signal_change for ble:02:00:00:00:99:01", self.failed(draft))
+
     def test_missing_limitations(self):
         draft = copy.deepcopy(self.draft)
         draft["limitations"] = []

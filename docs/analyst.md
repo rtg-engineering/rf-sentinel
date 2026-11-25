@@ -95,7 +95,9 @@ python3 -m rf_platform.analyst investigate before.json after.json --out run --pr
 python3 -m rf_platform.analyst investigate before.json after.json --out run --provider pydantic-ai --model ollama:<model>
 ```
 
-The default model is `anthropic:claude-opus-5-5`, with server-side refusal fallback enabled. The model only plans and writes. It sees the same three read-only tools through the same gateway. Its final answer must match the draft schema, and an output validator returns grounding failures for correction. If the model is unavailable or cannot produce a grounded draft, the investigation falls back to deterministic analysis, and the report records the provider error. The tests use a scripted local model and make no API calls.
+`--model openai-codex:<model>` uses an existing Codex CLI login (ChatGPT subscription). It reads `~/.codex/auth.json` read-only. Refresh tokens are single-use, so if the access token has expired, the refreshed token stays in memory only and the Codex CLI will need `codex login` again. Run it while the CLI's access token is still valid.
+
+The default model is `anthropic:claude-opus-5-5`, with server-side refusal fallback enabled. The model only plans and writes. It sees the same three read-only tools through the same gateway. Its final answer must match the draft schema, and an output validator returns grounding failures for correction. Every change flagged by `compare_baselines` must have its own finding of the matching category; the grounding check enforces this for every provider. If the model is unavailable or cannot produce a grounded draft, the investigation falls back to deterministic analysis, and the report records the provider error. The tests use a scripted local model and make no API calls.
 
 ## Evaluation
 
