@@ -1,0 +1,18 @@
+{
+ "expected": [
+  {
+   "category": "sensor_gap",
+   "hypothesis_supported": "sensor_or_collection",
+   "needle": "wlan-demo0"
+  }
+ ],
+ "forbidden": [
+  {
+   "category": "missing_entity",
+   "protocol": "WIFI"
+  },
+  {
+   "category": "new_entity"
+  }
+ ]
+}

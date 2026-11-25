@@ -30,6 +30,7 @@ HYPOTHESIS = {
         "status": {"enum": ["supported", "weakened", "open"]},
         "supporting_refs": {"type": "array", "items": REF},
         "weakening_refs": {"type": "array", "items": REF},
+        "rank": {"type": "integer"},
     },
 }
 
@@ -39,8 +40,8 @@ FINDING = {
                  "assessment", "confidence"],
     "properties": {
         "finding_id": {"type": "string", "minLength": 1},
-        "category": {"enum": ["new_entity", "relationship_change", "signal_change", "not_reobserved",
-                              "collection_quality"]},
+        "category": {"enum": ["new_entity", "relationship_change", "signal_change", "missing_entity",
+                              "sensor_gap", "not_reobserved", "collection_quality"]},
         "title": {"type": "string", "minLength": 1},
         "observed_facts": {"type": "array", "minItems": 1, "items": FACT},
         "computed_results": {"type": "array", "items": FACT},

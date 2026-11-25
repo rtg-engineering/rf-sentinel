@@ -1,7 +1,7 @@
 {
  "captured_at": "2026-11-22T12:05:00+00:00",
  "label": "current",
- "snapshot_id": "snapshot:current:073dfffcf959",
+ "snapshot_id": "snapshot:current:ad5aecc5d02d",
  "status": {
   "collection_metrics": {
    "complete": false,
@@ -9,8 +9,8 @@
    "events_attempted": 25,
    "events_dropped": 0,
    "events_rejected": 0,
-   "last_event_accepted_at": 1795572275.2390466,
-   "last_event_attempted_at": 1795572275.238245,
+   "last_event_accepted_at": 1795574390.1799278,
+   "last_event_attempted_at": 1795574390.179076,
    "last_event_sequence": 25,
    "rejection_reasons": {},
    "replay_cycle": 0
@@ -72,7 +72,7 @@
     "source_address": "02:10:7A:00:20:06",
     "ssid": "DemoMesh-2G",
     "ssid_visible": true,
-    "validation_emitted_at": 1795572275.2382693,
+    "validation_emitted_at": 1795574390.1791017,
     "validation_event_id": "validation-00000025",
     "validation_sequence": 25,
     "wifi_role": "ap"
@@ -100,7 +100,7 @@
      "0x180A",
      "0xFEAA"
     ],
-    "validation_emitted_at": 1795572275.2378094,
+    "validation_emitted_at": 1795574390.1786096,
     "validation_event_id": "validation-00000024",
     "validation_sequence": 24
    },
@@ -124,7 +124,7 @@
     "source_address": "72:94:11:3B:0C:90",
     "ssid": "FieldLab-AP-01",
     "ssid_visible": true,
-    "validation_emitted_at": 1795572275.237643,
+    "validation_emitted_at": 1795574390.1784415,
     "validation_event_id": "validation-00000023",
     "validation_sequence": 23,
     "wifi_role": "station"
@@ -152,7 +152,7 @@
      "0x180A",
      "0xFEAA"
     ],
-    "validation_emitted_at": 1795572275.237223,
+    "validation_emitted_at": 1795574390.177973,
     "validation_event_id": "validation-00000022",
     "validation_sequence": 22
    },
@@ -200,7 +200,7 @@
     "seen_at": 1795348800.0,
     "target": null,
     "technology": "LTE",
-    "validation_emitted_at": 1795572275.231996,
+    "validation_emitted_at": 1795574390.1726606,
     "validation_event_id": "validation-00000021",
     "validation_sequence": 21
    },
@@ -226,7 +226,7 @@
     "power_dbfs": null,
     "protocol": "LFMF",
     "seen_at": 1795348800.0,
-    "validation_emitted_at": 1795572275.2318757,
+    "validation_emitted_at": 1795574390.1725345,
     "validation_event_id": "validation-00000020",
     "validation_sequence": 20
    },
@@ -254,7 +254,7 @@
      "0x180A",
      "0xFD6F"
     ],
-    "validation_emitted_at": 1795572275.2314923,
+    "validation_emitted_at": 1795574390.1721313,
     "validation_event_id": "validation-00000019",
     "validation_sequence": 19
    },
@@ -278,7 +278,7 @@
     "source_address": "72:94:11:3B:0C:90",
     "ssid": "Telemetry-GW",
     "ssid_visible": true,
-    "validation_emitted_at": 1795572275.2313735,
+    "validation_emitted_at": 1795574390.172017,
     "validation_event_id": "validation-00000018",
     "validation_sequence": 18,
     "wifi_role": "station"
@@ -303,7 +303,7 @@
     "source_address": "02:10:7A:00:30:11",
     "ssid": "Telemetry-GW",
     "ssid_visible": true,
-    "validation_emitted_at": 1795572275.2312663,
+    "validation_emitted_at": 1795574390.1719046,
     "validation_event_id": "validation-00000017",
     "validation_sequence": 17,
     "wifi_role": "ap"
@@ -330,7 +330,7 @@
     "seen_at": 1795348800.0,
     "sequence_number": 66,
     "source_address": "0x3021",
-    "validation_emitted_at": 1795572275.2311532,
+    "validation_emitted_at": 1795574390.1717024,
     "validation_event_id": "validation-00000016",
     "validation_sequence": 16
    },
@@ -356,7 +356,7 @@
     "tracking_us": 184000,
     "type": "lap_narrowed",
     "uap": "XX",
-    "validation_emitted_at": 1795572275.230981,
+    "validation_emitted_at": 1795574390.1715386,
     "validation_event_id": "validation-00000015",
     "validation_sequence": 15
    },
@@ -385,7 +385,7 @@
     "saved_wav_path": null,
     "seen_at": 1795348800.0,
     "signal_dbfs": null,
-    "validation_emitted_at": 1795572275.230866,
+    "validation_emitted_at": 1795574390.1714296,
     "validation_event_id": "validation-00000014",
     "validation_sequence": 14,
     "voice_activity_ratio": 0.68,
@@ -411,7 +411,7 @@
     "source_address": "8A:D3:5B:21:44:14",
     "ssid": "DemoMesh-2G",
     "ssid_visible": true,
-    "validation_emitted_at": 1795572275.2307441,
+    "validation_emitted_at": 1795574390.1713223,
     "validation_event_id": "validation-00000013",
     "validation_sequence": 13,
     "wifi_role": "station"
@@ -433,7 +433,7 @@
      "2026-11-22",
      "2026-11-15"
     ],
-    "validation_emitted_at": 1795572275.23062,
+    "validation_emitted_at": 1795574390.1711955,
     "validation_event_id": "validation-00000012",
     "validation_sequence": 12
    },
@@ -457,7 +457,7 @@
     "source_address": "8A:D3:5B:21:44:13",
     "ssid": "DemoMesh-2G",
     "ssid_visible": true,
-    "validation_emitted_at": 1795572275.2305048,
+    "validation_emitted_at": 1795574390.171088,
     "validation_event_id": "validation-00000011",
     "validation_sequence": 11,
     "wifi_role": "station"
@@ -482,7 +482,7 @@
     "source_address": "8A:D3:5B:21:44:12",
     "ssid": "DemoMesh-2G",
     "ssid_visible": true,
-    "validation_emitted_at": 1795572275.2303884,
+    "validation_emitted_at": 1795574390.170974,
     "validation_event_id": "validation-00000010",
     "validation_sequence": 10,
     "wifi_role": "station"
@@ -507,7 +507,7 @@
     "source_address": "8A:D3:5B:21:44:11",
     "ssid": "DemoMesh-2G",
     "ssid_visible": true,
-    "validation_emitted_at": 1795572275.230259,
+    "validation_emitted_at": 1795574390.170837,
     "validation_event_id": "validation-00000009",
     "validation_sequence": 9,
     "wifi_role": "station"
@@ -539,7 +539,7 @@
     "source_address": "8A:D3:5B:21:44:10",
     "ssid": "DemoMesh-2G",
     "ssid_visible": true,
-    "validation_emitted_at": 1795572275.2300897,
+    "validation_emitted_at": 1795574390.1706731,
     "validation_event_id": "validation-00000008",
     "validation_sequence": 8,
     "wifi_role": "station"
@@ -600,7 +600,7 @@
     "source_address": "02:10:7A:00:20:06",
     "ssid": "DemoMesh-2G",
     "ssid_visible": true,
-    "validation_emitted_at": 1795572275.2296052,
+    "validation_emitted_at": 1795574390.170212,
     "validation_event_id": "validation-00000007",
     "validation_sequence": 7,
     "wifi_role": "ap"
@@ -629,7 +629,7 @@
      "0x180D",
      "0x180F"
     ],
-    "validation_emitted_at": 1795572275.229211,
+    "validation_emitted_at": 1795574390.1698108,
     "validation_event_id": "validation-00000006",
     "validation_sequence": 6
    },
@@ -663,7 +663,7 @@
      "2026-10-11"
     ],
     "stereo_likely": true,
-    "validation_emitted_at": 1795572275.2290096,
+    "validation_emitted_at": 1795574390.1696134,
     "validation_event_id": "validation-00000005",
     "validation_sequence": 5
    },
@@ -693,7 +693,7 @@
     ],
     "sequence_number": 177,
     "source_address": "0x7C4A",
-    "validation_emitted_at": 1795572275.2288487,
+    "validation_emitted_at": 1795574390.1694694,
     "validation_event_id": "validation-00000004",
     "validation_sequence": 4
    },
@@ -724,7 +724,7 @@
     "source_address": "02:10:7A:00:10:01",
     "ssid": "FieldLab-AP-01",
     "ssid_visible": true,
-    "validation_emitted_at": 1795572275.2286584,
+    "validation_emitted_at": 1795574390.1692665,
     "validation_event_id": "validation-00000003",
     "validation_sequence": 3,
     "wifi_role": "ap"
@@ -767,7 +767,7 @@
      "0x180A",
      "0xFEAA"
     ],
-    "validation_emitted_at": 1795572275.2273371,
+    "validation_emitted_at": 1795574390.1687188,
     "validation_event_id": "validation-00000002",
     "validation_sequence": 2
    },
@@ -802,7 +802,7 @@
     "tracking_us": 356000,
     "type": "lap_seen",
     "uap": "5A",
-    "validation_emitted_at": 1795572275.2256784,
+    "validation_emitted_at": 1795574390.1670127,
     "validation_event_id": "validation-00000001",
     "validation_sequence": 1
    }
@@ -1748,7 +1748,7 @@
     "last_center_freq_hz": 2442000000,
     "mode": "demo",
     "protocol": "BTC",
-    "seen_at": 1795572275.238337
+    "seen_at": 1795574390.1791735
    },
    "demo-hackrf:0": {
     "band": "Zigbee, sub-GHz, walkie, and cellular public demo sweep",
@@ -1759,7 +1759,7 @@
     "last_center_freq_hz": 2450000000,
     "mode": "demo",
     "protocol": "ZIGBEE",
-    "seen_at": 1795572275.238337
+    "seen_at": 1795574390.1791735
    },
    "demo-rtlsdr:0": {
     "band": "Broadcast FM public demo sweep",
@@ -1770,7 +1770,7 @@
     "last_center_freq_hz": 101700000,
     "mode": "demo",
     "protocol": "fm",
-    "seen_at": 1795572275.238337
+    "seen_at": 1795574390.1791735
    },
    "demo-sdrplay:0": {
     "band": "VLF/LF/MF public demo awareness",
@@ -1781,7 +1781,7 @@
     "last_center_freq_hz": 530000,
     "mode": "demo",
     "protocol": "lfmf",
-    "seen_at": 1795572275.238337
+    "seen_at": 1795574390.1791735
    },
    "wlan-demo0": {
     "band": "WiFi monitor channels 1, 6, and 11",
@@ -1793,7 +1793,7 @@
     "last_protocol": "wifi",
     "mode": "demo",
     "protocol": "wifi",
-    "seen_at": 1795572275.2383451
+    "seen_at": 1795574390.1791825
    }
   },
   "worker_alive": false

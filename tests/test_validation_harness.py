@@ -249,6 +249,34 @@ class BackendValidationTest(unittest.TestCase):
                 b.shutdown_complete = True
                 worker.join(3)
 
+    def test_analyst_endpoints_are_read_only_and_grounded(self):
+        b = self.backend
+        with b.analyst_lock:
+            b.analyst_session.update(baseline=None, investigation=None)
+        self.assertEqual(self.client.post('/api/analyst/investigate', json={}).status_code, 409)
+        self.assertEqual(self.client.get('/api/analyst/report').status_code, 404)
+        events = build_validation_events()
+        baseline_count = sum(e['scenario_phase'] == 'baseline' for e in events)
+        for event in events[:baseline_count]:
+            b._demo_ingest_payload(event)
+        baseline = self.client.post('/api/analyst/baseline', json={}).get_json()
+        self.assertTrue(baseline['snapshot_id'].startswith('snapshot:baseline:'))
+        for event in events[baseline_count:]:
+            b._demo_ingest_payload(event)
+        before = self.client.get('/api/status').get_json()['validation_metrics']['events_accepted']
+        inv = self.client.post('/api/analyst/investigate', json={}).get_json()
+        self.assertTrue(inv['grounding']['passed'], inv['grounding']['issues'])
+        self.assertEqual(inv['executed_actions'], [])
+        self.assertIn('new_entity', [f['category'] for f in inv['findings']])
+        self.assertNotIn('scenario_', json.dumps(inv))
+        after = self.client.get('/api/status').get_json()['validation_metrics']['events_accepted']
+        self.assertEqual(before, after)  # investigation does not touch ingestion state
+        latest = self.client.get('/api/analyst/latest').get_json()
+        self.assertEqual(latest['investigation']['investigation_id'], inv['investigation_id'])
+        page = self.client.get('/api/analyst/report')
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(inv['investigation_id'], page.get_data(as_text=True))
+
     def test_live_status_does_not_expose_truth(self):
         b = self.backend
         with patch.object(b,'RF_SENTINEL_DEMO_MODE',False), patch.object(b,'_sync_scanner_assignment_centers_from_gateway',return_value={}), patch.object(b,'_available_devices',return_value=[]):

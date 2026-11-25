@@ -1,0 +1,20 @@
+{
+ "expected": [],
+ "forbidden": [
+  {
+   "category": "new_entity"
+  },
+  {
+   "category": "relationship_change"
+  },
+  {
+   "category": "signal_change"
+  },
+  {
+   "category": "missing_entity"
+  },
+  {
+   "category": "sensor_gap"
+  }
+ ]
+}

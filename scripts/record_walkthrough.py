@@ -34,11 +34,24 @@ def walkthrough_events():
     return events
 
 
+# Analyst walkthrough: baseline finishes quickly; changes arrive after the baseline has been captured.
+ANALYST_CHANGE_OFFSETS_S = {"new_entity": 16.0, "relationship_change": 17.0,
+                            "off_cadence_activity": 18.0, "operator_review": 19.0}
+
+
+def analyst_walkthrough_events():
+    events = build_validation_events(2.5, 10)
+    for event in events:
+        phase = event["scenario_phase"]
+        event["offset_s"] = ANALYST_CHANGE_OFFSETS_S.get(phase, event["validation_sequence"] * 0.25)
+    return events
+
+
 def run(args, **kwargs):
     return subprocess.run(args, check=True, text=True, **kwargs)
 
 
-def encode(frames: Path, media: Path) -> tuple[Path, Path]:
+def encode(frames: Path, media: Path, name: str = "rf-sentinel-operator-walkthrough") -> tuple[Path, Path]:
     timeline = json.loads((frames / "timeline.json").read_text())
     concat = frames / "concat.txt"
     lines = []
@@ -47,8 +60,8 @@ def encode(frames: Path, media: Path) -> tuple[Path, Path]:
         lines += [f"file '{index:05d}.jpg'", f"duration {max(end - start, 0.01):.3f}"]
     lines.append(f"file '{len(timeline) - 1:05d}.jpg'")  # concat demuxer needs the last file repeated
     concat.write_text("\n".join(lines) + "\n")
-    mp4 = media / "rf-sentinel-operator-walkthrough.mp4"
-    gif = media / "rf-sentinel-operator-walkthrough.gif"
+    mp4 = media / f"{name}.mp4"
+    gif = media / f"{name}.gif"
     base = ["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(concat)]
     run(base + ["-vf", "fps=15,scale=1280:-2:flags=lanczos", "-c:v", "libx264", "-pix_fmt", "yuv420p",
                 "-crf", "26", "-movflags", "+faststart", str(mp4)])
@@ -60,14 +73,19 @@ def encode(frames: Path, media: Path) -> tuple[Path, Path]:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", action="store_true", help="Rebuild the demo and validation images first")
+    parser.add_argument("--analyst", action="store_true",
+                        help="Record the Analyst flow (baseline, change, investigate, explain, evidence) instead")
     args = parser.parse_args()
+    browser_script = "analyst_walkthrough_browser.py" if args.analyst else "walkthrough_browser.py"
+    media_name = "rf-sentinel-analyst-walkthrough" if args.analyst else "rf-sentinel-operator-walkthrough"
     if not shutil.which("ffmpeg"):
         parser.error("ffmpeg is required on the host")
-    work = ROOT / ".demo/walkthrough"
+    work = ROOT / (".demo/analyst-walkthrough" if args.analyst else ".demo/walkthrough")
     shutil.rmtree(work, ignore_errors=True)
     frames = work / "frames"; frames.mkdir(parents=True)
     fixture = work / "events.jsonl"
-    fixture.write_text("".join(json.dumps(e, sort_keys=True) + "\n" for e in walkthrough_events()))
+    events = analyst_walkthrough_events() if args.analyst else walkthrough_events()
+    fixture.write_text("".join(json.dumps(e, sort_keys=True) + "\n" for e in events))
     if args.build:
         for dockerfile, tag in [("Dockerfile.demo", "rf-sentinel:public-demo"), ("Dockerfile.validation", "rf-sentinel:validation")]:
             run(["docker", "build", "-q", "-f", dockerfile, "-t", tag, "."], cwd=ROOT, stdout=subprocess.DEVNULL)
@@ -81,10 +99,10 @@ def main():
              "--user", f"{subprocess.os.getuid()}:{subprocess.os.getgid()}", "-e", "HOME=/tmp",
              "-v", f"{work}:/results", "--entrypoint", "sh", "rf-sentinel:validation", "-c",
              "for i in $(seq 100); do python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/status', timeout=2)\" 2>/dev/null && break; sleep .3; done; "
-             "exec python3 scripts/walkthrough_browser.py http://127.0.0.1:8080 /results/frames"])
+             f"exec python3 scripts/{browser_script} http://127.0.0.1:8080 /results/frames"])
     finally:
         subprocess.run(["docker", "rm", "-f", name], capture_output=True)
-    mp4, gif = encode(frames, ROOT / "docs/media")
+    mp4, gif = encode(frames, ROOT / "docs/media", media_name)
     for path in (mp4, gif):
         print(f"{path.relative_to(ROOT)}  {path.stat().st_size / 2**20:.1f} MiB")
 

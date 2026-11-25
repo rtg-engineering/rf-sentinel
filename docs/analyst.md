@@ -2,7 +2,20 @@
 
 The Analyst answers *"what changed in this wireless environment, and what evidence supports it?"* It works from captured `/api/status` snapshots. It cannot change ingestion, detections, receivers, or scan schedules. Every factual claim in a report is re-read from the cited evidence by code, not by a model.
 
-This is Phase 1 of the autonomous-investigation roadmap: read-only, evidence-backed reports over the deterministic Docker scenario. It does not run missions, keep persistent memory across sessions, or execute any collection action.
+This covers Phases 1 and 2 of the autonomous-investigation roadmap:
+- read-only, evidence-backed reports;
+- bounded multi-step analysis with sensor-health reasoning;
+- ranked hypotheses, evaluation on held-out scenarios, and dashboard drill-down.
+
+It does not run missions, keep persistent memory across sessions, or execute any collection action.
+
+## In the dashboard
+
+Click **Investigate**, then **Set baseline** to snapshot what the dashboard currently shows. Let activity accumulate, then click **Investigate changes**. The overlay lists grounded findings, each with its leading explanation and the alternatives. Each cited entity is a chip: click it to open that entity's row in the detections table. **Full report** opens the HTML report.
+
+The dashboard runs only the deterministic analyst, never a model. The investigation reads the same `/api/status` payload the dashboard uses and does not change ingestion state. The endpoints are `POST /api/analyst/baseline`, `POST /api/analyst/investigate`, `GET /api/analyst/latest` and `GET /api/analyst/report`.
+
+`python3 scripts/record_walkthrough.py --analyst --build` records this flow as `docs/media/rf-sentinel-analyst-walkthrough.{mp4,gif}`.
 
 ## Run it
 
@@ -64,9 +77,16 @@ A snapshot ID is a hash of its content, so a modified snapshot file is rejected 
 |---|---|
 | `get_environment_summary(snapshot_id)` | Entities by protocol, WiFi roles, collection health, sensors, data-quality notes |
 | `get_entity_history(entity_key)` | Presence, counts, signal, association, recurrence across snapshots; linked observations |
-| `compare_baselines(reference, current)` | New, re-observed, and not re-observed entities; WiFi relationship changes; signal changes |
+| `compare_baselines(reference, current)` | New, re-observed, and not re-observed entities; entities absent despite an expected detection rate; silent sensors; WiFi relationship changes; signal changes |
+| `get_sensor_health(reference, current)` | Per sensor: protocols covered, new versus expected detections, status (`producing`, `silent_unexpectedly`, `insufficient_window`) |
+| `get_topology_changes(reference, current)` | WiFi stations per access point in both snapshots, stations that moved, new APs |
+| `get_evidence(event_ids)` | Up to 20 citable normalized detections |
 
-The gateway refuses unknown tools and the roadmap's restricted tools (`start_passive_capture`, `modify_scan_schedule`, `share_report`, `export_evidence_bundle`). It also enforces the call budget. Every call is audited, including refusals. Phase 1 executes no restricted action. A recommendation that would need one is recorded as `requires_approval`, with `executed: false`.
+**Expected detections.** An entity's or sensor's share of reference detections, multiplied by all new detections between the two snapshots. An absence is flagged only when at least 2 new detections were expected for an entity, or 3 for a sensor. Shorter windows are reported as insufficient, not as absences. Sensor coverage is inferred from scanner assignments (`protocol` and any `--protocols` list), because demo detections carry no per-detection sensor.
+
+**Signal changes.** A strong signal (above -42 dBFS) is a change only for a new entity, or for one that rose from at least 6 dB below the threshold. Jitter around the threshold is not reported.
+
+The gateway enforces a call budget and a wall-clock budget. It refuses unknown tools and the roadmap's restricted tools (`start_passive_capture`, `modify_scan_schedule`, `share_report`, `export_evidence_bundle`). It also enforces the call budget. Every call is audited, including refusals. Phase 1 executes no restricted action. A recommendation that would need one is recorded as `requires_approval`, with `executed: false`.
 
 ### Report structure
 
@@ -74,14 +94,14 @@ Each finding separates:
 
 - **Observed facts**: `(ref, field, value)` read from snapshot, entity, event, or sensor evidence;
 - **Computed results**: `(ref, field, value)` from a `computed:` tool result;
-- **Hypotheses**: candidate explanations, always including benign and sensor/collection alternatives;
+- **Hypotheses**: candidate explanations, always including benign and sensor/collection alternatives. They are ranked by evidence: supported first, then open, then weakened; more cited support ranks higher. A rank orders explanations; it never turns one into a fact;
 - **Assessment** and **confidence**.
 
 Every report states its limitations. HTML and JSON are rendered from the same investigation record. Device names and SSIDs are HTML-escaped and treated as data.
 
 ### Grounding
 
-`grounding.check` fails a finding when a cited reference does not exist, when the cited field is missing, or when the stated value differs from the evidence. It also fails when an observed fact cites a computed result (or the reverse), or when a hypothesis cites a missing reference. Recommendations are checked too: a restricted tool not marked `requires_approval`, or any executed action, fails the check. Numbers in titles and assessments that match no cited value produce warnings for review. A finding that fails is shown as **Unsupported**.
+`grounding.check` fails a finding when a cited reference does not exist, when the cited field is missing, or when the stated value differs from the evidence. It also fails when an observed fact cites a computed result (or the reverse), or when a hypothesis cites a missing reference. Recommendations are checked too: a restricted tool not marked `requires_approval`, or any executed action, fails the check. Numbers in titles and assessments that match no cited value produce warnings for review. A hypothesis marked `supported` must cite supporting evidence, and one marked `weakened` must cite what weakens it. Every change that `compare_baselines` flags must have its own finding of the matching category. That covers new entities, relationship changes, signal changes, silent sensors (`sensor_gap`), and absent entities whose sensor is still producing (`missing_entity`). A finding that fails is shown as **Unsupported**.
 
 ## Providers
 
@@ -100,6 +120,25 @@ python3 -m rf_platform.analyst investigate before.json after.json --out run --pr
 The default model is `anthropic:claude-opus-5-5`, with server-side refusal fallback enabled. The model only plans and writes. It sees the same three read-only tools through the same gateway. Its final answer must match the draft schema, and an output validator returns grounding failures for correction. Every change flagged by `compare_baselines` must have its own finding of the matching category; the grounding check enforces this for every provider. If the model is unavailable or cannot produce a grounded draft, the investigation falls back to deterministic analysis, and the report records the provider error. The tests use a scripted local model and make no API calls.
 
 ## Evaluation
+
+Held-out scenarios in `tests/fixtures/analyst/` are generated from the real backend by `scripts/build_analyst_fixtures.py`:
+
+| Scenario | Current window | Correct outcome |
+|---|---|---|
+| `new_entity` | New BLE beacon, a station moves AP, strong signal | Those three changes |
+| `ap_outage` | One AP and its station go silent; the WiFi sensor keeps producing | Two missing entities; receiver fault weakened |
+| `wifi_sensor_outage` | All WiFi traffic stops; other sensors produce | One sensor gap; no WiFi device reported missing |
+| `quiet_control` | Normal traffic | No change findings |
+
+Each scenario's `truth.json` is read only by the evaluator.
+
+```bash
+python3 scripts/evaluate_analyst.py                                    # deterministic
+python3 scripts/evaluate_analyst.py --provider pydantic-ai --model openai-codex:<model> --runs 2
+```
+
+Results go to `.demo/analyst/eval-<UTC>/results.json`, with a bundle per run. The results record whether each draft was written by the provider or came from the deterministic fallback.
+
 
 `rf_platform/analyst/evaluate.py` scores an investigation against scenario truth from the fixture. It checks:
 

@@ -1786,6 +1786,32 @@
         padding: 12px;
       }
 
+      .analyst-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin: 0 0 12px;
+      }
+
+      .analyst-finding .entity-chip {
+        cursor: pointer;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+      }
+
+      .analyst-hyps {
+        margin: 6px 0;
+        padding-left: 18px;
+      }
+
+      .entity-focus {
+        outline: 3px solid #ffcc4d;
+        outline-offset: -2px;
+      }
+
       .analytics-card .chips {
         margin-bottom: 8px;
       }
@@ -2180,6 +2206,24 @@
         <div id="patternAnalyticsContent" class="analytics-content"></div>
       </section>
     </div>
+    <div id="analystOverlay" class="config-overlay" hidden>
+      <section class="config-panel analytics-panel" role="dialog" aria-modal="true" aria-labelledby="analystTitle">
+        <div class="config-panel-head">
+          <div>
+            <h2 id="analystTitle">Analyst Investigation</h2>
+            <p>Read-only: what changed since the baseline, the evidence behind it, and competing explanations. Nothing is executed.</p>
+          </div>
+          <button class="ghost-btn" type="button" id="analystClose"><span class="material-symbols-rounded">close</span>Close</button>
+        </div>
+        <div class="analyst-actions">
+          <button class="secondary" type="button" id="analystBaselineBtn"><span class="material-symbols-rounded">flag</span>Set baseline</button>
+          <button type="button" id="analystRunBtn"><span class="material-symbols-rounded">manage_search</span>Investigate changes</button>
+          <a class="ghost-btn" id="analystReportLink" href="/api/analyst/report" target="_blank" rel="noopener" hidden><span class="material-symbols-rounded">description</span>Full report</a>
+          <span class="small" id="analystBaselineInfo">No baseline set.</span>
+        </div>
+        <div id="analystContent" class="analytics-content"></div>
+      </section>
+    </div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <div class="app">
       <header>
@@ -2336,6 +2380,7 @@
                   <option value="wifi-map">WiFi Map</option>
                 </select>
                 <button class="secondary analytics-btn" type="button" id="patternAnalyticsBtn"><span class="material-symbols-rounded">monitoring</span>Analytics</button>
+                <button class="secondary analytics-btn" type="button" id="analystBtn"><span class="material-symbols-rounded">manage_search</span>Investigate</button>
               </div>
             </div>
             <div class="identity-table-wrap" id="identityTableWrap"></div>
@@ -3577,7 +3622,7 @@
             const deviceType = fmtDeviceType(row);
             const deviceTypeDetail = fmtDeviceTypeDetail(row);
             return `
-              <tr class="${protocolClass(row.protocol)}"${followAttrs(row)}>
+              <tr class="${protocolClass(row.protocol)}" data-entity-key="${escapeHtml(row.key || "")}"${followAttrs(row)}>
                 <td>${protocolChip(row.protocol)}</td>
                 <td>${titleWithFollowLock(row)}</td>
                 <td>${deviceType || ""}${deviceTypeDetail ? `<br><span class="small">${deviceTypeDetail}</span>` : ""}</td>
@@ -3617,6 +3662,7 @@
           th.addEventListener("click", () => {
             setTableSort(th.dataset.sort || "last_seen_at");
             renderIdentityTable(rows);
+            applyEntityFocus();
           });
         });
       }
@@ -3906,7 +3952,7 @@
             const deviceType = fmtDeviceType(row);
             const deviceTypeDetail = fmtDeviceTypeDetail(row);
             return `
-              <article class="detection-card ${protocolClass(row.protocol)}"${followAttrs(row)}>
+              <article class="detection-card ${protocolClass(row.protocol)}" data-entity-key="${escapeHtml(row.key || "")}"${followAttrs(row)}>
                 <h3>${titleWithFollowLock(row)}</h3>
                 <div class="chips">
                   ${protocolChip(row.protocol)}
@@ -4736,6 +4782,7 @@
           updateBtcTargetVisibility(Boolean((btcTargetMacInput.value || "").trim() || status.test_target));
           const visibleRows = applyLastSeenFilter(status.discovery_table || []);
           renderIdentityTable(visibleRows);
+          applyEntityFocus();
           renderCandidates(status.classic_candidates || [], status.classic_addresses || [], visibleRows);
           renderSdrAssignments(status);
           renderBars(status);
@@ -5446,6 +5493,131 @@
         if (event.target === protocolConfigOverlay) closeProtocolConfigOverlay();
       });
       patternAnalyticsBtn.addEventListener("click", () => openPatternAnalytics(applyLastSeenFilter(latestStatus?.discovery_table || [])));
+
+      // Read-only Analyst: findings cite entities; clicking one opens its row in the detections table.
+      const analystOverlay = document.getElementById("analystOverlay");
+      const analystContent = document.getElementById("analystContent");
+      const analystBaselineInfo = document.getElementById("analystBaselineInfo");
+      const analystReportLink = document.getElementById("analystReportLink");
+      const TAB_FOR_PROTOCOL = { BTLE: "BTLE", BTC: "BTC", WIFI: "WIFI", ZIGBEE: "ZIGBEE", TPMS: "SUBGHZ",
+        WALKIE: "SUBGHZ", FM: "FM", LFMF: "LFMF", CELLULAR: "CELLULAR" };
+      let entityFocus = null;
+
+      function applyEntityFocus() {
+        if (!entityFocus || Date.now() > entityFocus.until) return;
+        const el = identityTableWrap.querySelector(`[data-entity-key="${CSS.escape(entityFocus.key)}"]`);
+        if (!el) return;
+        el.classList.add("entity-focus");
+        if (!entityFocus.scrolled) {
+          el.scrollIntoView({ block: "center" });
+          entityFocus.scrolled = true;
+        }
+      }
+
+      function focusEntity(key) {
+        const row = (latestStatus?.discovery_table || []).find((item) => item.key === key);
+        analystOverlay.hidden = true;
+        detectionViewSelect.value = "table";
+        entityFocus = { key, until: Date.now() + 10000, scrolled: false };
+        setDetectionTab(TAB_FOR_PROTOCOL[row?.protocol] || "ALL");
+      }
+
+      function citedEntities(finding) {
+        const keys = [];
+        for (const fact of finding.observed_facts || []) {
+          const ref = String(fact.ref || "");
+          if (!ref.startsWith("entity:")) continue;
+          const key = ref.slice(7, ref.lastIndexOf("@snapshot:"));
+          if (key && !keys.includes(key)) keys.push(key);
+        }
+        return keys;
+      }
+
+      function renderAnalyst(data) {
+        const baseline = data?.baseline;
+        analystBaselineInfo.textContent = baseline
+          ? `Baseline ${baseline.snapshot_id} · ${baseline.entity_count} entities · ${new Date(baseline.captured_at).toLocaleTimeString()}`
+          : "No baseline set.";
+        const inv = data?.investigation;
+        analystReportLink.hidden = !inv;
+        if (!inv) {
+          analystContent.innerHTML = `<div class="empty">${baseline ? "Investigate changes to compare the current state with the baseline." : "Set a baseline, let activity accumulate, then investigate changes."}</div>`;
+          return;
+        }
+        const g = inv.grounding || {};
+        const findings = (inv.findings || []).map((f) => {
+          const [top, ...rest] = f.hypotheses || [];
+          const chips = citedEntities(f).map((key) => `<button type="button" class="chip entity-chip" data-entity="${escapeHtml(key)}" title="Show in detections table">${materialIcon("my_location")} ${escapeHtml(key)}</button>`).join("");
+          return `
+            <article class="analytics-card analyst-finding">
+              <h3>${escapeHtml(f.title)}</h3>
+              <div class="chips">
+                <span class="chip">${escapeHtml(f.category.replaceAll("_", " "))}</span>
+                <span class="chip">confidence ${escapeHtml(f.confidence)}</span>
+                <span class="chip">${f.grounded ? "grounded" : "UNSUPPORTED"}</span>
+              </div>
+              ${top ? `<p><strong>Leading explanation (${escapeHtml(top.status)}):</strong> ${escapeHtml(top.statement)}</p>` : ""}
+              ${rest.length ? `<ul class="analyst-hyps">${rest.map((h) => `<li class="small">${escapeHtml(h.status)} · ${escapeHtml(h.statement)}</li>`).join("")}</ul>` : ""}
+              <p>${escapeHtml(f.assessment)}</p>
+              ${chips ? `<div class="chips">${chips}</div>` : ""}
+            </article>`;
+        }).join("");
+        const recs = (inv.recommendations || []).map((r) => `<li>${escapeHtml(r.action)} <span class="small">(${escapeHtml(r.permission.replaceAll("_", " "))}; proposed, not executed)</span></li>`).join("");
+        analystContent.innerHTML = `
+          <div class="analytics-summary">
+            <div class="analytics-stat"><span>Findings</span><strong>${(inv.findings || []).length}</strong></div>
+            <div class="analytics-stat"><span>Grounded</span><strong>${g.passed ? "Yes" : "No"}</strong></div>
+            <div class="analytics-stat"><span>Citations checked</span><strong>${Number(g.citations_checked || 0)}</strong></div>
+            <div class="analytics-stat"><span>Actions executed</span><strong>${(inv.executed_actions || []).length}</strong></div>
+          </div>
+          <div class="analytics-grid">${findings || `<div class="empty">No findings.</div>`}</div>
+          ${recs ? `<h3>Recommendations</h3><ul>${recs}</ul>` : ""}
+          <p class="small">${(inv.limitations || []).map(escapeHtml).join(" ")}</p>`;
+      }
+
+      async function analystRequest(path, options = {}) {
+        const response = await fetch(path, options);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+        return data;
+      }
+
+      async function refreshAnalyst() {
+        try {
+          renderAnalyst(await analystRequest("/api/analyst/latest"));
+        } catch (err) {
+          showToast(err.message || "Analyst unavailable");
+        }
+      }
+
+      document.getElementById("analystBtn").addEventListener("click", () => {
+        analystOverlay.hidden = false;
+        refreshAnalyst();
+      });
+      document.getElementById("analystClose").addEventListener("click", () => { analystOverlay.hidden = true; });
+      analystOverlay.addEventListener("click", (event) => {
+        if (event.target === analystOverlay) analystOverlay.hidden = true;
+        const chip = event.target.closest("[data-entity]");
+        if (chip) focusEntity(chip.dataset.entity);
+      });
+      document.getElementById("analystBaselineBtn").addEventListener("click", async () => {
+        try {
+          await analystRequest("/api/analyst/baseline", { method: "POST" });
+          refreshAnalyst();
+          showToast("Baseline captured");
+        } catch (err) {
+          showToast(err.message || "Baseline failed");
+        }
+      });
+      document.getElementById("analystRunBtn").addEventListener("click", async () => {
+        try {
+          const investigation = await analystRequest("/api/analyst/investigate", { method: "POST" });
+          const latest = await analystRequest("/api/analyst/latest");
+          renderAnalyst({ ...latest, investigation });
+        } catch (err) {
+          showToast(err.message || "Investigation failed");
+        }
+      });
       patternAnalyticsClose.addEventListener("click", closePatternAnalytics);
       patternAnalyticsOverlay.addEventListener("click", (event) => {
         if (event.target === patternAnalyticsOverlay) closePatternAnalytics();

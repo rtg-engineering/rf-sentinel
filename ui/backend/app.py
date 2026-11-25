@@ -8944,6 +8944,61 @@ def status():
         )
 
 
+# Read-only Analyst: snapshots the same /api/status payload the dashboard uses and runs the
+# deterministic investigation. It never changes detections, receivers, or scans, and calls no model.
+analyst_lock = threading.Lock()
+analyst_session: dict[str, Any] = {"baseline": None, "investigation": None}
+
+
+def _analyst_snapshot(label: str):
+    from rf_platform.analyst.evidence import Snapshot
+    return Snapshot.from_status(status().get_json(), label)
+
+
+@app.post("/api/analyst/baseline")
+def analyst_baseline():
+    snapshot = _analyst_snapshot("baseline")
+    with analyst_lock:
+        analyst_session.update(baseline=snapshot, investigation=None)
+    return jsonify({"snapshot_id": snapshot.snapshot_id, "captured_at": snapshot.captured_at,
+                    "entity_count": len(snapshot.entities)})
+
+
+@app.post("/api/analyst/investigate")
+def analyst_investigate():
+    from rf_platform.analyst.evidence import EvidenceStore
+    from rf_platform.analyst.investigate import run_investigation
+    with analyst_lock:
+        baseline = analyst_session["baseline"]
+    if baseline is None:
+        return jsonify({"error": "Set a baseline first."}), 409
+    current = _analyst_snapshot("current")
+    investigation = run_investigation(EvidenceStore([baseline, current]),
+                                      provenance="synthetic_replay" if RF_SENTINEL_DEMO_MODE else "live")
+    with analyst_lock:
+        analyst_session["investigation"] = investigation
+    return jsonify(investigation)
+
+
+@app.get("/api/analyst/latest")
+def analyst_latest():
+    with analyst_lock:
+        investigation, baseline = analyst_session["investigation"], analyst_session["baseline"]
+    return jsonify({"baseline": None if baseline is None else {
+        "snapshot_id": baseline.snapshot_id, "captured_at": baseline.captured_at,
+        "entity_count": len(baseline.entities)}, "investigation": investigation})
+
+
+@app.get("/api/analyst/report")
+def analyst_report():
+    from rf_platform.analyst.report import render_html
+    with analyst_lock:
+        investigation = analyst_session["investigation"]
+    if investigation is None:
+        return Response("No investigation has been run yet.", status=404, mimetype="text/plain")
+    return Response(render_html(investigation), mimetype="text/html")
+
+
 @app.post("/api/test/discoverable-dongle")
 def enable_discoverable_dongle():
     try:
