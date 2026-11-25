@@ -30,14 +30,19 @@ def gfsk(bits: list[int], cfo_hz: float, sps: int = 4) -> np.ndarray:
     return np.exp(1j * np.cumsum(np.pi * 0.5 * freq / sps + 2 * np.pi * cfo_hz / (sps * 1e6)))  # h = 0.5
 
 
-def capture(channel: int, count: int, snr_db: float, cfo_hz: float, delay: float, seed: int = 7):
+def capture(channel: int, count: int, snr_db: float, cfo_hz: float, delay: float, seed: int = 7,
+            corrupt_bits: int = 0):
+    """Synthetic capture; with corrupt_bits, that many bits after the header are flipped in every packet."""
     rng = np.random.default_rng(seed)
     parts, truth = [], set()
     for _ in range(count):
         length = int(rng.integers(6, 38))
         pdu = bytes([0x42, length]) + bytes(rng.integers(0, 256, length, dtype=np.uint8))
         truth.add(pdu.hex())
-        parts += [np.zeros(int(rng.integers(3000, 9000)), complex), gfsk(air_bits(channel, pdu), cfo_hz)]
+        bits = air_bits(channel, pdu)
+        for pos in rng.choice(np.arange(40 + 16, len(bits)), corrupt_bits, replace=False):
+            bits[pos] ^= 1
+        parts += [np.zeros(int(rng.integers(3000, 9000)), complex), gfsk(bits, cfo_hz)]
     x = np.concatenate(parts + [np.zeros(4000, complex)])
     if delay:  # fractional-sample timing offset
         n = np.arange(x.size) + delay
@@ -73,11 +78,53 @@ class BLEDecoderTest(unittest.TestCase):
         self.assertEqual(stats["crc_failures"] + stats["header_rejects"] + stats["length_rejects"]
                          + stats["truncated"], stats["aa_candidates"])
 
+    def test_corrupted_packets_are_never_reported(self):
+        for flips in (1, 2, 3):
+            raw, _ = capture(37, 40, 25, 30_000, 0.5, seed=flips, corrupt_bits=flips)
+            found, stats = decode(raw, 37, 131_072)
+            self.assertEqual(found, set(), flips)
+            self.assertEqual(stats["crc_valid"], 0)
+            self.assertGreaterEqual(stats["aa_candidates"], 40)  # every packet synchronised, none accepted
+
+    def test_low_snr_reports_only_transmitted_packets(self):
+        for snr_db in (4, 6, 8):
+            raw, truth = capture(38, 40, snr_db, -50_000, 1.1, seed=snr_db)
+            found, _ = decode(raw, 38, 131_072)
+            self.assertLessEqual(found, truth, snr_db)  # fewer decodes near threshold, but never invented ones
+
     def test_noise_produces_no_detections(self):
         rng = np.random.default_rng(3)
         raw = np.clip(np.round(rng.normal(scale=20, size=2 * RATE)), -128, 127).astype(np.int8).tobytes()
         found, _ = decode(raw, 37, 131_072)
         self.assertEqual(found, set())
+
+
+class DashboardParityTest(unittest.TestCase):
+    """The dashboard decodes BLE with the same decoder as the agent: identical detections and counters."""
+
+    @classmethod
+    def setUpClass(cls):
+        from tests.test_validation_harness import BackendValidationTest
+        BackendValidationTest.setUpClass()
+        cls.harness, cls.backend = BackendValidationTest, BackendValidationTest.backend
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.harness.tearDownClass()
+
+    def test_dashboard_and_agent_decoders_agree(self):
+        raw, truth = capture(37, 30, 15, 40_000, 0.7)
+        agent_found, agent_stats = decode(raw, 37, 131_072)
+        dashboard = self.backend.BluetoothDetector(RATE, "ble", 2_402_000_000, 37)
+        found, events = set(), []
+        for i in range(0, len(raw), 2 * 131_072):
+            _, out, candidates = dashboard.process_iq_i8(raw[i: i + 2 * 131_072])
+            self.assertEqual(candidates, [])
+            events += [e for e in out if e["kind"] == "ble_adv"]
+        self.assertEqual({e["packet"] for e in events}, truth)
+        self.assertEqual({e["packet"] for e in events}, agent_found)
+        self.assertEqual(dashboard.stats, agent_stats)
+        self.assertTrue(all(e["decoder"] == "own-crc" and "identity" in e for e in events))
 
 
 if __name__ == "__main__":

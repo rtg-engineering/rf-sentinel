@@ -405,6 +405,16 @@ class LapState:
     broken_packets: int = 0
 
 
+def shared_ble_detector(sample_rate_sps: int, center_freq_hz: int, channel: int):
+    """The BLE advertising decoder from the bluetooth-lowenergy plugin (installed, or from the source tree)."""
+    try:
+        from bluetooth_lowenergy.detector import BLEAdvertisingDetector
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "rf_platform/plugins/bluetooth-lowenergy/src"))
+        from bluetooth_lowenergy.detector import BLEAdvertisingDetector
+    return BLEAdvertisingDetector(sample_rate_sps=sample_rate_sps, center_freq_hz=center_freq_hz, channel=channel)
+
+
 class BluetoothDetector:
     def __init__(self, sample_rate_sps: int, mode: str, center_freq_hz: int, channel: int) -> None:
         self.sample_rate_sps = int(sample_rate_sps)
@@ -412,13 +422,14 @@ class BluetoothDetector:
         self.center_freq_hz = int(center_freq_hz)
         self.channel = int(channel)
         self._prev = np.complex64(1.0 + 0j)
-        self._bit_tail: list[int] = []
         self._classic_bit_tails: dict[int, list[int]] = {}
         self._classic_bits_processed = 0
         self._lap_map: dict[int, LapState] = {}
-        self._seen_packet_keys: dict[str, float] = {}
         self._burst_holdoff = 0
-        self.stats = {
+        # BLE is decoded by the shared plugin decoder, the same one the agent and ble_scanner use, so
+        # detections, de-duplication, CRC validation and decoder statistics mean the same thing everywhere.
+        self._ble = None if mode == "classic" else shared_ble_detector(sample_rate_sps, center_freq_hz, channel)
+        self.stats = self._ble.stats if self._ble is not None else {
             "preamble_hits": 0,
             "barker_hits": 0,
             "access_code_mismatch": 0,
@@ -439,14 +450,15 @@ class BluetoothDetector:
         return self.process_complex(z)
 
     def process_complex(self, z: np.ndarray) -> tuple[float, list[dict[str, Any]], list[dict[str, Any]]]:
+        if self._ble is not None:
+            rssi, events = self._ble.process_complex(z)
+            return rssi, events, []
         power = np.abs(z) ** 2
         rssi = float(10.0 * np.log10(float(np.mean(power)) + 1e-12))
         threshold = max(float(np.median(power) * 6.5), float(np.mean(power) * 2.2))
         burst_spans = self._find_bursts(power, threshold)
 
-        if self.mode == "classic":
-            return self._classic_events(z, rssi, burst_spans)
-        return rssi, self._ble_events(z, rssi, burst_spans), []
+        return self._classic_events(z, rssi, burst_spans)
 
     def _iq_bytes_to_complex(self, raw: bytes) -> np.ndarray:
         if len(raw) < 4:
@@ -479,36 +491,6 @@ class BluetoothDetector:
         self._burst_holdoff = max(0, self._burst_holdoff - power.size)
         return spans[:12]
 
-    def _ble_events(
-        self,
-        z: np.ndarray,
-        rssi_dbfs: float,
-        burst_spans: list[tuple[int, int, float]],
-    ) -> list[dict[str, Any]]:
-        events: list[dict[str, Any]] = []
-        bits = self._gfsk_bits(z)
-        if not bits:
-            return self._burst_only_events("ble_burst", rssi_dbfs, burst_spans)
-
-        search_bits = (self._bit_tail + bits)[-8192:]
-        self._bit_tail = search_bits[-96:]
-        for polarity in (0, 1):
-            normalized = [bit ^ polarity for bit in search_bits]
-            packet_events = self._extract_ble_adv_packets(normalized, rssi_dbfs)
-            events.extend(packet_events)
-        if not events:
-            events.extend(self._burst_only_events("ble_burst", rssi_dbfs, burst_spans))
-        return events[:16]
-
-    def _gfsk_bits(self, z: np.ndarray) -> list[int]:
-        freq = self._gfsk_discriminator(z)
-        sps = max(1, int(round(self.sample_rate_sps / 1_000_000.0)))
-        usable = (freq.size // sps) * sps
-        if usable <= 0:
-            return []
-        symbols = freq[:usable].reshape(-1, sps).mean(axis=1)
-        return [1 if value > 0 else 0 for value in symbols.tolist()]
-
     def _gfsk_discriminator(self, z: np.ndarray) -> np.ndarray:
         prev = np.empty_like(z)
         prev[0] = self._prev
@@ -529,202 +511,6 @@ class BluetoothDetector:
             if symbols.size:
                 streams.append((phase, [1 if value > 0 else 0 for value in symbols.tolist()]))
         return streams
-
-    def _extract_ble_adv_packets(self, bits: list[int], rssi_dbfs: float) -> list[dict[str, Any]]:
-        access_bits = self._bytes_to_lsb_bits(BLE_ADV_ACCESS_BYTES)
-        out: list[dict[str, Any]] = []
-        for pos in self._find_bit_pattern(bits, access_bits, max_errors=1):
-            start = pos + len(access_bits)
-            dewhitened = self._ble_dewhiten_bits(bits[start : start + (2 + 37 + 3) * 8], self.channel)
-            if len(dewhitened) < 16:
-                continue
-            header = self._bits_to_bytes(dewhitened[:16])
-            if len(header) != 2:
-                continue
-            pdu_type = header[0] & 0x0F
-            if pdu_type > 6:
-                continue
-            tx_add = bool(header[0] & 0x40)
-            length = header[1] & 0x3F
-            if length < 6 or length > 37:
-                continue
-            packet_bit_len = (2 + length + 3) * 8
-            dewhitened = self._ble_dewhiten_bits(bits[start : start + packet_bit_len], self.channel)
-            if len(dewhitened) < packet_bit_len:
-                continue
-            pdu_bits = dewhitened[: (2 + length) * 8]
-            crc_bits_rx = dewhitened[(2 + length) * 8 : packet_bit_len]
-            if self._ble_crc24_bits(pdu_bits) != crc_bits_rx:
-                continue
-            packet = self._bits_to_bytes(pdu_bits)
-            if len(packet) < 2 + length:
-                continue
-            body = packet[2 : 2 + length]
-            advertiser = self._format_ble_addr(body[:6])
-            ad_data = body[6:] if len(body) > 6 else b""
-            ad_fields = self._ble_ad_fields(ad_data)
-            local_name = self._ble_local_name_from_fields(ad_fields)
-            uuid16 = self._ble_uuid16s_from_fields(ad_fields)
-            manufacturer = self._ble_manufacturer_from_fields(ad_fields)
-            appearance = self._ble_appearance_from_fields(ad_fields)
-            key = f"own-crc:{self.channel}:{pdu_type}:{advertiser}:{packet.hex()}"
-            now = time.time()
-            if now - self._seen_packet_keys.get(key, 0.0) < 1.0:
-                continue
-            self._seen_packet_keys[key] = now
-            out.append(
-                {
-                    "kind": "ble_adv",
-                    "seen_at": now,
-                    "channel": self.channel,
-                    "center_freq_hz": self.center_freq_hz,
-                    "rssi_dbfs": round(rssi_dbfs, 1),
-                    "pdu_type": self._ble_pdu_name(pdu_type),
-                    "pdu_type_id": pdu_type,
-                    "address": advertiser or "unknown",
-                    "address_type": "random" if tx_add else "public",
-                    "name": local_name,
-                    "uuid16": uuid16,
-                    "manufacturer": manufacturer,
-                    "appearance": appearance,
-                    "payload_len": length,
-                    "confidence": 0.94,
-                    "decoder": "own-crc",
-                }
-            )
-        return out
-
-    @staticmethod
-    def _ble_dewhiten_bits(bits: list[int], channel: int) -> list[int]:
-        lfsr = [
-            1,
-            (channel >> 5) & 1,
-            (channel >> 4) & 1,
-            (channel >> 3) & 1,
-            (channel >> 2) & 1,
-            (channel >> 1) & 1,
-            channel & 1,
-        ]
-        out: list[int] = []
-        for raw_bit in bits:
-            out.append((raw_bit & 1) ^ lfsr[6])
-            lfsr = [
-                lfsr[6],
-                lfsr[0],
-                lfsr[1],
-                lfsr[2],
-                lfsr[3] ^ lfsr[6],
-                lfsr[4],
-                lfsr[5],
-            ]
-        return out
-
-    @staticmethod
-    def _ble_crc24_bits(bits: list[int]) -> list[int]:
-        state = [1, 0] * 12
-        for bit in bits:
-            new_bit = state[23] ^ (bit & 1)
-            state = [
-                new_bit,
-                state[0] ^ new_bit,
-                state[1],
-                state[2] ^ new_bit,
-                state[3] ^ new_bit,
-                state[4],
-                state[5] ^ new_bit,
-                state[6],
-                state[7],
-                state[8] ^ new_bit,
-                state[9] ^ new_bit,
-                state[10],
-                state[11],
-                state[12],
-                state[13],
-                state[14],
-                state[15],
-                state[16],
-                state[17],
-                state[18],
-                state[19],
-                state[20],
-                state[21],
-                state[22],
-            ]
-        return list(reversed(state))
-
-    @staticmethod
-    def _ble_ad_fields(ad_data: bytes) -> list[tuple[int, bytes]]:
-        idx = 0
-        fields: list[tuple[int, bytes]] = []
-        while idx < len(ad_data):
-            field_len = ad_data[idx]
-            if field_len == 0:
-                break
-            field_end = idx + 1 + field_len
-            if field_end > len(ad_data):
-                break
-            ad_type = ad_data[idx + 1]
-            value = ad_data[idx + 2 : field_end]
-            fields.append((ad_type, value))
-            idx = field_end
-        return fields
-
-    @classmethod
-    def _ble_local_name(cls, ad_data: bytes) -> str:
-        return cls._ble_local_name_from_fields(cls._ble_ad_fields(ad_data))
-
-    @staticmethod
-    def _ble_local_name_from_fields(fields: list[tuple[int, bytes]]) -> str:
-        best = ""
-        for ad_type, value in fields:
-            if ad_type in {0x08, 0x09} and value:
-                try:
-                    name = value.decode("utf-8", errors="replace").strip("\x00\r\n\t ")
-                except Exception:
-                    name = ""
-                if name:
-                    best = name
-                    if ad_type == 0x09:
-                        return best
-        return best
-
-    @staticmethod
-    def _ble_uuid16s_from_fields(fields: list[tuple[int, bytes]]) -> list[str]:
-        uuids: list[str] = []
-        for ad_type, value in fields:
-            if ad_type in {0x02, 0x03, 0x14}:
-                for idx in range(0, len(value) - 1, 2):
-                    uuids.append(f"0x{int.from_bytes(value[idx : idx + 2], 'little'):04X}")
-                continue
-            if ad_type == 0x16 and len(value) >= 2:
-                uuids.append(f"0x{int.from_bytes(value[:2], 'little'):04X}")
-        return uuids
-
-    @staticmethod
-    def _ble_manufacturer_from_fields(fields: list[tuple[int, bytes]]) -> dict[str, Any] | None:
-        for ad_type, value in fields:
-            if ad_type != 0xFF or len(value) < 2:
-                continue
-            company_id = int.from_bytes(value[:2], "little")
-            company_hex = f"0x{company_id:04X}"
-            return {
-                "company_id": company_hex,
-                "company_name": _company_name(company_hex),
-                "data": value[2:].hex().upper(),
-            }
-        return None
-
-    @staticmethod
-    def _ble_appearance_from_fields(fields: list[tuple[int, bytes]]) -> dict[str, Any] | None:
-        for ad_type, value in fields:
-            if ad_type != 0x19 or len(value) < 2:
-                continue
-            code = int.from_bytes(value[:2], "little")
-            return {
-                "code": f"0x{code:04X}",
-                "label": BLE_APPEARANCE_LABELS.get(code, f"Appearance {code:#06x}"),
-            }
-        return None
 
     def _classic_events(
         self,
@@ -1192,77 +978,6 @@ class BluetoothDetector:
         while cls._bit_length(input_value) >= divisor_length:
             input_value ^= divisor << (cls._bit_length(input_value) - divisor_length)
         return input_value
-
-    def _burst_only_events(
-        self,
-        kind: str,
-        rssi_dbfs: float,
-        burst_spans: list[tuple[int, int, float]],
-    ) -> list[dict[str, Any]]:
-        return [
-            {
-                "kind": kind,
-                "seen_at": time.time(),
-                "channel": self.channel,
-                "center_freq_hz": self.center_freq_hz,
-                "rssi_dbfs": round(rssi_dbfs, 1),
-                "peak_dbfs": round(peak, 1),
-                "confidence": 0.28,
-            }
-            for _, _, peak in burst_spans[:8]
-        ]
-
-    @staticmethod
-    def _bytes_to_lsb_bits(data: bytes) -> list[int]:
-        return [(byte >> bit) & 1 for byte in data for bit in range(8)]
-
-    @staticmethod
-    def _bits_to_bytes(bits: list[int]) -> bytes:
-        if len(bits) < 8:
-            return b""
-        usable = (len(bits) // 8) * 8
-        out = bytearray()
-        for idx in range(0, usable, 8):
-            value = 0
-            for bit in range(8):
-                value |= (bits[idx + bit] & 1) << bit
-            out.append(value)
-        return bytes(out)
-
-    @staticmethod
-    def _find_bit_pattern(bits: list[int], pattern: list[int], max_errors: int) -> list[int]:
-        if len(bits) < len(pattern):
-            return []
-        hits: list[int] = []
-        plen = len(pattern)
-        for pos in range(0, len(bits) - plen + 1):
-            errors = 0
-            for offset, expected in enumerate(pattern):
-                if bits[pos + offset] != expected:
-                    errors += 1
-                    if errors > max_errors:
-                        break
-            if errors <= max_errors:
-                hits.append(pos)
-        return hits[:8]
-
-    @staticmethod
-    def _format_ble_addr(raw: bytes) -> str:
-        return ":".join(f"{byte:02X}" for byte in raw[::-1])
-
-    @staticmethod
-    def _ble_pdu_name(pdu_type: int) -> str:
-        names = {
-            0: "ADV_IND",
-            1: "ADV_DIRECT_IND",
-            2: "ADV_NONCONN_IND",
-            3: "SCAN_REQ",
-            4: "SCAN_RSP",
-            5: "CONNECT_IND",
-            6: "ADV_SCAN_IND",
-        }
-        return names.get(pdu_type, f"PDU_{pdu_type}")
-
 
 class WideClassicDetector:
     def __init__(self, sample_rate_sps: int, center_freq_hz: int, bank_start_channel: int) -> None:
