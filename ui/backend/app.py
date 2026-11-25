@@ -16,6 +16,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import uuid
 import time
 import zipfile
 from collections import deque
@@ -9055,6 +9056,100 @@ def analyst_report():
     except MemoryStoreError as exc:
         return Response(str(exc), status=404, mimetype="text/plain")
     return Response(render_html(investigation), mimetype="text/html")
+
+
+# Operator agent: plain-language, receive-only scans with automatic gain. Detections it decodes are
+# ingested through the same path as scanner output, so they appear in the normal detections table.
+agent_jobs: dict[str, dict[str, Any]] = {}
+agent_jobs_lock = threading.Lock()
+AGENT_PROTOCOL_TAG = {"ble": "ble", "zigbee": "ieee802154", "tpms": "tpms"}
+
+
+def _agent_ingest(protocol: str, payload: dict[str, Any]) -> None:
+    payload = dict(payload)
+    payload.setdefault("protocol", AGENT_PROTOCOL_TAG.get(protocol, protocol))
+    source = f"agent:{protocol}"
+    events = _scanner_json_to_events(source, payload)
+    for event in events:
+        event.setdefault("scanner_source", source)
+    if events:
+        _append_detections(events, [])
+
+
+def _agent_running() -> dict[str, Any] | None:
+    with agent_jobs_lock:
+        return next((j for j in agent_jobs.values() if j["status"] == "running"), None)
+
+
+def _agent_public(job: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in job.items() if k != "agent"}
+
+
+@app.post("/api/agent/run")
+def agent_run():
+    from rf_platform.agent.core import Agent
+    from rf_platform.agent.profiles import IntentError, parse
+    body = request.get_json(silent=True) or {}
+    command = str(body.get("command") or "").strip()
+    if RF_SENTINEL_DEMO_MODE:
+        return jsonify({"error": "The agent needs live receivers; this dashboard is running the synthetic demo."}), 409
+    try:
+        task = parse(command)
+    except IntentError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if _agent_running():
+        return jsonify({"error": "An agent task is already running; stop it first."}), 409
+    agent = Agent(_gateway_base(), os.getenv("SDR_GATEWAY_API_TOKEN", ""))
+    job = {"job_id": uuid.uuid4().hex[:12], "command": command, "profile": task.profile.name, "status": "running",
+           "started_at": time.time(), "steps": [], "result": None, "error": None, "agent": agent}
+    with agent_jobs_lock:
+        agent_jobs[job["job_id"]] = job
+
+    def work():
+        try:
+            job["result"] = agent.run(
+                command, on_step=lambda m: job["steps"].append({"t": round(time.time() - job["started_at"], 1), "message": m}),
+                on_detection=lambda e: _agent_ingest(task.profile.name, e))
+            from rf_platform.agent.report import save
+            job["report_dir"] = str(save(job["result"], RF_SENTINEL_LOG_DIR / "agent-runs"))
+            job["status"] = "stopped" if agent._stop.is_set() else "done"
+        except Exception as exc:
+            job["status"], job["error"] = "error", f"{type(exc).__name__}: {exc}"[:500]
+
+    threading.Thread(target=work, name=f"agent-{job['job_id']}", daemon=True).start()
+    return jsonify(_agent_public(job))
+
+
+@app.get("/api/agent/jobs")
+def agent_jobs_list():
+    with agent_jobs_lock:
+        jobs = sorted(agent_jobs.values(), key=lambda j: -j["started_at"])[:10]
+    return jsonify([_agent_public(j) for j in jobs])
+
+
+@app.get("/api/agent/jobs/<job_id>")
+def agent_job(job_id: str):
+    job = agent_jobs.get(job_id)
+    if job is None:
+        return jsonify({"error": "Unknown job"}), 404
+    return jsonify(_agent_public(job))
+
+
+@app.get("/api/agent/jobs/<job_id>/report")
+def agent_job_report(job_id: str):
+    job = agent_jobs.get(job_id)
+    if job is None or not job.get("report_dir"):
+        return Response("No report for this job yet.", status=404, mimetype="text/plain")
+    return Response((Path(job["report_dir"]) / "report.html").read_text(), mimetype="text/html")
+
+
+@app.post("/api/agent/jobs/<job_id>/stop")
+def agent_job_stop(job_id: str):
+    job = agent_jobs.get(job_id)
+    if job is None:
+        return jsonify({"error": "Unknown job"}), 404
+    job["agent"].stop()
+    return jsonify({"ok": True})
 
 
 @app.post("/api/test/discoverable-dongle")

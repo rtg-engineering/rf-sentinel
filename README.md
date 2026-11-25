@@ -46,6 +46,7 @@ RF Sentinel listens across Bluetooth, WiFi, Zigbee/802.15.4, TPMS and other sub-
 | **Monitor** | Bounded missions: scheduled read-only assessments, follow-ups ranked by expected information gain, and an independent policy engine. Anything beyond read-only needs a named operator's approval bound to the exact proposal. Execution is currently simulated. |
 | **Remember** | Append-only environment memory: versioned baselines, "what changed since the last assessment", operator notes that never rewrite evidence, and assessments that can be re-verified later. |
 | **Prove** | Validation harness, published result card, verifiable evidence bundles, and recorded walkthroughs of the shipped dashboard. |
+| **Operate** | Ask in plain language ("find bluetooth devices"). The agent picks a receiver, measures clipping and corrects gain automatically, runs the decoder, and writes a verifiable run report, from the dashboard or the CLI. Receive-only. |
 | **Integrate** | Docker packaging, a protocol plugin model, a JSON status API, and an optional LLM provider (local or cloud) behind the same read-only tools and checks. |
 
 ## How it works
