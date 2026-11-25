@@ -1802,6 +1802,12 @@
         font: inherit;
       }
 
+      .analyst-entity {
+        display: inline-flex;
+        gap: 4px;
+        flex-wrap: wrap;
+      }
+
       .analyst-hyps {
         margin: 6px 0;
         padding-left: 18px;
@@ -2217,7 +2223,8 @@
         </div>
         <div class="analyst-actions">
           <button class="secondary" type="button" id="analystBaselineBtn"><span class="material-symbols-rounded">flag</span>Set baseline</button>
-          <button type="button" id="analystRunBtn"><span class="material-symbols-rounded">manage_search</span>Investigate changes</button>
+          <button type="button" id="analystRunBtn"><span class="material-symbols-rounded">manage_search</span>Investigate since baseline</button>
+          <button class="secondary" type="button" id="analystSinceLastBtn"><span class="material-symbols-rounded">history</span>Since last assessment</button>
           <a class="ghost-btn" id="analystReportLink" href="/api/analyst/report" target="_blank" rel="noopener" hidden><span class="material-symbols-rounded">description</span>Full report</a>
           <span class="small" id="analystBaselineInfo">No baseline set.</span>
         </div>
@@ -5536,7 +5543,7 @@
       function renderAnalyst(data) {
         const baseline = data?.baseline;
         analystBaselineInfo.textContent = baseline
-          ? `Baseline ${baseline.snapshot_id} · ${baseline.entity_count} entities · ${new Date(baseline.captured_at).toLocaleTimeString()}`
+          ? `Baseline v${baseline.version} · ${baseline.entity_count} entities · ${new Date(baseline.captured_at).toLocaleString()} · ${Number(data.assessment_count || 0)} assessment(s) on record`
           : "No baseline set.";
         const inv = data?.investigation;
         analystReportLink.hidden = !inv;
@@ -5547,7 +5554,14 @@
         const g = inv.grounding || {};
         const findings = (inv.findings || []).map((f) => {
           const [top, ...rest] = f.hypotheses || [];
-          const chips = citedEntities(f).map((key) => `<button type="button" class="chip entity-chip" data-entity="${escapeHtml(key)}" title="Show in detections table">${materialIcon("my_location")} ${escapeHtml(key)}</button>`).join("");
+          const keys = citedEntities(f);
+          const chips = keys.map((key) => `<span class="analyst-entity">
+              <button type="button" class="chip entity-chip" data-entity="${escapeHtml(key)}" title="Show in detections table">${materialIcon("my_location")} ${escapeHtml(key)}</button>
+              <button type="button" class="chip entity-chip" data-annotate="${escapeHtml(key)}" data-kind="known_device" title="Record that this device is expected">Mark known</button>
+              <button type="button" class="chip entity-chip" data-annotate="${escapeHtml(key)}" data-kind="note" title="Add an operator note">Note</button>
+            </span>`).join("");
+          const notes = (inv.operator_context || []).filter((n) => keys.includes(n.entity_key));
+          const noteList = notes.length ? `<ul class="analyst-hyps">${notes.map((n) => `<li class="small"><strong>${escapeHtml(n.kind.replaceAll("_", " "))}</strong>: ${escapeHtml(n.text)} (${escapeHtml(n.author)})</li>`).join("")}</ul>` : "";
           return `
             <article class="analytics-card analyst-finding">
               <h3>${escapeHtml(f.title)}</h3>
@@ -5559,6 +5573,7 @@
               ${top ? `<p><strong>Leading explanation (${escapeHtml(top.status)}):</strong> ${escapeHtml(top.statement)}</p>` : ""}
               ${rest.length ? `<ul class="analyst-hyps">${rest.map((h) => `<li class="small">${escapeHtml(h.status)} · ${escapeHtml(h.statement)}</li>`).join("")}</ul>` : ""}
               <p>${escapeHtml(f.assessment)}</p>
+              ${noteList ? `<p class="small"><strong>Operator notes</strong> (recorded separately; they do not change this finding):</p>${noteList}` : ""}
               ${chips ? `<div class="chips">${chips}</div>` : ""}
             </article>`;
         }).join("");
@@ -5582,6 +5597,29 @@
         return data;
       }
 
+      async function annotateEntity(entityKey, kind) {
+        const text = window.prompt(kind === "known_device" ? `Why is ${entityKey} expected?` : `Note for ${entityKey}`);
+        if (!text || !text.trim()) return;
+        try {
+          await analystRequest("/api/analyst/annotate", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ kind, text, entity_key: entityKey }) });
+          showToast("Note recorded; it appears with future assessments");
+        } catch (err) {
+          showToast(err.message || "Note failed");
+        }
+      }
+
+      async function runAnalyst(against) {
+        try {
+          const investigation = await analystRequest("/api/analyst/investigate", { method: "POST",
+            headers: { "Content-Type": "application/json" }, body: JSON.stringify({ against }) });
+          const latest = await analystRequest("/api/analyst/latest");
+          renderAnalyst({ ...latest, investigation });
+        } catch (err) {
+          showToast(err.message || "Investigation failed");
+        }
+      }
+
       async function refreshAnalyst() {
         try {
           renderAnalyst(await analystRequest("/api/analyst/latest"));
@@ -5599,6 +5637,8 @@
         if (event.target === analystOverlay) analystOverlay.hidden = true;
         const chip = event.target.closest("[data-entity]");
         if (chip) focusEntity(chip.dataset.entity);
+        const annotate = event.target.closest("[data-annotate]");
+        if (annotate) annotateEntity(annotate.dataset.annotate, annotate.dataset.kind);
       });
       document.getElementById("analystBaselineBtn").addEventListener("click", async () => {
         try {
@@ -5609,15 +5649,8 @@
           showToast(err.message || "Baseline failed");
         }
       });
-      document.getElementById("analystRunBtn").addEventListener("click", async () => {
-        try {
-          const investigation = await analystRequest("/api/analyst/investigate", { method: "POST" });
-          const latest = await analystRequest("/api/analyst/latest");
-          renderAnalyst({ ...latest, investigation });
-        } catch (err) {
-          showToast(err.message || "Investigation failed");
-        }
-      });
+      document.getElementById("analystRunBtn").addEventListener("click", () => runAnalyst("baseline"));
+      document.getElementById("analystSinceLastBtn").addEventListener("click", () => runAnalyst("last"));
       patternAnalyticsClose.addEventListener("click", closePatternAnalytics);
       patternAnalyticsOverlay.addEventListener("click", (event) => {
         if (event.target === patternAnalyticsOverlay) closePatternAnalytics();

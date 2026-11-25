@@ -251,8 +251,7 @@ class BackendValidationTest(unittest.TestCase):
 
     def test_analyst_endpoints_are_read_only_and_grounded(self):
         b = self.backend
-        with b.analyst_lock:
-            b.analyst_session.update(baseline=None, investigation=None)
+        b.RF_SENTINEL_ANALYST_DB = Path(self.temp.name) / 'analyst-test.sqlite'
         self.assertEqual(self.client.post('/api/analyst/investigate', json={}).status_code, 409)
         self.assertEqual(self.client.get('/api/analyst/report').status_code, 404)
         events = build_validation_events()
@@ -276,6 +275,18 @@ class BackendValidationTest(unittest.TestCase):
         page = self.client.get('/api/analyst/report')
         self.assertEqual(page.status_code, 200)
         self.assertIn(inv['investigation_id'], page.get_data(as_text=True))
+        # Persistent memory: the assessment is on record, annotations are separate, nothing new to compare.
+        history = self.client.get('/api/analyst/history').get_json()
+        self.assertEqual([a['investigation_id'] for a in history['assessments']], [inv['investigation_id']])
+        self.assertEqual(history['baselines'][0]['baseline_id'], 'baseline:default:v1')
+        note = self.client.post('/api/analyst/annotate', json={'kind': 'known_device', 'text': 'Lab beacon',
+                                                               'entity_key': 'ble:02:00:00:00:99:01'})
+        self.assertEqual(note.status_code, 200)
+        self.assertEqual(self.client.post('/api/analyst/annotate', json={'kind': 'bogus', 'text': 'x',
+                                                                         'entity_key': 'k'}).status_code, 400)
+        again = self.client.post('/api/analyst/investigate', json={'against': 'last'})
+        self.assertEqual(again.status_code, 409)  # nothing captured since the last assessment
+        self.assertIn('Nothing new', again.get_json()['error'])
 
     def test_live_status_does_not_expose_truth(self):
         b = self.backend

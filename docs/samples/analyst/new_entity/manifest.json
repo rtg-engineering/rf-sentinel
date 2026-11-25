@@ -15,7 +15,7 @@
     "validation-results.json"
   ],
   "grounding_passed": true,
-  "investigation_id": "INV-341b832c2b3f",
+  "investigation_id": "INV-3c6f3cef30ca",
   "provenance": "synthetic_replay",
   "provider": {
     "model": null,

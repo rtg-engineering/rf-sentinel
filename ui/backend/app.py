@@ -8946,8 +8946,18 @@ def status():
 
 # Read-only Analyst: snapshots the same /api/status payload the dashboard uses and runs the
 # deterministic investigation. It never changes detections, receivers, or scans, and calls no model.
+# Baselines, assessments, and operator notes persist in an append-only SQLite memory.
+RF_SENTINEL_ANALYST_DB = Path(os.getenv("RF_SENTINEL_ANALYST_DB") or (RF_SENTINEL_LOG_DIR / "analyst-memory.sqlite"))
 analyst_lock = threading.Lock()
-analyst_session: dict[str, Any] = {"baseline": None, "investigation": None}
+_analyst_memory = None
+
+
+def _analyst_store():
+    global _analyst_memory
+    from rf_platform.analyst.memory import EnvironmentMemory
+    if _analyst_memory is None or _analyst_memory.path != RF_SENTINEL_ANALYST_DB:
+        _analyst_memory = EnvironmentMemory(RF_SENTINEL_ANALYST_DB)
+    return _analyst_memory
 
 
 def _analyst_snapshot(label: str):
@@ -8955,47 +8965,86 @@ def _analyst_snapshot(label: str):
     return Snapshot.from_status(status().get_json(), label)
 
 
+def _analyst_body() -> dict[str, Any]:
+    body = request.get_json(silent=True)
+    return body if isinstance(body, dict) else {}
+
+
 @app.post("/api/analyst/baseline")
 def analyst_baseline():
+    body = _analyst_body()
     snapshot = _analyst_snapshot("baseline")
     with analyst_lock:
-        analyst_session.update(baseline=snapshot, investigation=None)
-    return jsonify({"snapshot_id": snapshot.snapshot_id, "captured_at": snapshot.captured_at,
-                    "entity_count": len(snapshot.entities)})
+        record = _analyst_store().set_baseline(snapshot, author=str(body.get("author") or "dashboard")[:80],
+                                               reason=str(body.get("reason") or "Baseline set from dashboard")[:500])
+    return jsonify({**record, "captured_at": snapshot.captured_at, "entity_count": len(snapshot.entities)})
 
 
 @app.post("/api/analyst/investigate")
 def analyst_investigate():
-    from rf_platform.analyst.evidence import EvidenceStore
-    from rf_platform.analyst.investigate import run_investigation
-    with analyst_lock:
-        baseline = analyst_session["baseline"]
-    if baseline is None:
-        return jsonify({"error": "Set a baseline first."}), 409
+    from rf_platform.analyst.memory import MemoryStoreError, assess
+    against = "last" if _analyst_body().get("against") == "last" else "baseline"
     current = _analyst_snapshot("current")
-    investigation = run_investigation(EvidenceStore([baseline, current]),
-                                      provenance="synthetic_replay" if RF_SENTINEL_DEMO_MODE else "live")
-    with analyst_lock:
-        analyst_session["investigation"] = investigation
+    try:
+        with analyst_lock:
+            investigation = assess(_analyst_store(), current, against=against,
+                                   provenance="synthetic_replay" if RF_SENTINEL_DEMO_MODE else "live")
+    except MemoryStoreError as exc:
+        return jsonify({"error": str(exc)}), 409
     return jsonify(investigation)
 
 
 @app.get("/api/analyst/latest")
 def analyst_latest():
+    from rf_platform.analyst.memory import MemoryStoreError
     with analyst_lock:
-        investigation, baseline = analyst_session["investigation"], analyst_session["baseline"]
-    return jsonify({"baseline": None if baseline is None else {
-        "snapshot_id": baseline.snapshot_id, "captured_at": baseline.captured_at,
-        "entity_count": len(baseline.entities)}, "investigation": investigation})
+        memory = _analyst_store()
+        baseline = memory.active_baseline()
+        try:
+            investigation = memory.assessment()
+        except MemoryStoreError:
+            investigation = None
+        count = len(memory.assessments())
+    if baseline:
+        snap = memory.snapshot(baseline["snapshot_id"])
+        baseline = {**baseline, "captured_at": snap.captured_at, "entity_count": len(snap.entities)}
+    return jsonify({"baseline": baseline, "investigation": investigation, "assessment_count": count})
+
+
+@app.get("/api/analyst/history")
+def analyst_history():
+    with analyst_lock:
+        memory = _analyst_store()
+        return jsonify({"baselines": memory.baseline_history(), "assessments": memory.assessments(),
+                        "annotations": memory.annotations()})
+
+
+@app.post("/api/analyst/annotate")
+def analyst_annotate():
+    from rf_platform.analyst.memory import MemoryStoreError
+    body = _analyst_body()
+    try:
+        with analyst_lock:
+            note = _analyst_store().annotate(str(body.get("kind") or ""), str(body.get("text") or ""),
+                                             author=str(body.get("author") or "dashboard"),
+                                             entity_key=body.get("entity_key") or None,
+                                             investigation_id=body.get("investigation_id") or None,
+                                             finding_id=body.get("finding_id") or None)
+    except MemoryStoreError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(note)
 
 
 @app.get("/api/analyst/report")
 def analyst_report():
+    from rf_platform.analyst.memory import MemoryStoreError
     from rf_platform.analyst.report import render_html
-    with analyst_lock:
-        investigation = analyst_session["investigation"]
-    if investigation is None:
-        return Response("No investigation has been run yet.", status=404, mimetype="text/plain")
+    seq = request.args.get("seq", type=int)
+    try:
+        with analyst_lock:
+            investigation = _analyst_store().assessment(seq)
+    except MemoryStoreError as exc:
+        return Response(str(exc), status=404, mimetype="text/plain")
     return Response(render_html(investigation), mimetype="text/html")
 
 

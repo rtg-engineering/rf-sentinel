@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 READ_ONLY = {"get_environment_summary", "get_entity_history", "compare_baselines",
-             "get_sensor_health", "get_topology_changes", "get_evidence"}
+             "get_sensor_health", "get_topology_changes", "get_evidence", "find_identity_candidates"}
 
 
 def _cites(finding: dict[str, Any], needle: str) -> bool:

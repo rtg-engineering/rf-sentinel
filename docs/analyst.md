@@ -2,10 +2,11 @@
 
 The Analyst answers *"what changed in this wireless environment, and what evidence supports it?"* It works from captured `/api/status` snapshots. It cannot change ingestion, detections, receivers, or scan schedules. Every factual claim in a report is re-read from the cited evidence by code, not by a model.
 
-This covers Phases 1 and 2 of the autonomous-investigation roadmap:
+This covers Phases 1–3 of the autonomous-investigation roadmap:
 - read-only, evidence-backed reports;
 - bounded multi-step analysis with sensor-health reasoning;
-- ranked hypotheses, evaluation on held-out scenarios, and dashboard drill-down.
+- ranked hypotheses, evaluation on held-out scenarios, and dashboard drill-down;
+- persistent, append-only environment memory: versioned baselines, "what changed since the last assessment", reproducible history, and operator notes that never rewrite evidence.
 
 It does not run missions, keep persistent memory across sessions, or execute any collection action.
 
@@ -44,6 +45,29 @@ python3 -m rf_platform.analyst investigate before.json after.json --out .demo/an
 
 The command exits nonzero if grounding fails. Use `--provenance live` or `controlled_test` for non-synthetic evidence.
 
+## Environment memory
+
+Baselines, assessments, and operator notes are kept in one append-only SQLite file. The dashboard uses `RF_SENTINEL_ANALYST_DB`, which defaults to `<log dir>/analyst-memory.sqlite`. The CLI defaults to `.demo/analyst/memory.sqlite`.
+
+```bash
+python3 -m rf_platform.analyst memory baseline day1.json --reason "Initial survey"
+python3 -m rf_platform.analyst memory assess day2.json                    # against the baseline (first time)
+python3 -m rf_platform.analyst memory assess day3.json --out run/        # against the last assessment
+python3 -m rf_platform.analyst memory assess day3.json --against baseline
+python3 -m rf_platform.analyst memory history
+python3 -m rf_platform.analyst memory timeline "wifi:ap:02:10:7A:00:30:11:Telemetry-GW"
+python3 -m rf_platform.analyst memory verify 2                           # recompute assessment 2 from stored snapshots
+python3 -m rf_platform.analyst memory annotate --entity <key> --kind known_device --text "Facilities beacon"
+python3 -m rf_platform.analyst memory audit
+```
+
+- **Append-only.** Database triggers reject `UPDATE` and `DELETE` on snapshots, baselines, assessments, and annotations. Snapshot IDs are content hashes and are re-verified on every read, so an edited payload is rejected.
+- **Versioned baselines.** Setting a baseline again creates version *n + 1*, records who set it and why, and points to the version it supersedes. Earlier versions remain.
+- **Since the last assessment.** `--against last` (the default, and **Since last assessment** in the dashboard) compares with the state at the previous assessment. Assessments therefore chain over days instead of always going back to the baseline. If nothing has been assessed yet, the comparison uses the active baseline.
+- **Reproducible history.** `verify` recomputes a stored deterministic assessment from its stored snapshots and confirms the same investigation ID and findings. For an LLM-authored assessment, it re-runs the cited tools and re-checks every citation against the stored evidence.
+- **Operator review.** `confirm`, `dispute`, `note`, `known_device`, and `unknown_device` annotations are separate records. Reports show them beside the findings that cite those entities, but they never change evidence, findings, or investigation IDs. In the dashboard, each cited entity has **Mark known** and **Note** actions.
+- **Identity uncertainty.** `find_identity_candidates` lists earlier entities that share a new entity's advertising fingerprint (protocol, manufacturer ID, service UUIDs, appearance) and went quiet. A new BLE device can then be reported as a *possible* rotated address of a known one. This is an open hypothesis citing both entities, never a merge.
+
 ## How it works
 
 ```text
@@ -81,6 +105,7 @@ A snapshot ID is a hash of its content, so a modified snapshot file is rejected 
 | `get_sensor_health(reference, current)` | Per sensor: protocols covered, new versus expected detections, status (`producing`, `silent_unexpectedly`, `insufficient_window`) |
 | `get_topology_changes(reference, current)` | WiFi stations per access point in both snapshots, stations that moved, new APs |
 | `get_evidence(event_ids)` | Up to 20 citable normalized detections |
+| `find_identity_candidates(reference, current, entity_key)` | Earlier entities with the same advertising fingerprint that went quiet: possible same device under a new identifier |
 
 **Expected detections.** An entity's or sensor's share of reference detections, multiplied by all new detections between the two snapshots. An absence is flagged only when at least 2 new detections were expected for an entity, or 3 for a sensor. Shorter windows are reported as insufficient, not as absences. Sensor coverage is inferred from scanner assignments (`protocol` and any `--protocols` list), because demo detections carry no per-detection sensor.
 
