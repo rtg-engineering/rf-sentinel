@@ -9058,11 +9058,23 @@ def analyst_report():
     return Response(render_html(investigation), mimetype="text/html")
 
 
-# Operator agent: plain-language, receive-only scans with automatic gain. Detections it decodes are
-# ingested through the same path as scanner output, so they appear in the normal detections table.
+# Operator agent: plain-language, receive-only scans with automatic gain. This run service is the single
+# source of truth for agent runs started from the dashboard, the CLI, or the API. Every agent operation is
+# authorized by rf_platform.agent.gateway in the run's mode (observe, approval-required, passive-auto),
+# capped by the server ceiling RF_SENTINEL_AGENT_MODE. Decoded detections are ingested through the same
+# path as scanner output, so they appear in the normal detections table.
 agent_jobs: dict[str, dict[str, Any]] = {}
 agent_jobs_lock = threading.Lock()
 AGENT_PROTOCOL_TAG = {"ble": "ble", "zigbee": "ieee802154", "tpms": "tpms"}
+_agent_broker = None
+
+
+def _agent_approvals():
+    global _agent_broker
+    if _agent_broker is None:
+        from rf_platform.agent.gateway import ApprovalBroker
+        _agent_broker = ApprovalBroker()
+    return _agent_broker
 
 
 def _agent_ingest(protocol: str, payload: dict[str, Any]) -> None:
@@ -9078,16 +9090,32 @@ def _agent_ingest(protocol: str, payload: dict[str, Any]) -> None:
 
 def _agent_running() -> dict[str, Any] | None:
     with agent_jobs_lock:
-        return next((j for j in agent_jobs.values() if j["status"] == "running"), None)
+        return next((j for j in agent_jobs.values() if j["status"] in ("running", "awaiting_approval", "stopping")), None)
 
 
 def _agent_public(job: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in job.items() if k != "agent"}
+    public = {k: v for k, v in job.items() if k not in ("agent",)}
+    public["pending_approvals"] = _agent_approvals().pending(job["job_id"])
+    if job["status"] == "running" and public["pending_approvals"]:
+        public["status"] = "awaiting_approval"
+    return public
+
+
+def _agent_job(job_id: str) -> dict[str, Any] | None:
+    with agent_jobs_lock:
+        return agent_jobs.get(job_id)
+
+
+@app.get("/api/agent/policy")
+def agent_policy():
+    from rf_platform.agent.gateway import MODES, NEVER, TOOLS, server_ceiling
+    return jsonify({"ceiling": server_ceiling(), "modes": list(MODES), "tools": TOOLS, "never": sorted(NEVER)})
 
 
 @app.post("/api/agent/run")
 def agent_run():
     from rf_platform.agent.core import Agent
+    from rf_platform.agent.gateway import AgentGateway, PermissionDenied, decide, effective_mode
     from rf_platform.agent.profiles import IntentError, parse
     body = request.get_json(silent=True) or {}
     command = str(body.get("command") or "").strip()
@@ -9095,61 +9123,132 @@ def agent_run():
         return jsonify({"error": "The agent needs live receivers; this dashboard is running the synthetic demo."}), 409
     try:
         task = parse(command)
-    except IntentError as exc:
+        mode = effective_mode(body.get("mode"))
+    except (IntentError, PermissionDenied) as exc:
         return jsonify({"error": str(exc)}), 400
+    if decide("start_scan", mode) == "deny":
+        return jsonify({"error": f"{mode} mode is read-only: it cannot start collection.", "mode": mode}), 403
     if _agent_running():
-        return jsonify({"error": "An agent task is already running; stop it first."}), 409
-    agent = Agent(_gateway_base(), os.getenv("SDR_GATEWAY_API_TOKEN", ""))
-    job = {"job_id": uuid.uuid4().hex[:12], "command": command, "profile": task.profile.name, "status": "running",
-           "started_at": time.time(), "steps": [], "result": None, "error": None, "agent": agent}
+        return jsonify({"error": "An agent run is already active; stop it first."}), 409
+    job_id = f"run-{uuid.uuid4().hex[:10]}"
+    gain = body.get("gain_db")
+    job = {"job_id": job_id, "command": command, "profile": task.profile.name, "mode": mode,
+           "source": str(body.get("source") or "dashboard")[:20], "status": "running", "started_at": time.time(),
+           "steps": [], "result": None, "error": None}
+    gateway = AgentGateway(mode, job_id, _agent_approvals(),
+                           on_pending=lambda p: job["steps"].append({"t": round(time.time() - job["started_at"], 1),
+                                                                     "message": f"Approval needed for {p['tool']} {p['params']} (action {p['action_id']})"}))
+    agent = Agent(_gateway_base(), os.getenv("SDR_GATEWAY_API_TOKEN", ""), gateway=gateway, run_id=job_id)
+    job["agent"] = agent
     with agent_jobs_lock:
-        agent_jobs[job["job_id"]] = job
+        agent_jobs[job_id] = job
 
     def work():
         try:
             job["result"] = agent.run(
                 command, on_step=lambda m: job["steps"].append({"t": round(time.time() - job["started_at"], 1), "message": m}),
-                on_detection=lambda e: _agent_ingest(task.profile.name, e))
+                on_detection=lambda e: _agent_ingest(task.profile.name, e),
+                gain_db=float(gain) if gain is not None else None)
             from rf_platform.agent.report import save
             job["report_dir"] = str(save(job["result"], RF_SENTINEL_LOG_DIR / "agent-runs"))
+            job["run_id"] = job["result"]["run_id"]
             job["status"] = "stopped" if agent._stop.is_set() else "done"
+        except PermissionDenied as exc:
+            job["status"], job["error"] = ("stopped" if agent._stop.is_set() else "denied"), str(exc)
         except Exception as exc:
             job["status"], job["error"] = "error", f"{type(exc).__name__}: {exc}"[:500]
+        finally:
+            job["finished_at"] = time.time()
+            job["audit"] = gateway.audit
 
-    threading.Thread(target=work, name=f"agent-{job['job_id']}", daemon=True).start()
+    threading.Thread(target=work, name=job_id, daemon=True).start()
     return jsonify(_agent_public(job))
 
 
 @app.get("/api/agent/jobs")
 def agent_jobs_list():
     with agent_jobs_lock:
-        jobs = sorted(agent_jobs.values(), key=lambda j: -j["started_at"])[:10]
+        jobs = sorted(agent_jobs.values(), key=lambda j: -j["started_at"])[:20]
     return jsonify([_agent_public(j) for j in jobs])
 
 
 @app.get("/api/agent/jobs/<job_id>")
 def agent_job(job_id: str):
-    job = agent_jobs.get(job_id)
-    if job is None:
-        return jsonify({"error": "Unknown job"}), 404
-    return jsonify(_agent_public(job))
+    job = _agent_job(job_id)
+    return (jsonify(_agent_public(job)) if job else (jsonify({"error": "Unknown run"}), 404))
 
 
 @app.get("/api/agent/jobs/<job_id>/report")
 def agent_job_report(job_id: str):
-    job = agent_jobs.get(job_id)
+    job = _agent_job(job_id)
     if job is None or not job.get("report_dir"):
-        return Response("No report for this job yet.", status=404, mimetype="text/plain")
+        return Response("No report for this run yet.", status=404, mimetype="text/plain")
     return Response((Path(job["report_dir"]) / "report.html").read_text(), mimetype="text/html")
 
 
 @app.post("/api/agent/jobs/<job_id>/stop")
 def agent_job_stop(job_id: str):
-    job = agent_jobs.get(job_id)
+    """Stop one run. Only that run's own scan and receiver stream are released."""
+    job = _agent_job(job_id)
     if job is None:
-        return jsonify({"error": "Unknown job"}), 404
-    job["agent"].stop()
-    return jsonify({"ok": True})
+        return jsonify({"error": "Unknown run"}), 404
+    if job["status"] in ("running", "awaiting_approval"):
+        job["status"] = "stopping"
+        job["agent"].stop()
+    return jsonify({"ok": True, "status": job["status"]})
+
+
+@app.post("/api/agent/jobs/<job_id>/approve")
+@app.post("/api/agent/jobs/<job_id>/deny")
+def agent_job_decide(job_id: str):
+    from rf_platform.agent.gateway import PermissionDenied
+    body = request.get_json(silent=True) or {}
+    approve = request.path.endswith("/approve")
+    job = _agent_job(job_id)
+    if job is None:
+        return jsonify({"error": "Unknown run"}), 404
+    pending = [p for p in _agent_approvals().pending(job_id) if p["action_id"] == body.get("action_id")]
+    if not pending:
+        return jsonify({"error": "No such pending action for this run"}), 404
+    try:
+        item = _agent_approvals().resolve(pending[0]["action_id"], approve, str(body.get("operator") or ""),
+                                          str(body.get("reason") or ""))
+    except PermissionDenied as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"action_id": item.action_id, "decision": item.decision, "operator": item.operator})
+
+
+@app.post("/api/agent/tools/<tool>")
+def agent_tool(tool: str):
+    """Direct tool access through the same gateway. Read tools run; collection must go through a run."""
+    from rf_platform.agent.gateway import PermissionDenied, decide, effective_mode
+    body = request.get_json(silent=True) or {}
+    try:
+        mode = effective_mode(body.get("mode"))
+    except PermissionDenied as exc:
+        return jsonify({"error": str(exc)}), 400
+    from rf_platform.agent.gateway import NEVER, TOOLS
+    outcome = decide(tool, mode)
+    if outcome == "deny":
+        why = ("transmit-capable operations are never available to the agent" if tool in NEVER else
+               f"{tool} is not permitted in {mode} mode" if tool in TOOLS else f"{tool} is not an agent tool")
+        return jsonify({"error": why, "mode": mode, "decision": "deny"}), 403
+    if tool == "list_receivers":
+        from rf_platform.agent.radio import Radio
+        return jsonify(Radio(_gateway_base(), os.getenv("SDR_GATEWAY_API_TOKEN", "")).devices())
+    if tool == "list_runs":
+        return agent_jobs_list()
+    if tool in ("get_run", "get_report"):
+        return agent_job(str(body.get("run_id") or ""))
+    if tool == "query_detections":
+        protocol = str(body.get("protocol") or "").upper()
+        with state_lock:
+            rows = [dict(r) for r in state.discovery_table if not protocol or r.get("protocol") == protocol]
+        return jsonify(rows[:500])
+    if tool == "stop_scan":
+        return agent_job_stop(str(body.get("run_id") or ""))
+    return jsonify({"error": f"{tool} changes collection; start it as an agent run (POST /api/agent/run) so it is "
+                             "bounded, owned, and audited", "mode": mode, "decision": outcome}), 409
 
 
 @app.post("/api/test/discoverable-dongle")

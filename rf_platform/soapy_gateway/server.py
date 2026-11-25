@@ -85,7 +85,10 @@ def create_app(backend: SoapyBackend, token: str | None = None) -> Flask:
         return data if isinstance(data, dict) else {}
 
     def stream_state(s):
-        return {"stream_id": s.id, "status": s.status, "config": s.config}
+        state = {"stream_id": s.id, "status": s.status, "config": s.config}
+        if s.worker and s.worker.error:
+            state["error"] = s.worker.error
+        return state
 
     def sweep_state(s):
         return {"sweep_id": s.id, "status": s.status, "config": s.config}
