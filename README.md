@@ -55,6 +55,10 @@ About 50 seconds of the shipped dashboard running the same scripted scenario: ba
 
 ![RF Sentinel operator walkthrough](docs/media/rf-sentinel-operator-walkthrough.gif)
 
+## Analyst (read-only investigation)
+
+`python3 scripts/analyst_demo.py --build` replays a scripted scenario through the Docker backend, captures before/after snapshots over HTTP, and produces an evidence-backed report: what changed, the observed and computed facts behind each finding, competing explanations, and proposed next steps. Every cited value is re-checked against the evidence by code, and nothing is executed. An optional Pydantic AI provider (`pip install -e '.[analyst-llm]'`) can plan and write the investigation through the same read-only tools and checks. See [docs/analyst.md](docs/analyst.md).
+
 ## Visual Evidence
 
 | Public demo replay | Detection table population | WiFi AP / station topology |
