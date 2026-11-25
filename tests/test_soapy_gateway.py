@@ -177,6 +177,27 @@ class BackendTest(unittest.TestCase):
             seen.add(chunk["center_freq_hz"])
         self.assertEqual(seen, set(centers))
 
+    def test_dead_device_fails_stream_and_drops_handle(self):
+        from unittest.mock import patch
+        from rf_platform.soapy_gateway import backend as backend_module
+
+        class BrokenDevice(FakeDevice):
+            def readStream(self, s, bufs, n, timeoutUs=0):
+                time.sleep(0.01)
+                return _Result(-2)  # SOAPY_SDR_STREAM_ERROR, e.g. a USB I/O failure
+
+        self.backend.devices()
+        self.backend._handles["bladerf:0"] = BrokenDevice({})
+        with patch.object(backend_module, "NO_DATA_TIMEOUT_S", 0.3):
+            session = self.backend.start_stream({"device_id": "bladerf:0", "center_freq_hz": 2_402_000_000,
+                                                 "sample_rate_sps": 2_000_000})
+            deadline = time.time() + 5
+            while session.worker.status != "error" and time.time() < deadline:
+                time.sleep(0.05)
+        self.assertEqual(session.worker.status, "error")
+        self.assertIn("driver read error -2", session.worker.error)
+        self.assertNotIn("bladerf:0", self.backend._handles)  # next stream reopens the device
+
     def test_cs8_conversion_clips_and_scales(self):
         out = np.frombuffer(cf32_to_cs8(np.array([1 + 1j, -2 - 0.5j, 0.5j], dtype=np.complex64)), dtype=np.int8)
         self.assertEqual(out.tolist(), [127, 127, -128, -64, 0, 64])

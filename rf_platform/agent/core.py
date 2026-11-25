@@ -24,6 +24,7 @@ import threading
 import time
 from typing import Any, Callable
 
+from .gateway import AgentGateway, PermissionDenied, effective_mode
 from .profiles import Profile, Task, parse
 from .radio import Radio, auto_gain, split_gain
 
@@ -59,12 +60,16 @@ def plugin_command(task: Task, device: dict[str, Any], gain_db: float, base_url:
 
 
 class Agent:
-    def __init__(self, base_url: str | None = None, token: str | None = None):
+    def __init__(self, base_url: str | None = None, token: str | None = None, gateway: AgentGateway | None = None,
+                 mode: str | None = None, run_id: str | None = None):
         self.radio = Radio(base_url, token)
         self._stop = threading.Event()
+        self.gateway = gateway or AgentGateway(effective_mode(mode), run_id or "local", stop=self._stop)
+        self.gateway.stop = self._stop
 
     def stop(self) -> None:
         self._stop.set()
+        self.gateway.broker.cancel_run(self.gateway.run_id)
 
     def run(self, command: str, on_step: Callable[[str], None] = print,
             on_detection: Callable[[dict[str, Any]], None] | None = None,
@@ -82,14 +87,23 @@ class Agent:
         if not exe:
             raise RuntimeError(f"The {profile.title} receiver ({profile.plugin}) is not installed. "
                                f"Install it with: pip install -e rf_platform/plugins/<plugin>")
-        step(f"Task: {profile.title} for {task.duration_s} s (receive-only). {profile.notes}")
+        gw = self.gateway
+        step(f"Task: {profile.title} for {task.duration_s} s (receive-only, {gw.mode} mode). {profile.notes}")
+        self.gateway.authorize("list_receivers", {})
         device = self.radio.choose(profile.freqs_hz, profile.sample_rate_sps, task.device_id)
         step(f"Receiver: {device['id']} ({device['label']})")
+        if gw.mode == "approval-required":
+            step("Waiting for operator approval before touching the receiver")
         if gain_db is None:
-            gain = auto_gain(self.radio, device, profile.freqs_hz, profile.sample_rate_sps, log=step)
+            gw.authorize("optimize_gain", {"device_id": device["id"], "freqs_hz": list(profile.freqs_hz),
+                                           "gain_bounds_db": [0, 60]})
+            gain = auto_gain(self.radio, device, profile.freqs_hz, profile.sample_rate_sps, log=step,
+                             should_stop=self._stop.is_set)
         else:
             gain = float(gain_db)
             step(f"gain fixed at {gain:.0f} dB by request")
+        gw.authorize("start_scan", {"device_id": device["id"], "profile": profile.name, "gain_db": gain,
+                                    "duration_s": task.duration_s})
 
         detections: dict[str, dict[str, Any]] = {}
         adjustments = 0
@@ -120,12 +134,23 @@ class Agent:
                     proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     proc.kill()
-            if decided is None:
+                    proc.wait(timeout=5)
+                if proc.stdout:
+                    proc.stdout.close()
+            if decided is None or self._stop.is_set():
                 break
             new_gain, reason = decided
+            try:
+                gw.authorize("adjust_gain", {"device_id": device["id"], "from_db": gain, "to_db": new_gain})
+            except PermissionDenied as exc:
+                step(f"{reason}; gain change not made ({exc}). Continuing at {gain:.0f} dB")
+                adjustments = MAX_ADJUSTMENTS  # do not keep asking
+                continue
             step(f"{reason}: adjusting gain {gain:.0f} -> {new_gain:.0f} dB and restarting the receiver")
             gain, adjustments = new_gain, adjustments + 1
             gains_used.append(gain)
+        if self._stop.is_set():
+            step("Stopped by operator; receiver released")
 
         devices = sorted(detections.values(), key=lambda d: -d["count"])
         step(f"Done: {len(devices)} {profile.name} device(s), {sum(d['count'] for d in devices)} detections; "
@@ -134,7 +159,8 @@ class Agent:
         return finalize({"command": command, "profile": profile.name, "title": profile.title, "receiver": device["id"],
                          "receiver_label": device.get("label"), "duration_s": task.duration_s, "gains_db": gains_used,
                          "adjustments": adjustments, "devices": devices, "steps": steps,
-                         "elapsed_s": round(time.time() - started, 1), "receive_only": True}, started)
+                         "elapsed_s": round(time.time() - started, 1), "receive_only": True,
+                         "mode": gw.mode, "stopped": self._stop.is_set(), "audit": gw.audit}, started)
 
     def _lines(self, proc: subprocess.Popen, deadline: float):
         """Plugin stdout lines until the deadline, without blocking past it."""

@@ -96,26 +96,40 @@ class Radio:
         ws_base = "ws://" + self.base_url.split("://", 1)[1]
         query = f"?keep=1{'&token=' + self.token if self.token else ''}"
         data = bytearray()
+        failure = None
         try:
             ws = websocket.create_connection(f"{ws_base}/ws/iq/{stream_id}{query}", timeout=15)
             wanted = int(rate_sps * seconds) * 2
             deadline = time.monotonic() + 15
-            while len(data) < wanted and time.monotonic() < deadline:
-                data.extend(ws.recv())
+            try:
+                while len(data) < wanted and time.monotonic() < deadline:
+                    data.extend(ws.recv())
+            except (websocket.WebSocketTimeoutException, websocket.WebSocketConnectionClosedException) as exc:
+                failure = exc
             ws.close()
         finally:
+            states = requests.get(f"{self.base_url}/streams", headers=self.headers, timeout=10).json()
+            error = next((s.get("error") for s in states if s["stream_id"] == stream_id), None)
             requests.post(f"{self.base_url}/streams/{stream_id}/stop", headers=self.headers, timeout=10)
+        if len(data) < 2048:
+            raise RuntimeError(f"Receiver {device['id']} is not delivering samples"
+                               + (f": {error}" if error else f" ({type(failure).__name__})" if failure else "")
+                               + ". Check its USB connection, or choose another receiver.")
         return iq_levels(bytes(data), gain_db)
 
 
 def auto_gain(radio: Radio, device: dict[str, Any], freqs_hz: tuple[int, ...], rate_sps: int,
-              start_db: float = 40.0, max_db: float = 60.0, min_db: float = 0.0, steps: int = 6, log=print) -> float:
+              start_db: float = 40.0, max_db: float = 60.0, min_db: float = 0.0, steps: int = 6, log=print,
+              should_stop=lambda: False) -> float:
     """Find the highest gain that keeps peaks near the target without clipping on every listed center.
 
     Uses the loudest center: a gain that is safe there is safe everywhere.
     """
     gain = start_db
     for _ in range(steps):
+        if should_stop():
+            log(f"gain optimization stopped at {gain:.0f} dB")
+            return gain
         measured = [radio.measure(device, f, rate_sps, gain) for f in freqs_hz]
         loudest = max(measured, key=lambda m: (m.clip_fraction, m.p999_dbfs))
         log(f"measured {', '.join(f'{f / 1e6:.0f} MHz' for f in freqs_hz)} at {loudest.describe()}")

@@ -35,6 +35,8 @@ KNOWN_DRIVERS = {
 NON_RF_DRIVERS = {"audio"}  # sound cards exposed by SoapyAudio are not receivers
 CHUNK_SAMPLES = 131_072  # samples per published chunk (filled from several driver reads)
 RING_CHUNKS = 64
+TRANSIENT_READ_ERRORS = {-1, -4}  # SOAPY_SDR_TIMEOUT, SOAPY_SDR_OVERFLOW
+NO_DATA_TIMEOUT_S = 5.0           # a running stream that delivers nothing this long has failed
 
 
 class DeviceBusy(RuntimeError):
@@ -144,10 +146,11 @@ class RxWorker:
 
     def __init__(self, soapy: Any, device: Device, center_hz: int, rate_sps: int, lna_db: float = 16,
                  vga_db: float = 20, amp: bool = False, bandwidth_hz: int | None = None,
-                 max_samples: int | None = None, opener=None):
+                 max_samples: int | None = None, opener=None, on_failure=None):
         self.soapy, self.device = soapy, device
         # Opening some devices (e.g. bladeRF) takes seconds; the backend reuses an open handle.
         self._open = opener or (lambda: soapy.Device(device.kwargs))
+        self._on_failure = on_failure
         self.center_hz, self.rate_sps = int(center_hz), int(rate_sps)
         self.gains = (lna_db, vga_db, amp)
         self.bandwidth_hz = bandwidth_hz
@@ -180,6 +183,8 @@ class RxWorker:
             self.status = "running"
             buf = np.zeros(CHUNK_SAMPLES, dtype=np.complex64)
             received = 0
+            last_data = time.monotonic()
+            last_error = None
             while not self._stop.is_set():
                 if self._pending_freq is not None:
                     freq, self._pending_freq = self._pending_freq, None
@@ -189,7 +194,13 @@ class RxWorker:
                 while filled < CHUNK_SAMPLES and not self._stop.is_set() and self._pending_freq is None:
                     result = dev.readStream(stream, [buf[filled:]], CHUNK_SAMPLES - filled, timeoutUs=500_000)
                     if result.ret > 0:
-                        filled += result.ret  # timeouts and overflows: keep reading
+                        filled += result.ret
+                        last_data = time.monotonic()
+                    elif result.ret not in TRANSIENT_READ_ERRORS:
+                        last_error = result.ret
+                    if time.monotonic() - last_data > NO_DATA_TIMEOUT_S:
+                        raise RuntimeError(f"no samples for {NO_DATA_TIMEOUT_S:.0f} s"
+                                           + (f" (driver read error {last_error})" if last_error is not None else ""))
                 if filled == 0:
                     continue
                 payload = cf32_to_cs8(buf[:filled])
@@ -203,6 +214,8 @@ class RxWorker:
             self.status = "stopped"
         except Exception as exc:
             self.status, self.error = "error", f"{type(exc).__name__}: {exc}"
+            if self._on_failure:
+                self._on_failure()  # drop the cached handle so the next stream reopens the device
         finally:
             try:
                 if dev is not None and stream is not None:
@@ -271,6 +284,11 @@ class SoapyBackend:
         self._owners: dict[str, tuple[str, str]] = {}
         self._handles: dict[str, Any] = {}
         self.sessions: dict[str, Session] = {}
+
+    def _failure_handler(self, device: Device):
+        def drop_handle():
+            self._handles.pop(device.id, None)
+        return drop_handle
 
     def _opener(self, device: Device):
         """Open once and reuse. Safe because one session owns a device at a time and is joined before the next."""
@@ -361,7 +379,7 @@ class SoapyBackend:
             int(config["duration_seconds"]) * int(config["sample_rate_sps"]) if config.get("duration_seconds") else None)
         worker = RxWorker(self.soapy, device, config["center_freq_hz"], config["sample_rate_sps"],
                           config.get("lna_gain_db", 16), config.get("vga_gain_db", 20), bool(config.get("amp_enable")),
-                          config.get("baseband_filter_hz"), max_samples, opener=self._opener(device))
+                          config.get("baseband_filter_hz"), max_samples, opener=self._opener(device), on_failure=self._failure_handler(device))
         session = Session(sid, "stream", dict(config), worker)
         with self._lock:
             self.sessions[sid] = session
@@ -389,7 +407,7 @@ class SoapyBackend:
         sid = f"sweep-{uuid.uuid4().hex[:12]}"
         self._claim(device.id, "sweep", sid, False)
         worker = RxWorker(self.soapy, device, centers[0], rate, config.get("lna_gain_db", 16),
-                          config.get("vga_gain_db", 20), bool(config.get("amp_enable")), opener=self._opener(device))
+                          config.get("vga_gain_db", 20), bool(config.get("amp_enable")), opener=self._opener(device), on_failure=self._failure_handler(device))
         session = Session(sid, "sweep", dict(config), worker,
                           {"samples": deque(maxlen=4096), "engine": engine, "centers": centers, "usable": usable})
         threading.Thread(target=self._sweep_loop, args=(session, rate), daemon=True).start()
@@ -440,7 +458,7 @@ class SoapyBackend:
         self._claim(device.id, "iq_sweep", sid, False)
         worker = RxWorker(self.soapy, device, centers[0], rate, config.get("lna_gain_db", 16),
                           config.get("vga_gain_db", 20), bool(config.get("amp_enable")), config.get("baseband_filter_hz"),
-                          opener=self._opener(device))
+                          opener=self._opener(device), on_failure=self._failure_handler(device))
         session = Session(sid, "iq_sweep", dict(config), worker,
                           {"centers": centers, "point_index": 0, "stream_id": f"{sid}-stream", "cursor": 0})
         session.extra["cursor"] = worker.cursor()
