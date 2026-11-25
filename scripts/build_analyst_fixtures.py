@@ -12,8 +12,9 @@ Scenarios:
   wifi_sensor_outage  2 normal cycles; then 3 cycles with no WiFi events at all
   quiet_control       2 normal cycles; then 3 more normal cycles (nothing should be reported as a change)
 
-Also writes tests/fixtures/analyst_memory/{day1,day2,day3}.json: one continuing environment for the
-persistent-memory tests (day1 baseline; day2 normal; day3 the Telemetry AP and its station go quiet).
+Also writes tests/fixtures/analyst_memory/{day1..day4}.json: one continuing environment for the
+memory and mission tests (day1 baseline; day2 normal; day3 the Telemetry AP and its station go quiet;
+day4 they return).
 """
 from __future__ import annotations
 
@@ -93,9 +94,10 @@ def main() -> int:
                       f"observations={len(snapshot.observations)}")
             (out / "truth.json").write_text(json.dumps(truth, indent=1, sort_keys=True) + "\n")
         from scripts.generate_demo_events import build_events
-        normal = build_events(cycles=8)
+        normal = build_events(cycles=11)
         days = {"day1": cycles(normal, 0, 2), "day2": cycles(normal, 2, 5),
-                "day3": [e for e in cycles(normal, 5, 8) if e.get("bssid") != TELEMETRY_BSSID]}
+                "day3": [e for e in cycles(normal, 5, 8) if e.get("bssid") != TELEMETRY_BSSID],
+                "day4": cycles(normal, 8, 11)}
         backend.ble_identity_cache.clear()
         client.post("/api/clear", json={})
         with backend.state_lock:

@@ -8,6 +8,14 @@ Persistent memory (append-only SQLite; --db defaults to .demo/analyst/memory.sql
   python -m rf_platform.analyst memory assess current.json --against last --out .demo/analyst/run
   python -m rf_platform.analyst memory history | timeline <entity_key> | verify <seq> | audit
   python -m rf_platform.analyst memory annotate --entity <key> --kind known_device --text "Facilities beacon"
+
+Bounded missions (same --db; restricted actions need --operator approval; execution is simulated):
+  python -m rf_platform.analyst mission create --name "Lab watch" --objective "..." --allow start_passive_capture
+  python -m rf_platform.analyst mission submit <id>; ... approve-scope <id> --operator ops-lead
+  python -m rf_platform.analyst mission start <id> --operator ops-lead --base-url http://127.0.0.1:8080
+  python -m rf_platform.analyst mission run <id> --base-url http://127.0.0.1:8080    # ticks until finished
+  python -m rf_platform.analyst mission approve <id> <proposal_id> --operator ops-lead
+  python -m rf_platform.analyst mission status <id> | pause | resume | cancel | deny | list
 """
 from __future__ import annotations
 
@@ -66,8 +74,43 @@ def main(argv: list[str] | None = None) -> int:
     ann.add_argument("--investigation")
     ann.add_argument("--finding")
     ann.add_argument("--author", default="operator")
+    mis = sub.add_parser("mission", help="Bounded investigation missions")
+    mis.add_argument("--db", type=Path, default=Path(".demo/analyst/memory.sqlite"))
+    xsub = mis.add_subparsers(dest="mission_command", required=True)
+    cr = xsub.add_parser("create")
+    cr.add_argument("--name", required=True)
+    cr.add_argument("--objective", required=True)
+    cr.add_argument("--allow", action="append", default=[], help="Restricted action the scope permits (repeatable)")
+    cr.add_argument("--sensors", default="all", help='"all" or comma-separated sensor IDs')
+    cr.add_argument("--interval", type=float, default=300, help="Seconds between assessments")
+    cr.add_argument("--duration", type=float, default=86400, help="Mission duration in seconds")
+    cr.add_argument("--max-assessments", type=int, default=48)
+    cr.add_argument("--max-actions", type=int, default=3)
+    cr.add_argument("--max-action-duration", type=float, default=600)
+    cr.add_argument("--approval-ttl", type=float, default=3600)
+    cr.add_argument("--operator", default="operator")
+    for name in ("submit", "approve-scope", "reject-scope", "start", "tick", "run", "pause", "resume", "cancel", "status"):
+        c = xsub.add_parser(name)
+        c.add_argument("mission_id")
+        c.add_argument("--operator", default="operator")
+        c.add_argument("--reason", default="")
+        if name in ("start", "tick", "run"):
+            c.add_argument("--snapshot", type=Path, help="Snapshot file (default: capture from --base-url)")
+            c.add_argument("--base-url", default="http://127.0.0.1:8080")
+        if name == "run":
+            c.add_argument("--poll", type=float, default=5.0, help="Seconds between ticks")
+            c.add_argument("--max-ticks", type=int, default=0, help="Stop after this many ticks (0 = until finished)")
+    for name in ("approve", "deny"):
+        c = xsub.add_parser(name)
+        c.add_argument("mission_id")
+        c.add_argument("proposal_id")
+        c.add_argument("--operator", required=True, help="Named operator; required for every approval decision")
+        c.add_argument("--reason", default="")
+    xsub.add_parser("list")
     args = parser.parse_args(argv)
 
+    if args.command == "mission":
+        return mission_command(args)
     if args.command == "memory":
         return memory_command(args)
 
@@ -131,6 +174,74 @@ def memory_command(args) -> int:
         elif args.memory_command == "annotate":
             show(memory.annotate(args.kind, args.text, args.author, args.entity, args.investigation, args.finding))
     except MemoryStoreError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
+def mission_command(args) -> int:
+    import time
+    from .memory import EnvironmentMemory
+    from .missions import TERMINAL, MissionError, Missions
+    missions = Missions(EnvironmentMemory(args.db))
+
+    def show(value):
+        print(json.dumps(value, indent=2, sort_keys=True, default=str))
+
+    def capture():
+        if getattr(args, "snapshot", None):
+            return Snapshot.from_dict(json.loads(args.snapshot.read_text()))
+        return Snapshot.from_status(capture_status(args.base_url), "mission")
+
+    cmd = args.mission_command
+    try:
+        if cmd == "create":
+            scope = {"allowed_actions": args.allow, "assess_interval_s": args.interval, "duration_s": args.duration,
+                     "max_assessments": args.max_assessments, "max_actions": args.max_actions,
+                     "max_action_duration_s": args.max_action_duration, "approval_ttl_s": args.approval_ttl,
+                     "sensors": "all" if args.sensors == "all" else [s for s in args.sensors.split(",") if s]}
+            print(missions.create(args.name, args.objective, scope, args.operator))
+        elif cmd == "list":
+            show([{**m, "state": missions.state(m["mission_id"])["state"]} for m in missions.memory.missions()])
+        elif cmd == "status":
+            report = missions.report(args.mission_id)
+            show({k: report[k] for k in ("mission_id", "state", "assessments", "actions_executed", "pending")}
+                 | {"last_events": [{"type": e["type"], "actor": e["actor"]} for e in report["events"][-8:]]})
+        elif cmd == "submit":
+            missions.submit(args.mission_id, args.operator)
+        elif cmd == "approve-scope":
+            missions.approve_scope(args.mission_id, args.operator)
+        elif cmd == "reject-scope":
+            missions.reject_scope(args.mission_id, args.operator, args.reason)
+        elif cmd == "start":
+            missions.start(args.mission_id, capture(), args.operator)
+        elif cmd == "tick":
+            print(missions.tick(args.mission_id, capture))
+        elif cmd == "run":
+            ticks = 0
+            while True:
+                state = missions.tick(args.mission_id, capture)
+                ticks += 1
+                pending = missions.state(args.mission_id)["pending"]
+                print(f"{time.strftime('%H:%M:%S')} {state}"
+                      + (f"  pending {pending['proposal_id']}: {pending['action']} {pending['params']}" if pending else ""),
+                      flush=True)
+                if state in TERMINAL or (args.max_ticks and ticks >= args.max_ticks):
+                    break
+                time.sleep(args.poll)
+        elif cmd == "approve":
+            show(missions.approve(args.mission_id, args.proposal_id, args.operator))
+        elif cmd == "deny":
+            missions.deny(args.mission_id, args.proposal_id, args.operator, args.reason or "denied by operator")
+        elif cmd == "pause":
+            missions.pause(args.mission_id, args.operator, args.reason)
+        elif cmd == "resume":
+            missions.resume(args.mission_id, args.operator)
+        elif cmd == "cancel":
+            missions.cancel(args.mission_id, args.operator, args.reason)
+        if cmd not in ("create", "list", "status", "tick", "run", "approve"):
+            print(missions.state(args.mission_id)["state"])
+    except MissionError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     return 0
