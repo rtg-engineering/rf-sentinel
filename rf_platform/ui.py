@@ -22,6 +22,12 @@ def _load_backend():
 def main() -> int:
     module = _load_backend()
     app = module.app
+    from .sdr_backend import configure
+    sdr = configure(bool(getattr(module, "RF_SENTINEL_DEMO_MODE", False)))
+    print(f"[ui] SDR backend: {sdr.get('backend')}"
+          + (f" via {sdr['gateway_url']}" if sdr.get("gateway_url") else "")
+          + (f" ({', '.join(sdr['devices']) or 'no receivers found'})" if "devices" in sdr else "")
+          + (f" unavailable: {sdr['error']}" if sdr.get("error") else ""), file=sys.stderr)
     host = os.getenv("RF_SENTINEL_HOST", os.getenv("BT_EXPLORER_HOST", "0.0.0.0"))
     port = int(os.getenv("RF_SENTINEL_PORT", os.getenv("BT_EXPLORER_PORT", "5050")))
     run_textual_console_dashboard = getattr(module, "run_textual_console_dashboard", None)
@@ -40,7 +46,7 @@ def main() -> int:
             if run_textual_console_dashboard(host, port):
                 return 0
         except KeyboardInterrupt:
-            print("\n[ui] Ctrl+C received, disconnecting from sdr-gateway...", file=sys.stderr)
+            print("\n[ui] Ctrl+C received, stopping SDR streams...", file=sys.stderr)
         finally:
             shutdown = getattr(module, "shutdown", None)
             if callable(shutdown):
@@ -52,7 +58,7 @@ def main() -> int:
     try:
         app.run(host=host, port=port, threaded=True, use_reloader=False)
     except KeyboardInterrupt:
-        print("\n[ui] Ctrl+C received, disconnecting from sdr-gateway...", file=sys.stderr)
+        print("\n[ui] Ctrl+C received, stopping SDR streams...", file=sys.stderr)
     finally:
         shutdown = getattr(module, "shutdown", None)
         if callable(shutdown):

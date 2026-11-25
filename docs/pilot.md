@@ -62,7 +62,7 @@ These are out of scope for a pilot, or are separate work:
 
 - **Radios used in RTG's own testing:** bladeRF (Bluetooth Classic 60 MHz bank capture) and HackRF (BLE, Zigbee/802.15.4, and TPMS by time-slicing). Other SoapySDR-supported front ends are assessed per pilot.
 - **Hosts:** Linux, `x86_64` and `aarch64`. The Bluetooth Classic receiver is rebuilt for the target architecture by `install.sh`.
-- **Packaging:** Docker images for the dashboard and the receiver stack. See [`docker/README.md`](../docker/README.md) for the production configuration and its documented known gap: the UI's own device picker still depends on `sdr-gateway`.
+- **Packaging:** Docker images for the dashboard and the receiver stack. Any SoapySDR-supported receiver works through the built-in IQ service ([`sdr.md`](sdr.md)). See [`docker/README.md`](../docker/README.md) for the station configuration.
 - **Data stays local.** The dashboard and the deterministic Analyst run on site. Any LLM-assisted analysis is optional, and is enabled only with your approval of the model and data handling.
 
 Scope, duration, and pricing are set after a short discovery call about your environment and objectives.

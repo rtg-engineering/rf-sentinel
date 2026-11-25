@@ -254,6 +254,14 @@ class FmAudioDemod:
         return filtered[:usable].reshape(-1, decim).mean(axis=1).astype(np.complex64)
 
 
+def _sdr_backend_state() -> dict[str, Any]:
+    try:
+        from rf_platform.sdr_backend import state
+        return state()
+    except Exception:
+        return {"backend": "unknown"}
+
+
 def _gateway_base() -> str:
     return os.getenv("SDR_GATEWAY_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
 
@@ -8889,6 +8897,7 @@ def status():
         return jsonify(
             {
                 **({"validation_metrics": _validation_metrics_view()} if RF_SENTINEL_DEMO_MODE else {}),
+                "sdr_backend": _sdr_backend_state(),
                 "running": state.running,
                 "mode": state.mode,
                 "stream_id": state.stream_id,
@@ -9097,6 +9106,12 @@ else:
 if __name__ == "__main__":
     host = os.getenv("BT_EXPLORER_HOST", "0.0.0.0")
     port = int(os.getenv("BT_EXPLORER_PORT", "5050"))
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from rf_platform.sdr_backend import configure as _configure_sdr_backend
+        print(f"[ui] SDR backend: {_configure_sdr_backend(RF_SENTINEL_DEMO_MODE)}", file=sys.stderr)
+    except Exception as exc:
+        print(f"[ui] SDR backend setup failed: {exc}", file=sys.stderr)
     try:
         if os.getenv("RF_SENTINEL_TEXTUAL_CONSOLE", "1").strip().lower() not in {"0", "false", "no", "off"} and TextualApp is not None:
             flask_thread = threading.Thread(

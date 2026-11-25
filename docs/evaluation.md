@@ -59,7 +59,7 @@ Live performance depends on the radios, antennas, placement, and environment. It
 | Protocol family | Receiver in this repository | Live status | In the public demo |
 |---|---|---|---|
 | Bluetooth Classic (LAP/UAP) | `plugins/bluetooth-classic` | Documented live: bladeRF, 60 MHz bank capture | Yes |
-| BLE advertising | `plugins/bluetooth-lowenergy` | Documented live: HackRF via `sdr-gateway` | Yes |
+| BLE advertising | `plugins/bluetooth-lowenergy` | Documented live: HackRF; bladeRF 2.0 micro via the built-in SoapySDR service | Yes |
 | Zigbee / IEEE 802.15.4 | `plugins/zigbee-802154` | Documented live, time-sliced on HackRF | Yes |
 | Sub-GHz / TPMS | `plugins/subghz-stack` | Documented live: 315 / 433.92 MHz auto-hop | Yes |
 | WiFi 802.11 (APs, stations) | `plugins/wifi-80211` | Plugin present; characterized per deployment | Yes |
@@ -72,7 +72,7 @@ Live performance depends on the radios, antennas, placement, and environment. It
 
 **Radios used in RTG's own testing:** bladeRF and HackRF. Other SoapySDR-supported front ends are assessed per evaluation.
 
-**Known integration gap:** the dashboard's own device picker and "start scan" button depend on `sdr-gateway`. The shared passive BT/BLE detection view works without it. See [`docker/README.md`](../docker/README.md).
+**Receivers:** by default the dashboard starts a built-in SoapySDR IQ service, so any SoapySDR-supported radio appears in the device picker without a separate gateway. See [`sdr.md`](sdr.md).
 
 ## 6. Licensing and next steps
 

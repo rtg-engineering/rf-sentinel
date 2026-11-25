@@ -219,7 +219,7 @@ Everything below is for engineers evaluating or deploying RF Sentinel.
 
 The core product stays passive: RF discovery, protocol intelligence, entity resolution, pattern-of-life analytics, dashboards, alerts, and reports. Active replay, simulation, and effects work belongs in a separate authorized lab module with explicit controls.
 
-The live dashboard and capture front end uses `sdr-gateway` IQ streams for BLE and Bluetooth Classic discovery, and hosts protocol plugins for additional RF families. The engineering focus is the platform layer: radio orchestration, event schemas, plugin boundaries, streaming capture, and operator-facing observability.
+The live dashboard and capture front end gets IQ streams from a built-in SoapySDR service by default ([`docs/sdr.md`](docs/sdr.md)), so any SoapySDR-supported receiver works without a separate gateway. It hosts protocol plugins for each RF family. The engineering focus is the platform layer: radio orchestration, event schemas, plugin boundaries, streaming capture, and operator-facing observability.
 
 ### Current capabilities
 
@@ -289,7 +289,7 @@ It writes JSON evidence, an HTML/PNG result card, and a checksummed evidence bun
 
 - Python 3.10+.
 - For the shared passive detection view (BT/BLE cards): a running `rfiq_daemon` instance and the shared `bt-detector` sidecar. See `rf-iq-gateway` and the "Known gap" section of `docker/README.md`.
-- For the UI's own device picker and "start scan" button: a running `sdr-gateway` instance (`http://127.0.0.1:8080` by default). Without it, that UI path shows "no SDRs are available from sdr-gateway".
+- For live receivers: SoapySDR with its Python bindings (`python3-soapysdr`) and the module for your radio (for example `soapysdr-module-bladerf` or `soapysdr-module-hackrf`). The dashboard starts its built-in SoapySDR service automatically (`SDR_BACKEND=soapy`, the default). Set `SDR_BACKEND=gateway` with `SDR_GATEWAY_BASE_URL` to use an external `sdr-gateway`, or `SDR_BACKEND=rfiq` for `rfiq_daemon` station deployments.
 
 ### Setup
 
@@ -302,7 +302,7 @@ cd rf-sentinel
 
 At runtime, `ui/backend/app.py` also checks the Bluetooth Classic sniffer binary before launch. If it is missing, stale, points at an old CMake source directory, or has the wrong architecture, it rebuilds automatically unless `BTC_SNIFFER_AUTO_BUILD=0` is set.
 
-If `sdr-gateway` auth is enabled:
+If the IQ service (built-in or external `sdr-gateway`) requires a token:
 
 ```bash
 export SDR_GATEWAY_API_TOKEN="<your-token>"
@@ -353,12 +353,12 @@ rf_sentinel_scan \
 
 ### Docker deployment
 
-A container build exists at `docker/`, with its own README and soapy-build assets. **See `docker/README.md`** for the production configuration that shares `rfiq_daemon`, rather than the older direct-`sdr-gateway` design. It also documents a known gap: the UI's device picker and "start scan" button still depend on `sdr-gateway` being up, even though the shared passive BT/BLE detection view does not.
+A container build exists at `docker/`, with its own README and soapy-build assets. **See `docker/README.md`** for the production configuration that shares `rfiq_daemon`, rather than the older direct-`sdr-gateway` design. That image runs with `SDR_BACKEND=rfiq`. Using the SoapySDR default in it would also need SoapySDR's Python bindings, which the image does not yet include.
 
 ### Notes
 
 - The BT Classic implementation is based on `research/btsniffer/full-band/sources/frame-processing/btdecoder.cpp`.
-- The paper's strongest setup captures many channels concurrently. This app uses one `sdr-gateway` stream at a time, so Classic resolution depends heavily on catching repeated packets for the same LAP on the tuned channel.
+- The paper's strongest setup captures many channels concurrently. This app uses one IQ stream at a time, so Classic resolution depends heavily on catching repeated packets for the same LAP on the tuned channel.
 - A resolved UAP still gives `NAP:UAP:LAP` only as `??:UAP:LAP`. Discovering the NAP requires protocol evidence beyond this header brute-force step.
 
 ## License
