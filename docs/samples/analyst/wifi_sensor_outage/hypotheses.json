@@ -1,0 +1,56 @@
+{
+  "F-col-3": [],
+  "F-gap-2": [
+    {
+      "hypothesis_id": "h1",
+      "kind": "sensor_or_collection",
+      "rank": 1,
+      "statement": "The current window is too short to expect every recurring entity to transmit again.",
+      "status": "open",
+      "supporting_refs": [],
+      "weakening_refs": []
+    },
+    {
+      "hypothesis_id": "h2",
+      "kind": "needs_review",
+      "rank": 2,
+      "statement": "Some entities stopped transmitting or left the area.",
+      "status": "open",
+      "supporting_refs": [],
+      "weakening_refs": []
+    }
+  ],
+  "F-sensor-1": [
+    {
+      "hypothesis_id": "h1",
+      "kind": "sensor_or_collection",
+      "rank": 1,
+      "statement": "The receiver, its assignment, or its ingestion path stopped producing observations.",
+      "status": "supported",
+      "supporting_refs": [
+        "computed:1485271443cb"
+      ],
+      "weakening_refs": []
+    },
+    {
+      "hypothesis_id": "h3",
+      "kind": "environmental",
+      "rank": 2,
+      "statement": "Band-wide interference or an RF environment change affected this sensor's protocols.",
+      "status": "open",
+      "supporting_refs": [],
+      "weakening_refs": []
+    },
+    {
+      "hypothesis_id": "h2",
+      "kind": "needs_review",
+      "rank": 3,
+      "statement": "Every device covered by wlan-demo0 stopped transmitting at the same time.",
+      "status": "weakened",
+      "supporting_refs": [],
+      "weakening_refs": [
+        "computed:1485271443cb"
+      ]
+    }
+  ]
+}

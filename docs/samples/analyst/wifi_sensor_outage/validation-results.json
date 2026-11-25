@@ -1,0 +1,12 @@
+{
+  "citations_checked": 18,
+  "findings": {
+    "F-col-3": true,
+    "F-gap-2": true,
+    "F-sensor-1": true
+  },
+  "issues": [],
+  "passed": true,
+  "schema_errors": [],
+  "warnings": []
+}

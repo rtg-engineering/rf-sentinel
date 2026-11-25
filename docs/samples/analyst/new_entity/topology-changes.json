@@ -1,0 +1,10 @@
+[
+  {
+    "current_ref": "entity:wifi:station:72:94:11:3B:0C:90:@snapshot:current:ad5aecc5d02d",
+    "from_bssid": "02:10:7A:00:30:11",
+    "key": "wifi:station:72:94:11:3B:0C:90:",
+    "reference_ref": "entity:wifi:station:72:94:11:3B:0C:90:@snapshot:baseline:05fca49b4b38",
+    "to_bssid": "02:10:7A:00:10:01",
+    "to_ssid": "FieldLab-AP-01"
+  }
+]

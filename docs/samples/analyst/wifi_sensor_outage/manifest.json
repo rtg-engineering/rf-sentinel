@@ -1,0 +1,25 @@
+{
+  "files": [
+    "agent-tool-audit.jsonl",
+    "approvals.json",
+    "baseline-summary.json",
+    "entities.json",
+    "findings.json",
+    "hypotheses.json",
+    "investigation.json",
+    "observations.jsonl",
+    "report.html",
+    "scenario-or-mission.json",
+    "snapshots.json",
+    "topology-changes.json",
+    "validation-results.json"
+  ],
+  "grounding_passed": true,
+  "investigation_id": "INV-4118662240ca",
+  "provenance": "synthetic_replay",
+  "provider": {
+    "model": null,
+    "name": "deterministic"
+  },
+  "schema_version": "1.0"
+}

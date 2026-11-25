@@ -1,0 +1,124 @@
+{
+  "F-col-5": [],
+  "F-gap-4": [
+    {
+      "hypothesis_id": "h1",
+      "kind": "sensor_or_collection",
+      "rank": 1,
+      "statement": "The current window is too short to expect every recurring entity to transmit again.",
+      "status": "supported",
+      "supporting_refs": [
+        "computed:85a29c9c97cd"
+      ],
+      "weakening_refs": []
+    },
+    {
+      "hypothesis_id": "h2",
+      "kind": "needs_review",
+      "rank": 2,
+      "statement": "Some entities stopped transmitting or left the area.",
+      "status": "open",
+      "supporting_refs": [],
+      "weakening_refs": []
+    }
+  ],
+  "F-new-1": [
+    {
+      "hypothesis_id": "h1",
+      "kind": "benign",
+      "rank": 1,
+      "statement": "A device that was not transmitting during the reference window began transmitting.",
+      "status": "open",
+      "supporting_refs": [
+        "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d"
+      ],
+      "weakening_refs": []
+    },
+    {
+      "hypothesis_id": "h3",
+      "kind": "configuration_change",
+      "rank": 2,
+      "statement": "A known device rotated to a new random BLE address; the new identifier may not be a new device.",
+      "status": "open",
+      "supporting_refs": [
+        "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d"
+      ],
+      "weakening_refs": []
+    },
+    {
+      "hypothesis_id": "h2",
+      "kind": "sensor_or_collection",
+      "rank": 3,
+      "statement": "The device was present before but was not received during the reference window (coverage or collection gap).",
+      "status": "open",
+      "supporting_refs": [],
+      "weakening_refs": [
+        "snapshot:baseline:05fca49b4b38"
+      ]
+    }
+  ],
+  "F-rel-2": [
+    {
+      "hypothesis_id": "h1",
+      "kind": "benign",
+      "rank": 1,
+      "statement": "Normal roaming or re-association to a different access point.",
+      "status": "open",
+      "supporting_refs": [
+        "entity:wifi:station:72:94:11:3B:0C:90:@snapshot:current:ad5aecc5d02d"
+      ],
+      "weakening_refs": []
+    },
+    {
+      "hypothesis_id": "h2",
+      "kind": "configuration_change",
+      "rank": 2,
+      "statement": "Network reconfiguration moved the station.",
+      "status": "open",
+      "supporting_refs": [],
+      "weakening_refs": []
+    },
+    {
+      "hypothesis_id": "h3",
+      "kind": "sensor_or_collection",
+      "rank": 3,
+      "statement": "Passive frame-address inference misattributed the association.",
+      "status": "open",
+      "supporting_refs": [],
+      "weakening_refs": []
+    }
+  ],
+  "F-sig-3": [
+    {
+      "hypothesis_id": "h3",
+      "kind": "sensor_or_collection",
+      "rank": 1,
+      "statement": "A single strong reading is a measurement artifact.",
+      "status": "supported",
+      "supporting_refs": [
+        "computed:85a29c9c97cd"
+      ],
+      "weakening_refs": []
+    },
+    {
+      "hypothesis_id": "h1",
+      "kind": "environmental",
+      "rank": 2,
+      "statement": "The emitter is physically closer to the receiver than before.",
+      "status": "open",
+      "supporting_refs": [
+        "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d"
+      ],
+      "weakening_refs": []
+    },
+    {
+      "hypothesis_id": "h2",
+      "kind": "configuration_change",
+      "rank": 3,
+      "statement": "Transmit power or antenna orientation changed.",
+      "status": "open",
+      "supporting_refs": [],
+      "weakening_refs": []
+    }
+  ]
+}

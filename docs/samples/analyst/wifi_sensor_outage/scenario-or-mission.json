@@ -1,0 +1,8 @@
+{
+  "provenance": "synthetic_replay",
+  "scope": {
+    "current_snapshot_id": "snapshot:current:39f6171e2596",
+    "question": "What changed in this monitored environment since the baseline, and what evidence supports it?",
+    "reference_snapshot_id": "snapshot:baseline:f166f9625798"
+  }
+}

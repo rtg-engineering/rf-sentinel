@@ -1,0 +1,857 @@
+{
+  "computed_results": {
+    "computed:291b5ced9341": {
+      "args": {
+        "snapshot_id": "snapshot:current:ad5aecc5d02d"
+      },
+      "collection": {
+        "captured_at": "2026-11-22T12:05:00+00:00",
+        "detections_cap": 120,
+        "detections_may_be_truncated": false,
+        "detections_returned": 25,
+        "entity_count": 22,
+        "events_accepted": 25,
+        "events_dropped": 0,
+        "events_rejected": 0,
+        "label": "current",
+        "replay_complete": false,
+        "running": false,
+        "snapshot_id": "snapshot:current:ad5aecc5d02d",
+        "worker_alive": false
+      },
+      "data_quality_notes": [],
+      "entities_by_protocol": {
+        "BTC": 2,
+        "BTLE": 4,
+        "CELLULAR": 1,
+        "FM": 1,
+        "LFMF": 1,
+        "TPMS": 1,
+        "WALKIE": 1,
+        "WIFI": 9,
+        "ZIGBEE": 2
+      },
+      "entity_count": 22,
+      "evidence_refs": [
+        "snapshot:current:ad5aecc5d02d",
+        "sensor:demo-bladerf:0@snapshot:current:ad5aecc5d02d",
+        "sensor:demo-hackrf:0@snapshot:current:ad5aecc5d02d",
+        "sensor:demo-rtlsdr:0@snapshot:current:ad5aecc5d02d",
+        "sensor:demo-sdrplay:0@snapshot:current:ad5aecc5d02d",
+        "sensor:wlan-demo0@snapshot:current:ad5aecc5d02d"
+      ],
+      "sensors": {
+        "demo-bladerf:0": {
+          "band": "BTC+BTLE shared 2.4 GHz ISM public demo",
+          "mode": "demo",
+          "protocol": "BTC",
+          "ref": "sensor:demo-bladerf:0@snapshot:current:ad5aecc5d02d"
+        },
+        "demo-hackrf:0": {
+          "band": "Zigbee, sub-GHz, walkie, and cellular public demo sweep",
+          "mode": "demo",
+          "protocol": "ZIGBEE",
+          "ref": "sensor:demo-hackrf:0@snapshot:current:ad5aecc5d02d"
+        },
+        "demo-rtlsdr:0": {
+          "band": "Broadcast FM public demo sweep",
+          "mode": "demo",
+          "protocol": "fm",
+          "ref": "sensor:demo-rtlsdr:0@snapshot:current:ad5aecc5d02d"
+        },
+        "demo-sdrplay:0": {
+          "band": "VLF/LF/MF public demo awareness",
+          "mode": "demo",
+          "protocol": "lfmf",
+          "ref": "sensor:demo-sdrplay:0@snapshot:current:ad5aecc5d02d"
+        },
+        "wlan-demo0": {
+          "band": "WiFi monitor channels 1, 6, and 11",
+          "mode": "demo",
+          "protocol": "wifi",
+          "ref": "sensor:wlan-demo0@snapshot:current:ad5aecc5d02d"
+        }
+      },
+      "snapshot_id": "snapshot:current:ad5aecc5d02d",
+      "tool": "get_environment_summary",
+      "wifi_ap_count": 3,
+      "wifi_station_count": 6
+    },
+    "computed:527a37ef703c": {
+      "args": {
+        "current_snapshot_id": "snapshot:current:ad5aecc5d02d",
+        "reference_snapshot_id": "snapshot:baseline:05fca49b4b38"
+      },
+      "current_snapshot_id": "snapshot:current:ad5aecc5d02d",
+      "entities_without_sensor": [],
+      "evidence_refs": [
+        "snapshot:baseline:05fca49b4b38",
+        "snapshot:current:ad5aecc5d02d",
+        "sensor:demo-bladerf:0@snapshot:current:ad5aecc5d02d",
+        "sensor:demo-hackrf:0@snapshot:current:ad5aecc5d02d",
+        "sensor:demo-rtlsdr:0@snapshot:current:ad5aecc5d02d",
+        "sensor:demo-sdrplay:0@snapshot:current:ad5aecc5d02d",
+        "sensor:wlan-demo0@snapshot:current:ad5aecc5d02d"
+      ],
+      "method": "Expected new detections = sensor's share of reference detections x all new detections. Sensor coverage is inferred from scanner assignments, not per-detection attribution.",
+      "new_detections_between_snapshots": 4,
+      "producing_sensor_count": 2,
+      "reference_snapshot_id": "snapshot:baseline:05fca49b4b38",
+      "sensors": {
+        "demo-bladerf:0": {
+          "device_id": "demo-bladerf:0",
+          "entity_count": 6,
+          "expected_new_detections": 0.95,
+          "new_detections": 2,
+          "protocols": [
+            "ble",
+            "btc"
+          ],
+          "ref": "sensor:demo-bladerf:0@snapshot:current:ad5aecc5d02d",
+          "reference_detections": 5,
+          "status": "producing"
+        },
+        "demo-hackrf:0": {
+          "device_id": "demo-hackrf:0",
+          "entity_count": 5,
+          "expected_new_detections": 0.95,
+          "new_detections": 0,
+          "protocols": [
+            "cellular",
+            "tpms",
+            "walkie",
+            "zigbee"
+          ],
+          "ref": "sensor:demo-hackrf:0@snapshot:current:ad5aecc5d02d",
+          "reference_detections": 5,
+          "status": "insufficient_window"
+        },
+        "demo-rtlsdr:0": {
+          "device_id": "demo-rtlsdr:0",
+          "entity_count": 1,
+          "expected_new_detections": 0.19,
+          "new_detections": 0,
+          "protocols": [
+            "fm"
+          ],
+          "ref": "sensor:demo-rtlsdr:0@snapshot:current:ad5aecc5d02d",
+          "reference_detections": 1,
+          "status": "insufficient_window"
+        },
+        "demo-sdrplay:0": {
+          "device_id": "demo-sdrplay:0",
+          "entity_count": 1,
+          "expected_new_detections": 0.19,
+          "new_detections": 0,
+          "protocols": [
+            "lfmf"
+          ],
+          "ref": "sensor:demo-sdrplay:0@snapshot:current:ad5aecc5d02d",
+          "reference_detections": 1,
+          "status": "insufficient_window"
+        },
+        "wlan-demo0": {
+          "device_id": "wlan-demo0",
+          "entity_count": 9,
+          "expected_new_detections": 1.71,
+          "new_detections": 2,
+          "protocols": [
+            "wifi"
+          ],
+          "ref": "sensor:wlan-demo0@snapshot:current:ad5aecc5d02d",
+          "reference_detections": 9,
+          "status": "producing"
+        }
+      },
+      "tool": "get_sensor_health"
+    },
+    "computed:52fedd3a0928": {
+      "args": {
+        "entity_key": "ble:02:00:00:00:99:01"
+      },
+      "entity_key": "ble:02:00:00:00:99:01",
+      "evidence_refs": [
+        "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d",
+        "event:validation-00000022",
+        "event:validation-00000024"
+      ],
+      "history": [
+        {
+          "present": false,
+          "snapshot_id": "snapshot:baseline:05fca49b4b38"
+        },
+        {
+          "bssid": null,
+          "detections": 2,
+          "last_rssi_dbfs": -25.0,
+          "present": true,
+          "ref": "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d",
+          "seen_span_days": 1,
+          "snapshot_id": "snapshot:current:ad5aecc5d02d",
+          "ssid": null,
+          "weekend_only": true,
+          "weekly_cadence": false,
+          "wifi_role": null
+        }
+      ],
+      "observation_count": 2,
+      "observations": [
+        {
+          "kind": "ble_adv",
+          "ref": "event:validation-00000022",
+          "rssi_dbfs": -65.0
+        },
+        {
+          "kind": "ble_adv",
+          "ref": "event:validation-00000024",
+          "rssi_dbfs": -25.0
+        }
+      ],
+      "rssi_span_db": 40.0,
+      "tool": "get_entity_history"
+    },
+    "computed:85a29c9c97cd": {
+      "absent_despite_expectation": [],
+      "absent_despite_expectation_count": 0,
+      "args": {
+        "current_snapshot_id": "snapshot:current:ad5aecc5d02d",
+        "reference_snapshot_id": "snapshot:baseline:05fca49b4b38"
+      },
+      "current_snapshot_id": "snapshot:current:ad5aecc5d02d",
+      "events_accepted_between_snapshots": 4,
+      "evidence_refs": [
+        "snapshot:baseline:05fca49b4b38",
+        "snapshot:current:ad5aecc5d02d"
+      ],
+      "new_detections_between_snapshots": 4,
+      "new_entities": [
+        {
+          "key": "ble:02:00:00:00:99:01",
+          "protocol": "BTLE",
+          "ref": "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d"
+        }
+      ],
+      "new_entity_count": 1,
+      "not_reobserved_count": 19,
+      "not_reobserved_keys": [
+        "ble:D0:EF:42:10:AA:01",
+        "ble:E1:04:22:6A:B0:14",
+        "ble:F2:A8:6C:03:09:51",
+        "btc:A1C3E5",
+        "btc:C4D9B2",
+        "cellular:751000000:downlink",
+        "fm:101700000",
+        "lfmf:530000",
+        "tpms:DTPMS-02",
+        "walkie:462562500",
+        "wifi:ap:02:10:7A:00:10:01:FieldLab-AP-01",
+        "wifi:ap:02:10:7A:00:30:11:Telemetry-GW",
+        "wifi:station:8A:D3:5B:21:44:10:",
+        "wifi:station:8A:D3:5B:21:44:11:",
+        "wifi:station:8A:D3:5B:21:44:12:",
+        "wifi:station:8A:D3:5B:21:44:13:",
+        "wifi:station:8A:D3:5B:21:44:14:",
+        "zigbee:0x3021:0x11AA:20",
+        "zigbee:0x7C4A:0xBEEF:15"
+      ],
+      "reference_snapshot_id": "snapshot:baseline:05fca49b4b38",
+      "relationship_change_count": 1,
+      "relationship_changes": [
+        {
+          "current_ref": "entity:wifi:station:72:94:11:3B:0C:90:@snapshot:current:ad5aecc5d02d",
+          "from_bssid": "02:10:7A:00:30:11",
+          "key": "wifi:station:72:94:11:3B:0C:90:",
+          "reference_ref": "entity:wifi:station:72:94:11:3B:0C:90:@snapshot:baseline:05fca49b4b38",
+          "to_bssid": "02:10:7A:00:10:01",
+          "to_ssid": "FieldLab-AP-01"
+        }
+      ],
+      "reobserved_count": 2,
+      "reobserved_entities": [
+        {
+          "detection_delta": 1,
+          "key": "wifi:ap:02:10:7A:00:20:06:DemoMesh-2G",
+          "ref": "entity:wifi:ap:02:10:7A:00:20:06:DemoMesh-2G@snapshot:current:ad5aecc5d02d"
+        },
+        {
+          "detection_delta": 1,
+          "key": "wifi:station:72:94:11:3B:0C:90:",
+          "ref": "entity:wifi:station:72:94:11:3B:0C:90:@snapshot:current:ad5aecc5d02d"
+        }
+      ],
+      "signal_change_count": 1,
+      "signal_changes": [
+        {
+          "current_rssi_dbfs": -25.0,
+          "key": "ble:02:00:00:00:99:01",
+          "observation_count": 2,
+          "observation_rssi_span_db": 40.0,
+          "ref": "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d",
+          "reference_rssi_dbfs": null,
+          "snapshot_delta_db": null,
+          "strong_signal": true
+        }
+      ],
+      "silent_sensor_count": 0,
+      "silent_sensors": [],
+      "thresholds": {
+        "expected_detections_for_absence": 2.0,
+        "expected_detections_for_sensor_silence": 3.0,
+        "signal_change_db": 15.0,
+        "strong_hysteresis_db": 6.0,
+        "strong_signal_dbfs": -42.0
+      },
+      "tool": "compare_baselines"
+    },
+    "computed:bf227bc76456": {
+      "args": {
+        "snapshot_id": "snapshot:baseline:05fca49b4b38"
+      },
+      "collection": {
+        "captured_at": "2026-11-22T12:00:00+00:00",
+        "detections_cap": 120,
+        "detections_may_be_truncated": false,
+        "detections_returned": 21,
+        "entity_count": 21,
+        "events_accepted": 21,
+        "events_dropped": 0,
+        "events_rejected": 0,
+        "label": "baseline",
+        "replay_complete": false,
+        "running": false,
+        "snapshot_id": "snapshot:baseline:05fca49b4b38",
+        "worker_alive": false
+      },
+      "data_quality_notes": [],
+      "entities_by_protocol": {
+        "BTC": 2,
+        "BTLE": 3,
+        "CELLULAR": 1,
+        "FM": 1,
+        "LFMF": 1,
+        "TPMS": 1,
+        "WALKIE": 1,
+        "WIFI": 9,
+        "ZIGBEE": 2
+      },
+      "entity_count": 21,
+      "evidence_refs": [
+        "snapshot:baseline:05fca49b4b38",
+        "sensor:demo-bladerf:0@snapshot:baseline:05fca49b4b38",
+        "sensor:demo-hackrf:0@snapshot:baseline:05fca49b4b38",
+        "sensor:demo-rtlsdr:0@snapshot:baseline:05fca49b4b38",
+        "sensor:demo-sdrplay:0@snapshot:baseline:05fca49b4b38",
+        "sensor:wlan-demo0@snapshot:baseline:05fca49b4b38"
+      ],
+      "sensors": {
+        "demo-bladerf:0": {
+          "band": "BTC+BTLE shared 2.4 GHz ISM public demo",
+          "mode": "demo",
+          "protocol": "BTC",
+          "ref": "sensor:demo-bladerf:0@snapshot:baseline:05fca49b4b38"
+        },
+        "demo-hackrf:0": {
+          "band": "Zigbee, sub-GHz, walkie, and cellular public demo sweep",
+          "mode": "demo",
+          "protocol": "ZIGBEE",
+          "ref": "sensor:demo-hackrf:0@snapshot:baseline:05fca49b4b38"
+        },
+        "demo-rtlsdr:0": {
+          "band": "Broadcast FM public demo sweep",
+          "mode": "demo",
+          "protocol": "fm",
+          "ref": "sensor:demo-rtlsdr:0@snapshot:baseline:05fca49b4b38"
+        },
+        "demo-sdrplay:0": {
+          "band": "VLF/LF/MF public demo awareness",
+          "mode": "demo",
+          "protocol": "lfmf",
+          "ref": "sensor:demo-sdrplay:0@snapshot:baseline:05fca49b4b38"
+        },
+        "wlan-demo0": {
+          "band": "WiFi monitor channels 1, 6, and 11",
+          "mode": "demo",
+          "protocol": "wifi",
+          "ref": "sensor:wlan-demo0@snapshot:baseline:05fca49b4b38"
+        }
+      },
+      "snapshot_id": "snapshot:baseline:05fca49b4b38",
+      "tool": "get_environment_summary",
+      "wifi_ap_count": 3,
+      "wifi_station_count": 6
+    }
+  },
+  "created_at": "2026-11-25T15:27:55.134471+00:00",
+  "evidence": {
+    "provenance": "synthetic_replay",
+    "snapshots": [
+      {
+        "captured_at": "2026-11-22T12:00:00+00:00",
+        "detections_cap": 120,
+        "detections_may_be_truncated": false,
+        "detections_returned": 21,
+        "entity_count": 21,
+        "events_accepted": 21,
+        "events_dropped": 0,
+        "events_rejected": 0,
+        "label": "baseline",
+        "replay_complete": false,
+        "running": false,
+        "snapshot_id": "snapshot:baseline:05fca49b4b38",
+        "worker_alive": false
+      },
+      {
+        "captured_at": "2026-11-22T12:05:00+00:00",
+        "detections_cap": 120,
+        "detections_may_be_truncated": false,
+        "detections_returned": 25,
+        "entity_count": 22,
+        "events_accepted": 25,
+        "events_dropped": 0,
+        "events_rejected": 0,
+        "label": "current",
+        "replay_complete": false,
+        "running": false,
+        "snapshot_id": "snapshot:current:ad5aecc5d02d",
+        "worker_alive": false
+      }
+    ]
+  },
+  "executed_actions": [],
+  "findings": [
+    {
+      "assessment": "New relative to the reference snapshot. Origin is not established from one window of evidence.",
+      "category": "new_entity",
+      "computed_results": [
+        {
+          "field": "new_entities.0.key",
+          "ref": "computed:85a29c9c97cd",
+          "statement": "Not present in the reference snapshot (baseline comparison)",
+          "value": "ble:02:00:00:00:99:01"
+        }
+      ],
+      "confidence": "medium",
+      "finding_id": "F-new-1",
+      "grounded": true,
+      "hypotheses": [
+        {
+          "hypothesis_id": "h1",
+          "kind": "benign",
+          "rank": 1,
+          "statement": "A device that was not transmitting during the reference window began transmitting.",
+          "status": "open",
+          "supporting_refs": [
+            "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d"
+          ],
+          "weakening_refs": []
+        },
+        {
+          "hypothesis_id": "h3",
+          "kind": "configuration_change",
+          "rank": 2,
+          "statement": "A known device rotated to a new random BLE address; the new identifier may not be a new device.",
+          "status": "open",
+          "supporting_refs": [
+            "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d"
+          ],
+          "weakening_refs": []
+        },
+        {
+          "hypothesis_id": "h2",
+          "kind": "sensor_or_collection",
+          "rank": 3,
+          "statement": "The device was present before but was not received during the reference window (coverage or collection gap).",
+          "status": "open",
+          "supporting_refs": [],
+          "weakening_refs": [
+            "snapshot:baseline:05fca49b4b38"
+          ]
+        }
+      ],
+      "observed_facts": [
+        {
+          "field": "key",
+          "ref": "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d",
+          "statement": "Validation New Beacon is present in the current snapshot",
+          "value": "ble:02:00:00:00:99:01"
+        },
+        {
+          "field": "detections",
+          "ref": "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d",
+          "statement": "Detections recorded for this entity",
+          "value": 2
+        }
+      ],
+      "title": "New BTLE entity: Validation New Beacon"
+    },
+    {
+      "assessment": "The inferred association changed between snapshots. Passive inference shows which BSSID the station exchanged frames with, not why.",
+      "category": "relationship_change",
+      "computed_results": [
+        {
+          "field": "relationship_changes.0.from_bssid",
+          "ref": "computed:85a29c9c97cd",
+          "statement": "Baseline comparison: previous BSSID",
+          "value": "02:10:7A:00:30:11"
+        },
+        {
+          "field": "relationship_changes.0.to_bssid",
+          "ref": "computed:85a29c9c97cd",
+          "statement": "Baseline comparison: new BSSID",
+          "value": "02:10:7A:00:10:01"
+        }
+      ],
+      "confidence": "medium",
+      "finding_id": "F-rel-2",
+      "grounded": true,
+      "hypotheses": [
+        {
+          "hypothesis_id": "h1",
+          "kind": "benign",
+          "rank": 1,
+          "statement": "Normal roaming or re-association to a different access point.",
+          "status": "open",
+          "supporting_refs": [
+            "entity:wifi:station:72:94:11:3B:0C:90:@snapshot:current:ad5aecc5d02d"
+          ],
+          "weakening_refs": []
+        },
+        {
+          "hypothesis_id": "h2",
+          "kind": "configuration_change",
+          "rank": 2,
+          "statement": "Network reconfiguration moved the station.",
+          "status": "open",
+          "supporting_refs": [],
+          "weakening_refs": []
+        },
+        {
+          "hypothesis_id": "h3",
+          "kind": "sensor_or_collection",
+          "rank": 3,
+          "statement": "Passive frame-address inference misattributed the association.",
+          "status": "open",
+          "supporting_refs": [],
+          "weakening_refs": []
+        }
+      ],
+      "observed_facts": [
+        {
+          "field": "bssid",
+          "ref": "entity:wifi:station:72:94:11:3B:0C:90:@snapshot:baseline:05fca49b4b38",
+          "statement": "Associated BSSID in the reference snapshot",
+          "value": "02:10:7A:00:30:11"
+        },
+        {
+          "field": "bssid",
+          "ref": "entity:wifi:station:72:94:11:3B:0C:90:@snapshot:current:ad5aecc5d02d",
+          "statement": "Associated BSSID in the current snapshot",
+          "value": "02:10:7A:00:10:01"
+        },
+        {
+          "field": "ssid",
+          "ref": "entity:wifi:station:72:94:11:3B:0C:90:@snapshot:current:ad5aecc5d02d",
+          "statement": "Network name of the current association",
+          "value": "FieldLab-AP-01"
+        }
+      ],
+      "title": "WiFi station 72:94:11:3B:0C:90 changed access point"
+    },
+    {
+      "assessment": "Above the -42 dBFS proximity-review threshold. Based on very few observations; corroborate before acting.",
+      "category": "signal_change",
+      "computed_results": [
+        {
+          "field": "signal_changes.0.current_rssi_dbfs",
+          "ref": "computed:85a29c9c97cd",
+          "statement": "Baseline comparison: current RSSI (dBFS)",
+          "value": -25.0
+        },
+        {
+          "field": "thresholds.strong_signal_dbfs",
+          "ref": "computed:85a29c9c97cd",
+          "statement": "Proximity-review threshold (dBFS)",
+          "value": -42.0
+        },
+        {
+          "field": "signal_changes.0.observation_count",
+          "ref": "computed:85a29c9c97cd",
+          "statement": "Linked observations in the current snapshot",
+          "value": 2
+        },
+        {
+          "field": "signal_changes.0.observation_rssi_span_db",
+          "ref": "computed:85a29c9c97cd",
+          "statement": "RSSI span across linked observations (dB)",
+          "value": 40.0
+        }
+      ],
+      "confidence": "low",
+      "finding_id": "F-sig-3",
+      "grounded": true,
+      "hypotheses": [
+        {
+          "hypothesis_id": "h3",
+          "kind": "sensor_or_collection",
+          "rank": 1,
+          "statement": "A single strong reading is a measurement artifact.",
+          "status": "supported",
+          "supporting_refs": [
+            "computed:85a29c9c97cd"
+          ],
+          "weakening_refs": []
+        },
+        {
+          "hypothesis_id": "h1",
+          "kind": "environmental",
+          "rank": 2,
+          "statement": "The emitter is physically closer to the receiver than before.",
+          "status": "open",
+          "supporting_refs": [
+            "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d"
+          ],
+          "weakening_refs": []
+        },
+        {
+          "hypothesis_id": "h2",
+          "kind": "configuration_change",
+          "rank": 3,
+          "statement": "Transmit power or antenna orientation changed.",
+          "status": "open",
+          "supporting_refs": [],
+          "weakening_refs": []
+        }
+      ],
+      "observed_facts": [
+        {
+          "field": "last_rssi_dbfs",
+          "ref": "entity:ble:02:00:00:00:99:01@snapshot:current:ad5aecc5d02d",
+          "statement": "Latest RSSI (dBFS) on the entity",
+          "value": -25
+        },
+        {
+          "field": "rssi_dbfs",
+          "ref": "event:validation-00000022",
+          "statement": "Observed RSSI (dBFS) in a linked detection",
+          "value": -65
+        },
+        {
+          "field": "rssi_dbfs",
+          "ref": "event:validation-00000024",
+          "statement": "Observed RSSI (dBFS) in a linked detection",
+          "value": -25
+        }
+      ],
+      "title": "Strong signal from Validation New Beacon"
+    },
+    {
+      "assessment": "No absent entity was expected at a meaningful rate in this window. Absence across one short window is not evidence of departure.",
+      "category": "not_reobserved",
+      "computed_results": [
+        {
+          "field": "not_reobserved_count",
+          "ref": "computed:85a29c9c97cd",
+          "statement": "Entities with no new detections since the reference",
+          "value": 19
+        },
+        {
+          "field": "absent_despite_expectation_count",
+          "ref": "computed:85a29c9c97cd",
+          "statement": "Of these, absent despite an expected detection rate",
+          "value": 0
+        },
+        {
+          "field": "silent_sensor_count",
+          "ref": "computed:85a29c9c97cd",
+          "statement": "Sensors silent despite expected traffic",
+          "value": 0
+        }
+      ],
+      "confidence": "high",
+      "finding_id": "F-gap-4",
+      "grounded": true,
+      "hypotheses": [
+        {
+          "hypothesis_id": "h1",
+          "kind": "sensor_or_collection",
+          "rank": 1,
+          "statement": "The current window is too short to expect every recurring entity to transmit again.",
+          "status": "supported",
+          "supporting_refs": [
+            "computed:85a29c9c97cd"
+          ],
+          "weakening_refs": []
+        },
+        {
+          "hypothesis_id": "h2",
+          "kind": "needs_review",
+          "rank": 2,
+          "statement": "Some entities stopped transmitting or left the area.",
+          "status": "open",
+          "supporting_refs": [],
+          "weakening_refs": []
+        }
+      ],
+      "observed_facts": [
+        {
+          "field": "events_accepted",
+          "ref": "snapshot:current:ad5aecc5d02d",
+          "statement": "Events accepted by the backend at the current snapshot",
+          "value": 25
+        },
+        {
+          "field": "events_accepted",
+          "ref": "snapshot:baseline:05fca49b4b38",
+          "statement": "Events accepted by the backend at the reference snapshot",
+          "value": 21
+        }
+      ],
+      "title": "19 reference entities were not re-observed in the current window"
+    },
+    {
+      "assessment": "All returned detections are within the API cap. Rejections and drops are as reported by the backend's own accounting.",
+      "category": "collection_quality",
+      "computed_results": [
+        {
+          "field": "entity_count",
+          "ref": "computed:291b5ced9341",
+          "statement": "Entities in the current snapshot (environment summary)",
+          "value": 22
+        }
+      ],
+      "confidence": "high",
+      "finding_id": "F-col-5",
+      "grounded": true,
+      "hypotheses": [],
+      "observed_facts": [
+        {
+          "field": "events_rejected",
+          "ref": "snapshot:current:ad5aecc5d02d",
+          "statement": "Events rejected by normalization",
+          "value": 0
+        },
+        {
+          "field": "events_dropped",
+          "ref": "snapshot:current:ad5aecc5d02d",
+          "statement": "Events dropped",
+          "value": 0
+        },
+        {
+          "field": "detections_returned",
+          "ref": "snapshot:current:ad5aecc5d02d",
+          "statement": "Detections returned by the status API",
+          "value": 25
+        }
+      ],
+      "title": "Collection health at the current snapshot"
+    }
+  ],
+  "grounding": {
+    "citations_checked": 31,
+    "findings": {
+      "F-col-5": true,
+      "F-gap-4": true,
+      "F-new-1": true,
+      "F-rel-2": true,
+      "F-sig-3": true
+    },
+    "issues": [],
+    "passed": true,
+    "schema_errors": [],
+    "warnings": []
+  },
+  "investigation_id": "INV-341b832c2b3f",
+  "limitations": [
+    "Evidence comes from synthetic demo replay. It does not demonstrate live decoder accuracy, receiver sensitivity, or performance in an uncontrolled environment.",
+    "Assessment is built from captured /api/status snapshots. Observations beyond the backend's returned detection window are not citable.",
+    "RF observations identify emitters and associations, not people or intent. No finding is evidence of hostile activity.",
+    "Not being re-observed between two snapshots is missing evidence, not proof that a transmitter is gone."
+  ],
+  "provider": {
+    "model": null,
+    "name": "deterministic"
+  },
+  "recommendations": [
+    {
+      "action": "Capture another snapshot after a window that covers each recurring entity's normal cadence, then rerun compare_baselines.",
+      "executed": false,
+      "permission": "read_only",
+      "rationale": "Separates true departures from short-window non-observation.",
+      "recommendation_id": "R1",
+      "tool": "compare_baselines"
+    },
+    {
+      "action": "Request operator approval for a bounded passive capture to corroborate the signal on ble:02:00:00:00:99:01.",
+      "executed": false,
+      "permission": "requires_approval",
+      "rationale": "Strong-signal findings rest on few observations; more passive samples would confirm or weaken the proximity hypothesis.",
+      "recommendation_id": "R2",
+      "tool": "start_passive_capture"
+    }
+  ],
+  "schema_version": "1.0",
+  "scope": {
+    "current_snapshot_id": "snapshot:current:ad5aecc5d02d",
+    "question": "What changed in this monitored environment since the baseline, and what evidence supports it?",
+    "reference_snapshot_id": "snapshot:baseline:05fca49b4b38"
+  },
+  "tool_audit": [
+    {
+      "arguments": {
+        "snapshot_id": "snapshot:baseline:05fca49b4b38"
+      },
+      "duration_ms": 0.148,
+      "evidence_ref_count": 6,
+      "result_id": "computed:bf227bc76456",
+      "sequence": 1,
+      "status": "ok",
+      "tool": "get_environment_summary"
+    },
+    {
+      "arguments": {
+        "snapshot_id": "snapshot:current:ad5aecc5d02d"
+      },
+      "duration_ms": 0.114,
+      "evidence_ref_count": 6,
+      "result_id": "computed:291b5ced9341",
+      "sequence": 2,
+      "status": "ok",
+      "tool": "get_environment_summary"
+    },
+    {
+      "arguments": {
+        "current_snapshot_id": "snapshot:current:ad5aecc5d02d",
+        "reference_snapshot_id": "snapshot:baseline:05fca49b4b38"
+      },
+      "duration_ms": 0.364,
+      "evidence_ref_count": 2,
+      "result_id": "computed:85a29c9c97cd",
+      "sequence": 3,
+      "status": "ok",
+      "tool": "compare_baselines"
+    },
+    {
+      "arguments": {
+        "entity_key": "ble:02:00:00:00:99:01"
+      },
+      "duration_ms": 0.097,
+      "evidence_ref_count": 3,
+      "result_id": "computed:52fedd3a0928",
+      "sequence": 4,
+      "status": "ok",
+      "tool": "get_entity_history"
+    },
+    {
+      "arguments": {
+        "current_snapshot_id": "snapshot:current:ad5aecc5d02d",
+        "reference_snapshot_id": "snapshot:baseline:05fca49b4b38"
+      },
+      "duration_ms": 0.209,
+      "evidence_ref_count": 7,
+      "result_id": "computed:527a37ef703c",
+      "sequence": 5,
+      "status": "ok",
+      "tool": "get_sensor_health"
+    }
+  ]
+}
