@@ -971,6 +971,8 @@ def run_workflow(agent, spec: WorkflowSpec, on_step: Callable[[str], None] = pri
     for follow in engine.follow_ups:
         result["devices"] = result["devices"] + follow["result_devices"]
     result["workflow"]["narrative"] = narrative(result)
+    from .explain import explain_workflow
+    result["workflow"]["explain"] = explain_workflow(spec)
     tags = {k: v["tags"] for k, v in engine.devices.items() if v["tags"]}
     for device in result["devices"]:
         if device["key"] in tags:
