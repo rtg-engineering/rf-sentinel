@@ -8884,6 +8884,28 @@ def agent_library_delete(name: str):
     return jsonify({"ok": True})
 
 
+@app.post("/api/agent/readiness")
+def agent_readiness():
+    """Can this plan run here, now? Quick read-only probes; nothing is opened or collected."""
+    from pydantic import ValidationError
+    from rf_platform.agent.gateway import PermissionDenied, effective_mode
+    from rf_platform.agent.readiness import check
+    body = request.get_json(silent=True) or {}
+    plan = body.get("plan") if isinstance(body.get("plan"), dict) else {}
+    simulate = agent_simulated(bool(body.get("simulate")) or RF_SENTINEL_DEMO_MODE)
+    try:
+        mode = effective_mode(body.get("mode"))
+        if simulate:
+            from rf_platform.agent.simulate import SimRadio
+            radio = SimRadio()
+        else:
+            from rf_platform.agent.radio import Radio
+            radio = Radio(_gateway_base(), os.getenv("SDR_GATEWAY_API_TOKEN", ""))
+        return jsonify(check(plan, radio, mode, RF_SENTINEL_LOG_DIR, simulate=simulate))
+    except (ValueError, ValidationError, PermissionDenied, KeyError) as exc:
+        return jsonify({"error": str(exc)[:500]}), 400
+
+
 @app.post("/api/agent/refine")
 def agent_refine():
     """Change the current plan in plain words. Returns the updated, validated plan and what changed."""

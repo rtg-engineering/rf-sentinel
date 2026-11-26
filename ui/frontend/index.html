@@ -2006,6 +2006,15 @@
       .wf-cchart .axis span { flex: 1 1 0; max-width: 34px; text-align: center; }
       .wf-cchart .legend { display: flex; gap: 12px; font-size: 0.76rem; color: var(--muted); align-items: center; flex-wrap: wrap; }
       .wf-cchart .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+      .wf-ready { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+      .wf-ready .lbl { font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-right: 2px; }
+      .wf-ready .chk { display: inline-flex; gap: 4px; align-items: center; font-size: 0.8rem; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); }
+      .wf-ready .chk .material-symbols-rounded { font-size: 16px; }
+      .wf-ready .chk.ok .material-symbols-rounded { color: var(--green); }
+      .wf-ready .chk.warn { border-color: color-mix(in srgb, var(--gold) 55%, var(--line)); }
+      .wf-ready .chk.warn .material-symbols-rounded { color: var(--gold); }
+      .wf-ready .chk.fail { border-color: color-mix(in srgb, var(--red) 55%, var(--line)); background: color-mix(in srgb, var(--red) 7%, var(--panel)); }
+      .wf-ready .chk.fail .material-symbols-rounded { color: var(--red); }
       .wf-countdown { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--wf-c); }
       @media (prefers-reduced-motion: reduce) { .wf-cyc.running { animation: none; } }
       @media (prefers-reduced-motion: reduce) { .wf-bstep, .wf-bstep.running .wf-bnum, .wf-tstep.running .wf-bnum { animation: none; } }
@@ -6095,8 +6104,25 @@
             <button type="submit" class="wf-btn ghost" id="wfRefineBtn">${materialIcon("auto_fix_high")}Update</button></form>`;
       }
 
+      let wfReadySeq = 0;
+      async function wfReadiness(planned) {
+        const seq = ++wfReadySeq;
+        const plan = planned.playbook ? { playbook: planned.playbook } : { spec: planned.spec };
+        try {
+          const out = await (await fetch("/api/agent/readiness", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ plan, mode: wfMode }) })).json();
+          if (seq !== wfReadySeq || !out.checks || wfPlanned !== planned) return;
+          const icon = { ok: "check_circle", warn: "error", fail: "cancel" };
+          const html = `<div class="wf-ready" id="wfReady"><span class="lbl">${materialIcon("fact_check")} Ready?</span>${out.checks.map((c) =>
+            `<span class="chk ${c.status}" title="${escapeHtml(c.detail)}">${materialIcon(icon[c.status])} ${escapeHtml(c.name)}${c.status === "ok" ? "" : `: ${escapeHtml(c.detail.length > 70 ? c.detail.slice(0, 68) + "…" : c.detail)}`}</span>`).join("")}</div>`;
+          document.getElementById("wfReady")?.remove();
+          wfPlanEl.querySelector(".wf-meta")?.insertAdjacentHTML("beforebegin", html);
+        } catch { /* readiness is advisory */ }
+      }
+
       function renderPlan(planned) {
         wfRenderPlanInner(planned);
+        wfReadiness(planned);
         if (planned.explain) wfPlanEl.insertAdjacentHTML("afterbegin", `<div class="wf-say">${materialIcon("record_voice_over")}<div>${escapeHtml(planned.explain)}</div></div>`);
         wfPlanEl.insertAdjacentHTML("beforeend", wfRefineBar(planned));
       }

@@ -184,6 +184,16 @@ Limits:
 
 A request beyond a limit is refused with the reason.
 
+**Ready?** Under every plan, a row of checks says whether it can run here right now (`POST /api/agent/readiness`):
+- the IQ service and a receiver for each SDR band;
+- the Bluetooth Classic decoder;
+- the cellular modem;
+- disk space for reports and IQ evidence;
+- Approve mode on an unattended watch;
+- whether alerts reach anywhere but this screen.
+
+The probes are read-only: no receiver is opened. Run them before leaving a watch overnight.
+
 **Surviving restarts.** While a scheduled playbook or a standing watch runs, it is recorded in `<log dir>/agent-runs/active/`. If the dashboard restarts, the watch resumes from its next scheduled cycle, in the same mode, and is marked *resumed*. A cycle that was in progress when the dashboard stopped is not re-run, and its results are lost. A run that ends normally, or is stopped, is no longer recorded there.
 
 **Ask about a run.** When a run has finished, including runs loaded from **Recent runs**, an *Ask* bar takes questions such as "what alerted?", "which trackers came back every cycle?", "what was strongest?" or "why was step 2 skipped?" (`POST /api/agent/jobs/<id>/ask`).
