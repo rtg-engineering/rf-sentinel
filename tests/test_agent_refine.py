@@ -75,6 +75,8 @@ class ModelRefineTest(unittest.TestCase):
 
         def broken(messages, info):
             raise RuntimeError("model unavailable")
+        with self.assertRaisesRegex(ValueError, "600 seconds|at most"):
+            refine(base, "make it 20 minutes", "", "model", model=FunctionModel(longer))  # refused, not clamped
         out = refine(base, "make it 7 minutes", "", "model", model=FunctionModel(broken))
         self.assertEqual((out["planner"], out["spec"]["duration_s"]), ("deterministic", 420))
         self.assertIn("model unavailable", out["fallback_reason"])

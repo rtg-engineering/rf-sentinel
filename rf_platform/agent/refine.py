@@ -160,6 +160,12 @@ def refine(current: dict[str, Any], instruction: str, original: str = "", planne
     if re.search(r"\b(transmit|jam|spoof|replay|attack|inject|deauth|page)\b", str(instruction).lower()):
         raise ValueError("RF Sentinel only receives. It will not transmit, jam, spoof, replay, or page devices.")
     reason = None
+    try:
+        rules_out = refine_rules(current, instruction, original)
+    except ValueError as exc:
+        if re.search(r"at most|between 5 and|repeats every|cycles|ends within|shorter than one cycle|24 h|only receives", str(exc)):
+            raise  # over a limit: refuse with the reason rather than let a model bend the change to fit
+        rules_out = None
     model = model or (default_planner_model() if planner in ("auto", "model") else None)
     out = None
     if planner != "deterministic" and model is not None:
@@ -185,7 +191,7 @@ def refine(current: dict[str, Any], instruction: str, original: str = "", planne
     elif planner == "model":
         reason = "no planner model configured (set RF_SENTINEL_PLANNER_MODEL)"
     if out is None:
-        out = refine_rules(current, instruction, original)
+        out = rules_out if rules_out is not None else refine_rules(current, instruction, original)
         out.update(planner="deterministic", model=None, fallback_reason=reason)
     from .explain import explain
     out["explain"] = explain(out)
