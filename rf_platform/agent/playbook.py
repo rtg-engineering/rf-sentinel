@@ -423,7 +423,10 @@ def step_summary(record: dict[str, Any], sentence: bool = False) -> str:
             rules.setdefault(event["rule"].split(" → ")[0], set()).add((event.get("device") or {}).get("label") or "?")
     for rule, labels in rules.items():
         names = sorted(labels)
-        text += f"; {rule} fired on {', '.join(names[:3])}{'…' if len(names) > 3 else ''}"
+        if rule == "when any device":
+            text += f"; applied the step's actions to {len(names)} device(s)"
+        else:
+            text += f"; {rule} fired on {', '.join(names[:3])}{'…' if len(names) > 3 else ''}"
     if alerts:
         text += f"; {alerts} alert(s)"
     if evidence:
@@ -452,10 +455,17 @@ def playbook_narrative(result: dict[str, Any]) -> list[str]:
         gate = f" Ran because {record['reason']}." if record.get("reason") else ""
         focus = f" Focused on {len(record['focus'])} device(s) from earlier." if record.get("focus") is not None else ""
         lines.append(f"{label}:{gate}{focus} {step_summary(record, sentence=True)}")
-    for item in result.get("persistence") or []:
+    persist = result.get("persistence") or []
+    alerted = {(a.get("device") or {}).get("key") for a in result["alerts"]}
+    # Alerted devices first, then tagged ones: the ones the operator asked about.
+    ranked = sorted(persist, key=lambda p: (p["key"] not in alerted, not p.get("tags"), -len(p["steps"])))
+    for item in ranked[:3]:
         span = f" over {item['span_s'] / 60:.1f} min" if item.get("span_s") else ""
         lines.append(f"Persistent: {item['label']} was decoded in steps {', '.join(map(str, item['steps']))}{span}"
                      + (f" (every {PROTOCOL_TITLES.get(item['protocol'], '')} step)." if item["every_step"] and len(item["steps"]) > 1 else "."))
+    rest = len(persist) - min(3, len(ranked))
+    if rest > 0:
+        lines.append(f"{rest} more device(s) were decoded in more than one step (see Persistent devices in the report).")
     if result.get("stopped"):
         lines.append("Stopped by the operator.")
     return lines
@@ -480,6 +490,8 @@ def run_playbook(agent, spec: PlaybookSpec, on_step: Callable[[str], None] = pri
         return write
 
     say = step_log("")
+    if getattr(agent, "simulate", False):
+        agent.sim_clock = (started, float(spec.summary()["total_s"]))  # one scripted scenario across every step
     say(f"Playbook: {len(spec.steps)} step(s), up to {spec.summary()['total_s']} s of collection")
     lock = threading.Lock()
     for index, step in enumerate(spec.steps):

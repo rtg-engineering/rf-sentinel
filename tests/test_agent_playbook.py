@@ -168,6 +168,38 @@ class RunTest(unittest.TestCase):
         self.assertEqual(result["steps_run"][1]["status"], "not_run")
 
 
+    def test_one_scenario_clock_and_separate_known_list(self):
+        book = plan_playbook_deterministic("find ble devices for 6 seconds and tag them as baseline. then watch for new "
+                                           "devices for 8 seconds and alert me when one stronger than -50 appears. finally, "
+                                           "watch the flagged ones for 5 seconds and record 1 second of IQ")
+        result = run_playbook(core.Agent(simulate=True), book, on_step=lambda m: None)
+        records = result["steps_run"]
+        self.assertEqual([r["status"] for r in records], ["done", "done", "done"])
+        # The scripted newcomer arrives during step 2 (one clock across steps), is new, alerts, and gets evidence.
+        alerted = [a["device"]["key"] for a in result["alerts"]]
+        self.assertEqual(len(alerted), 1)
+        self.assertTrue(alerted[0].endswith(":B9"))
+        self.assertEqual(records[2]["focus"], alerted)
+        self.assertEqual(len(result["evidence"]), 1)
+        base = Path(self.temp.name)
+        self.assertTrue((base / "known_devices.simulated.json").exists())
+        self.assertFalse((base / "known_devices.json").exists())  # synthetic devices never become "known" for real runs
+
+
+class CliTest(unittest.TestCase):
+    def test_plan_prints_steps_without_a_service(self):
+        import contextlib
+        import io
+        from rf_platform.agent.__main__ import main
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(main(["plan", OPERATION, "--planner", "deterministic", "--server", "http://127.0.0.1:9"]), 0)
+        text = out.getvalue()
+        self.assertIn("Playbook (deterministic)", text)
+        self.assertIn("2. Follow up on what was found (BLE)", text)
+        self.assertIn("IF      only if step 1 found something", text)
+
+
 class EndpointTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

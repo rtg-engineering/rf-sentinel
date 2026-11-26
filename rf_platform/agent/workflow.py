@@ -579,8 +579,9 @@ def filter_applies(condition: Condition, record: dict[str, Any], mixed: bool) ->
     return (condition.field in CELL_FIELDS) == is_cell
 
 
-def known_devices_path(base: Path | None = None) -> Path:
-    return (base or runs_dir()) / "known_devices.json"
+def known_devices_path(base: Path | None = None, simulated: bool = False) -> Path:
+    # Simulated runs keep their own list, so synthetic devices never make real ones look "previously seen".
+    return (base or runs_dir()) / ("known_devices.simulated.json" if simulated else "known_devices.json")
 
 
 class WorkflowEngine:
@@ -609,8 +610,9 @@ class WorkflowEngine:
         self.evidence: list[dict[str, Any]] = []
         self._threads: list[threading.Thread] = []
         self._started = time.time()
+        self._simulated = bool(getattr(agent, "simulate", False))
         try:
-            self.known = set(json.loads(known_devices_path(self.base_dir).read_text()))
+            self.known = set(json.loads(known_devices_path(self.base_dir, self._simulated).read_text()))
         except (OSError, ValueError):
             self.known = set()
 
@@ -827,7 +829,7 @@ class WorkflowEngine:
         with self._lock:
             matched = [self._public(self.devices[k]) for k in self.matched]
             try:
-                path = known_devices_path(self.base_dir)
+                path = known_devices_path(self.base_dir, self._simulated)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(json.dumps(sorted(self.known | set(self.devices))))
             except OSError:

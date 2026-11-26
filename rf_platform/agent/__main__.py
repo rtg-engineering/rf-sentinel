@@ -13,6 +13,8 @@ so runs started from the CLI or the dashboard can be inspected and stopped from 
   rf-sentinel agent run "find bluetooth devices" --local              # no dashboard: run in this process
   rf-sentinel agent plan "watch for trackers for 5 minutes; if one is seen for 2 minutes, alert me"
   rf-sentinel agent run "watch for trackers ...; if ..., alert me and record 5 seconds of IQ" --planner model
+  rf-sentinel agent run "sweep for trackers for 2 minutes. if you find any, watch them for 5 minutes and alert me
+                         if one is still there after 3 minutes. then survey cell towers for 1 minute"   # a playbook
 
 Server: --server, else RF_SENTINEL_URL, else http://127.0.0.1:5050. Receive-only.
 """
@@ -56,7 +58,8 @@ def show_job(job: dict, steps_from: int = 0) -> int:
 
 
 def print_story(result) -> None:
-    story = (result.get("workflow") or {}).get("narrative") or []
+    story = result.get("narrative") if result.get("kind") == "playbook" else (result.get("workflow") or {}).get("narrative")
+    story = story or []
     if story:
         print("\nWhat happened")
         for line in story:
@@ -73,7 +76,8 @@ def print_devices(result: dict) -> None:
         details = " · ".join(dict.fromkeys(str(d[k]) for k in ("identity", "name", "manufacturer",
                                                                 "device_type_detail", "pdu_type") if d.get(k)))
         rssi = f"{d['best_rssi_dbfs']:.1f}" if "best_rssi_dbfs" in d else "-"
-        print(f"{d['key']:<20} {d['count']:>5} {rssi:>10}  {details}")
+        steps = f"  [step {', '.join(map(str, d['steps']))}]" if d.get("steps") else ""
+        print(f"{d['key']:<20} {d['count']:>5} {rssi:>10}  {details}{steps}")
 
 
 def follow(server: Server, job_id: str, as_json: bool) -> int:
@@ -110,7 +114,21 @@ def follow(server: Server, job_id: str, as_json: bool) -> int:
 def print_plan(planned: dict) -> None:
     summary = planned["summary"]
     who = planned["planner"] + (f" ({planned['model']})" if planned.get("model") else "")
-    print(f"Plan ({who}{'; fallback: ' + planned['fallback_reason'] if planned.get('fallback_reason') else ''})")
+    print(f"{'Playbook' if planned.get('playbook') else 'Plan'} ({who}"
+          f"{'; fallback: ' + planned['fallback_reason'] if planned.get('fallback_reason') else ''})")
+    if planned.get("playbook"):
+        for index, step in enumerate(summary["steps"]):
+            print(f"  {index + 1}. {step['title']}")
+            for label, value in (("IF", step.get("gate")), ("FOCUS", step.get("focus"))):
+                if value:
+                    print(f"     {label:<7} {value}")
+            print(f"     FIND    {step['find']}")
+            for f in step["filters"]:
+                print(f"     FILTER  {f}")
+            for t in step["triggers"]:
+                print(f"     WHEN    {t}")
+        print(f"  up to {summary['total_s']} s of collection")
+        return
     print(f"  FIND    {summary['find']}")
     for f in summary["filters"]:
         print(f"  FILTER  {f}")
@@ -131,14 +149,22 @@ def run_local(args) -> int:
         if not sdr.get("available", True):
             print(f"error: SoapySDR is unavailable: {sdr.get('error')}", file=sys.stderr)
             return 2
-    from .workflow import WorkflowSpec, plan, run_workflow
+    from .playbook import PlaybookSpec, plan_any, run_playbook, save as save_playbook
+    from .workflow import WorkflowSpec, run_workflow
     try:
-        planned = plan(" ".join(args.request), args.planner)
+        planned = plan_any(" ".join(args.request), args.planner)
         if not args.json:
             print_plan(planned)
-        result = run_workflow(Agent(mode=args.mode, simulate=args.simulate or None), WorkflowSpec.model_validate(planned["spec"]),
-                              on_step=lambda m: None if args.json else print(f"• {m}", flush=True),
-                              gain_db=args.gain, planner={k: planned[k] for k in ("planner", "model", "fallback_reason")})
+        agent = Agent(mode=args.mode, simulate=args.simulate or None)
+        step = lambda m: None if args.json else print(f"• {m}", flush=True)  # noqa: E731
+        info = {k: planned[k] for k in ("planner", "model", "fallback_reason")}
+        if planned.get("playbook"):
+            result = run_playbook(agent, PlaybookSpec.model_validate(planned["playbook"]), on_step=step, gain_db=args.gain,
+                                  planner=info)
+            save = save_playbook
+        else:
+            result = run_workflow(agent, WorkflowSpec.model_validate(planned["spec"]), on_step=step, gain_db=args.gain,
+                                  planner=info)
     except (IntentError, PermissionDenied, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -199,7 +225,8 @@ def main(argv: list[str] | None = None) -> int:
                               timeout=180)
         if not args.json:
             print_plan(planned)
-        body = {"command": " ".join(args.request), "source": "cli", "workflow": planned["spec"], "simulate": args.simulate,
+        body = {"command": " ".join(args.request), "source": "cli", "simulate": args.simulate,
+                **({"playbook": planned["playbook"]} if planned.get("playbook") else {"workflow": planned["spec"]}),
                 "planner": {k: planned[k] for k in ("planner", "model", "fallback_reason")}}
         if args.mode:
             body["mode"] = args.mode
@@ -218,9 +245,9 @@ def main(argv: list[str] | None = None) -> int:
         except SystemExit as exc:
             if "cannot reach" not in str(exc):
                 raise
-            from .workflow import plan  # no service: plan locally
+            from .playbook import plan_any  # no service: plan locally
             try:
-                planned = plan(" ".join(args.request), args.planner)
+                planned = plan_any(" ".join(args.request), args.planner)
             except ValueError as err:
                 raise SystemExit(f"error: {err}")
         print(json.dumps(planned, indent=2) if args.json else "", end="")

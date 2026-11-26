@@ -7,7 +7,8 @@ Used when no radio is attached (development, CI) and by the dashboard's demo mod
 simulated: the events carry "simulated": true, and runs, reports and the UI say so. Addresses, LAPs and cell
 IDs are synthetic. Nothing here touches hardware.
 
-Scenario (times scale with the requested duration D; activity continues after D if a trigger extends the run):
+Scenario (times scale with the requested duration D; activity continues after D if a trigger extends the run;
+in a playbook D is the whole playbook and later steps continue the same clock):
   BLE        a crowd of phones, watch, headphones, a Tile and a beacon; at 0.15 D a separated AirTag appears
              close by and stays; at 0.45 D an unknown strong device shows up for a while; a phone leaves at 0.6 D.
   Classic    a headset and a car kit piconet.
@@ -84,12 +85,15 @@ CELLS = [
 SERVING_ORDER = [("0B22001", 0.0), ("0C33002", 0.3), ("0A11001", 0.7)]
 
 
-def _events(profile: str, elapsed: float, duration: float, rng: random.Random) -> list[dict[str, Any]]:
+def _events(profile: str, elapsed: float, duration: float, rng: random.Random, run_tag: int = 0) -> list[dict[str, Any]]:
     f = elapsed / max(duration, 1.0)
     now = time.time()
     out: list[dict[str, Any]] = []
     if profile == "ble":
         for key, identity, mfr, dtype, detail, rssi, start, end in BLE_CROWD:
+            if key.endswith(":B9"):
+                # The strong newcomer is a different device in every scenario, so "new device" rules can fire.
+                key = f"5A:11:00:{(run_tag >> 8) & 0xFF:02X}:{run_tag & 0xFF:02X}:B9"
             if f < start or (end is not None and f > end) or rng.random() > 0.55:
                 continue
             out.append({"kind": "ble_adv", "simulated": True, "address": key, "identity": identity, "name": "",
@@ -131,14 +135,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--duration", type=float, default=60.0, help="Scenario length (D); events continue after it")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--interval", type=float, default=0.4)
+    parser.add_argument("--run-tag", type=int, default=None, help="Scenario identity (default: start time)")
+    parser.add_argument("--offset", type=float, default=0.0,
+                        help="Seconds already elapsed in the scenario (a playbook's later steps continue its clock)")
     args = parser.parse_args(argv)
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     rng = random.Random(args.seed)
     started = time.monotonic()
+    run_tag = args.run_tag if args.run_tag is not None else int(time.time() - args.offset)
     try:
         while not stop.is_set():
-            for event in _events(args.profile, time.monotonic() - started, args.duration, rng):
+            for event in _events(args.profile, time.monotonic() - started + args.offset, args.duration, rng, run_tag):
                 print(json.dumps(event), flush=True)
             stop.wait(args.interval)
     except (KeyboardInterrupt, BrokenPipeError):
