@@ -16,7 +16,7 @@ def _duration(seconds: float) -> str:
     seconds = int(seconds)
     if seconds >= 120 and seconds % 60 == 0:
         return f"{seconds // 60} minutes"
-    return "1 minute" if seconds == 60 else f"{seconds} seconds"
+    return "1 minute" if seconds == 60 else "1 second" if seconds == 1 else f"{seconds} seconds"
 
 
 def _condition(c: Condition, cell: bool) -> str:

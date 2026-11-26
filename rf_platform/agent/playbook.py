@@ -895,6 +895,8 @@ def run_playbook(agent, spec: PlaybookSpec, on_step: Callable[[str], None] = pri
     result["recurring"] = recurring(records, devices) if spec.repeat else []
     result["run_id"] = "RUN-" + hashlib.sha256(f"{started_iso}|playbook|{spec.goal}".encode()).hexdigest()[:12]
     result["narrative"] = playbook_narrative(result)
+    from .explain import explain
+    result["explain"] = explain({"playbook": spec.model_dump()})
     from .report import LIMITATIONS
     result["limitations"] = LIMITATIONS + ["Devices are followed between steps by address. BLE devices that rotate "
                                            "their random address (phones, AirTags every ~15 min) can appear as new."]
@@ -986,6 +988,7 @@ li.alert.critical{{border-color:#b83c32;background:rgba(184,60,50,.1)}}li.alert.
 <div class="muted">RF SENTINEL AGENT · RECEIVE-ONLY PLAYBOOK</div><h1>{e(result['command'])}</h1>
 <div class="muted">Run {e(result['run_id'])} · {e(result['started_at'])} · {e(result['mode'])} mode · {e(result['elapsed_s'])} s ·
 planned by {e(planner.get('planner'))}{(' (' + e(planner.get('model')) + ')') if planner.get('model') else ''}</div>
+{f"<p class='card'><strong>Plan.</strong> {e(result['explain'])}</p>" if result.get("explain") else ""}
 <div class="stats">{''.join(f"<div class='stat'><span>{label}</span><strong>{e(value)}</strong></div>" for label, value in stats)}</div>
 <h2>What happened</h2><div class="card lead"><ul class="story">{story}</ul></div>
 {f"<h2>Alerts</h2><ul class='alerts'>{alerts}</ul>" if alerts else ""}
