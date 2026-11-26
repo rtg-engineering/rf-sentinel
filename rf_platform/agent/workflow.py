@@ -134,13 +134,18 @@ class WorkflowSpec(BaseModel):
     @classmethod
     def _collect(cls, value: list[str]) -> list[str]:
         ordered = list(dict.fromkeys(value))
-        if len(ordered) > 1 and set(ordered) != {"ble", "classic"}:
-            raise ValueError("one protocol per run, except BLE together with Bluetooth Classic")
+        sdr = [p for p in ordered if p != "cellular"]
+        if len(sdr) > 1 and set(sdr) != {"ble", "classic"}:
+            raise ValueError("one SDR protocol per run (BLE with Bluetooth Classic counts as one), "
+                             "optionally together with the cellular modem")
         return ordered
 
-    def command(self) -> str:
-        """The bounded collection request the deterministic agent executes."""
-        protocols = set(self.collect)
+    def sdr_collect(self) -> list[str]:
+        return [p for p in self.collect if p != "cellular"]
+
+    def command(self, protocols: list[str] | None = None) -> str:
+        """The bounded collection request the deterministic agent executes (for one source group)."""
+        protocols = set(protocols if protocols is not None else (self.sdr_collect() or self.collect))
         what = ("bluetooth devices" if protocols == {"ble", "classic"} else "ble devices" if protocols == {"ble"}
                 else "bluetooth classic devices" if protocols == {"classic"} else
                 "zigbee" if protocols == {"zigbee"} else "cell towers" if protocols == {"cellular"} else "tire sensors")
@@ -308,9 +313,20 @@ def plan_deterministic(text: str) -> WorkflowSpec:
     if re.search(r"\b(transmit|jam|spoof|replay|attack|inject|deauth|page)\b", lower):
         raise ValueError("RF Sentinel only receives. It will not transmit, jam, spoof, replay, or page devices.")
     main, trigger_clauses = _split_triggers(lower)
+    # A sentence boundary ends a rule: "if X, alert. Send an urgent alert if Y" - the second sentence's action
+    # leads the next condition rather than joining the first rule.
+    leads: dict[int, str] = {}
+    for index, clause in enumerate(trigger_clauses):
+        head, _, tail = clause.partition(". ")
+        if tail.strip():
+            trigger_clauses[index] = head
+            if index + 1 < len(trigger_clauses):
+                leads[index + 1] = tail.strip()
+            else:
+                main = f"{main}. {tail}"
     # "if X, and alert me when Y": the trailing ", and <action>" belongs to the next (action-less) clause.
     for index in range(len(trigger_clauses) - 1):
-        m = re.search(r",\s*(?:and\s+)?([^,]+)$", trigger_clauses[index])
+        m = re.search(r",\s*and\s+([^,]+)$", trigger_clauses[index])
         if m and not _parse_triggers(trigger_clauses[index + 1]) and _parse_triggers("x " + m.group(1)):
             trigger_clauses[index + 1] = trigger_clauses[index + 1].rstrip(" .") + " " + m.group(1)
             trigger_clauses[index] = trigger_clauses[index][: m.start()]
@@ -323,6 +339,8 @@ def plan_deterministic(text: str) -> WorkflowSpec:
             # "... if X or if Y": Y shares X's actions
             conditions = _conditions(clause)
             trigger = Trigger(when=conditions, do=triggers[-1].do, repeat=triggers[-1].repeat) if conditions else None
+        if trigger is None and index in leads:
+            trigger = _parse_trigger(clause + " " + leads[index])
         if trigger is None:
             # "<action> when <condition>": the action ends the preceding sentence ("... and stop when ...")
             segments = re.split(r"[.;,]|\band\b|\bthen\b", main)
@@ -364,6 +382,17 @@ def plan_deterministic(text: str) -> WorkflowSpec:
     collect = [task.profile.name, *task.companions]
     if trackers and task.profile.name == "ble":
         collect = ["ble"]  # trackers are BLE advertisers
+    mixed_bt = re.search(r"\b(?:bluetooth|ble|trackers?|airtags?|tiles?|beacons?|zigbee|tpms|tire)\b", main)
+    if task.profile.name != "cellular" and re.search(cellular_words, main) and mixed_bt:
+        collect = collect + ["cellular"]  # e.g. "watch for trackers and rogue cells": SDR + modem together
+    elif task.profile.name == "cellular" and mixed_bt:
+        rest = re.sub(cellular_words, " ", probe)
+        if trackers and not re.search(r"\b(?:bluetooth|ble|btle)\b", rest):
+            rest = "find ble devices " + rest  # trackers, AirTags and Tiles are BLE advertisers
+        other = parse(rest)
+        collect = [other.profile.name, *other.companions, "cellular"]
+        if trackers and other.profile.name == "ble":
+            collect = ["ble", "cellular"]
     filters = _conditions(main)
     notes = []
     if any(c.field == "rssi_dbfs" for c in filters + [w for t in triggers for w in t.when]):
@@ -487,6 +516,18 @@ def runs_dir() -> Path:
     return Path(os.getenv("RF_SENTINEL_AGENT_RUNS_DIR") or ".demo/agent-runs")
 
 
+CELL_FIELDS = {"operator", "rat", "generation", "role"}
+
+
+def filter_applies(condition: Condition, record: dict[str, Any], mixed: bool) -> bool:
+    """In a workflow that mixes SDR protocols with the cellular modem, a filter describes one side only:
+    cell fields filter cells; everything else (tracker kind, dBFS signal, name, ...) filters SDR devices."""
+    if not mixed:
+        return True
+    is_cell = record.get("protocol") == "cellular"
+    return (condition.field in CELL_FIELDS) == is_cell
+
+
 def known_devices_path(base: Path | None = None) -> Path:
     return (base or runs_dir()) / "known_devices.json"
 
@@ -565,7 +606,8 @@ class WorkflowEngine:
             for field in ("channel", "center_freq_hz"):
                 if event.get(field) is not None:
                     record[field] = event[field]
-            in_scope = all(_matches(c, record) for c in self.spec.filters)
+            mixed = "cellular" in self.spec.collect and bool(self.spec.sdr_collect())
+            in_scope = all(_matches(c, record) for c in self.spec.filters if filter_applies(c, record, mixed))
             if in_scope and key not in self.matched:
                 self.matched.add(key)
                 self._emit("match", device=self._public(record))
@@ -681,14 +723,21 @@ class WorkflowEngine:
         params = {"device_id": receiver["id"], "center_freq_hz": int(freq), "seconds": action.seconds}
         self.agent.gateway.authorize("record_iq", params)
         gain = 46.0
-        data = capture_iq(self.agent.radio, receiver, int(freq), rate, gain, action.seconds)
+        if getattr(self.agent, "simulate", False):
+            import random
+            rng = random.Random(hash(device["key"]) & 0xFFFF)
+            n = int(min(action.seconds, 1.0) * rate) * 2  # a short synthetic noise file stands in for the capture
+            data = bytes((int(rng.gauss(0, 12)) & 0xFF) for _ in range(min(n, 400_000)))
+        else:
+            data = capture_iq(self.agent.radio, receiver, int(freq), rate, gain, action.seconds)
         self.evidence_dir.mkdir(parents=True, exist_ok=True)
         stem = f"{self.agent.gateway.run_id}-{re.sub(r'[^A-Za-z0-9]+', '', device['key'])[:24]}-{int(time.time())}"
         path = self.evidence_dir / f"{stem}.cs8"
         path.write_bytes(data)
         meta = {"format": "cs8", "device_id": receiver["id"], "center_freq_hz": int(freq), "sample_rate_sps": rate,
                 "gain_db": gain, "seconds": len(data) / 2 / rate, "sha256": hashlib.sha256(data).hexdigest(),
-                "trigger_device": device, "run_id": self.agent.gateway.run_id, "recorded_at": time.time()}
+                "trigger_device": device, "run_id": self.agent.gateway.run_id, "recorded_at": time.time(),
+                "simulated": bool(getattr(self.agent, "simulate", False))}
         path.with_suffix(".json").write_text(json.dumps(meta, indent=2) + "\n")
         with self._lock:
             self.evidence.append({"file": path.name, "path": str(path), "sha256": meta["sha256"],
@@ -736,6 +785,44 @@ class WorkflowEngine:
                     "follow_up_scans": [{k: v for k, v in f.items() if k != "result_devices"} for f in self.follow_ups]}
 
 
+def narrative(result: dict[str, Any]) -> list[str]:
+    """Plain-language account of a finished workflow run, built only from the run's own records."""
+    wf = result.get("workflow") or {}
+    lines: list[str] = []
+    seen, matched = wf.get("seen", 0), len(wf.get("matched") or [])
+    what = (wf.get("summary") or {}).get("find", "")
+    prefix = "Simulated run. " if result.get("simulated") else ""
+    lines.append(f"{prefix}Collected {what} and saw {seen} device(s); {matched} matched the filters."
+                 if (wf.get("spec") or {}).get("filters") else f"{prefix}Collected {what} and saw {seen} device(s).")
+    by_rule: dict[str, list[str]] = {}
+    for event in wf.get("timeline") or []:
+        if event["kind"] == "trigger":
+            by_rule.setdefault(event["rule"], []).append((event.get("device") or {}).get("label") or "?")
+    for rule, labels in by_rule.items():
+        unique = list(dict.fromkeys(labels))
+        lines.append(f"Rule fired {len(labels)}×: {rule.split(' → ')[0].replace('when ', 'when ')} "
+                     f"(on {', '.join(unique[:4])}{'…' if len(unique) > 4 else ''}).")
+    if not by_rule and (wf.get("spec") or {}).get("triggers"):
+        lines.append("No trigger conditions were met.")
+    alerts = wf.get("alerts") or []
+    if alerts:
+        critical = sum(1 for a in alerts if a["severity"] == "critical")
+        lines.append(f"{len(alerts)} alert(s) raised" + (f", {critical} critical." if critical else "."))
+    if wf.get("evidence"):
+        lines.append(f"{len(wf['evidence'])} IQ evidence file(s) captured, each with a SHA-256 sidecar.")
+    for follow in wf.get("follow_up_scans") or []:
+        lines.append(f"Follow-up {PROTOCOL_TITLES.get(follow['protocol'], follow['protocol'])} scan on "
+                     f"{follow['receiver']} found {follow['devices']} device(s).")
+    denied = [e for e in wf.get("timeline") or [] if e["kind"] == "action" and e.get("status") == "denied"]
+    if denied:
+        lines.append(f"{len(denied)} action(s) were not carried out because the operating mode does not allow them.")
+    if result.get("stop_reason") and not result.get("stopped"):
+        lines.append(f"Collection ended early: {result['stop_reason']}.")
+    elif result.get("stopped"):
+        lines.append("Stopped by the operator.")
+    return lines
+
+
 def run_workflow(agent, spec: WorkflowSpec, on_step: Callable[[str], None] = print,
                  on_detection: Callable[[dict[str, Any]], None] | None = None,
                  on_event: Callable[[dict[str, Any]], None] | None = None,
@@ -752,11 +839,38 @@ def run_workflow(agent, spec: WorkflowSpec, on_step: Callable[[str], None] = pri
             on_detection(event)
         engine.observe(event)
 
-    result = agent.run(spec.command(), on_step=on_step, on_detection=observe, gain_db=gain_db)
+    cell_thread, cell_out = None, {}
+    if "cellular" in spec.collect and spec.sdr_collect():
+        # The modem needs no SDR: survey cells alongside the SDR collection, same gateway, stop and engine.
+        cell_agent = agent.child()
+
+        def survey():
+            try:
+                cell_out["result"] = cell_agent.run(spec.command(["cellular"]), on_step=lambda m: on_step(f"[Cellular] {m}"),
+                                                    on_detection=observe)
+            except Exception as exc:
+                cell_out["error"] = f"{type(exc).__name__}: {exc}"
+                on_step(f"[Cellular] not run: {exc}")
+        cell_thread = threading.Thread(target=survey, name="workflow-cellular", daemon=True)
+        cell_thread.start()
+    try:
+        result = agent.run(spec.command(), on_step=on_step, on_detection=observe, gain_db=gain_db)
+    finally:
+        if cell_thread is not None:
+            cell_agent.finish_early("primary collection ended")
+            cell_thread.join(timeout=60)
+    if cell_thread is not None:
+        cell = cell_out.get("result")
+        result["cellular"] = ({"devices": len(cell["devices"]), "receiver": cell["receiver"]} if cell
+                              else {"error": cell_out.get("error")})
+        if cell:
+            result["devices"] = result["devices"] + cell["devices"]
+            result["audit"] = result["audit"]  # shared gateway: the audit already holds both
     result["workflow"] = engine.finish()
     result["workflow"]["planner"] = planner or {"planner": "deterministic"}
     for follow in engine.follow_ups:
         result["devices"] = result["devices"] + follow["result_devices"]
+    result["workflow"]["narrative"] = narrative(result)
     tags = {k: v["tags"] for k, v in engine.devices.items() if v["tags"]}
     for device in result["devices"]:
         if device["key"] in tags:

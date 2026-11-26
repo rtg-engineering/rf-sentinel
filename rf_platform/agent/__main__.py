@@ -55,6 +55,14 @@ def show_job(job: dict, steps_from: int = 0) -> int:
     return len(job.get("steps", []))
 
 
+def print_story(result) -> None:
+    story = (result.get("workflow") or {}).get("narrative") or []
+    if story:
+        print("\nWhat happened")
+        for line in story:
+            print(f"  · {line}")
+
+
 def print_devices(result: dict) -> None:
     devices = result.get("devices") or []
     if not devices:
@@ -94,6 +102,7 @@ def follow(server: Server, job_id: str, as_json: bool) -> int:
             print(f"\n{job['status']}: {job['error']}")
         if job.get("result"):
             print_devices(job["result"])
+            print_story(job["result"])
             print(f"\nRun {job_id} ({job['result']['run_id']}) · report: {server.url}/api/agent/jobs/{job_id}/report")
     return 0 if job["status"] in ("done", "stopped") else 1
 
@@ -141,6 +150,7 @@ def run_local(args) -> int:
         print(json.dumps(result, indent=2, default=str))
     else:
         print_devices(result)
+        print_story(result)
         print(f"\nRun {result['run_id']}: {folder / 'report.html'}")
     return 0
 

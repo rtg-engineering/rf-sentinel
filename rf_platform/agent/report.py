@@ -61,8 +61,10 @@ def _render(result: dict[str, Any]) -> str:
         evidence = "".join(f"<li><code>{e(x['file'])}</code> · {e(x['seconds'])} s on {e(x['receiver'])} at "
                            f"{e(round(x['center_freq_hz'] / 1e6))} MHz · sha256 <code>{e(x['sha256'][:16])}…</code></li>"
                            for x in wf.get("evidence", []))
+        story = "".join(f"<li>{e(x)}</li>" for x in wf.get("narrative") or [])
         workflow_html = (
-            "<h2>Workflow</h2><div class='card'>"
+            (f"<h2>What happened</h2><div class='card'><ul>{story}</ul></div>" if story else "")
+            + "<h2>Workflow</h2><div class='card'>"
             f"<p><strong>Find:</strong> {e(summary.get('find'))}<br><strong>Keep:</strong> "
             f"{e('; '.join(summary.get('filters') or []) or 'everything decoded')}<br><strong>Triggers:</strong></p><ul>"
             + "".join(f"<li>{e(t)}</li>" for t in summary.get("triggers") or []) + "</ul>"

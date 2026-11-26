@@ -8769,6 +8769,18 @@ def _agent_ingest(protocol: str, payload: dict[str, Any]) -> None:
         _append_detections(events, [])
 
 
+def _agent_detection(job: dict[str, Any], spec, event: dict[str, Any]) -> None:
+    """Ingest an agent detection into the dashboard and count it in the run's per-second activity series."""
+    _agent_ingest(event.get("agent_profile") or spec.collect[0], event)
+    second = int(time.time() - job["started_at"])
+    activity = job["activity"]
+    if activity and activity[-1][0] == second:
+        activity[-1][1] += 1
+    else:
+        activity.append([second, 1])
+        del activity[:-600]
+
+
 def _agent_running() -> dict[str, Any] | None:
     with agent_jobs_lock:
         return next((j for j in agent_jobs.values() if j["status"] in ("running", "awaiting_approval", "stopping")), None)
@@ -8800,8 +8812,19 @@ def agent_simulated(requested: bool) -> bool:
 @app.post("/api/agent/plan")
 def agent_plan():
     """Plain language -> a validated workflow plan (find / filter / when->do). Nothing runs."""
-    from rf_platform.agent.workflow import plan
+    from pydantic import ValidationError
+    from rf_platform.agent.workflow import WorkflowSpec, plan
     body = request.get_json(silent=True) or {}
+    if isinstance(body.get("spec"), dict):
+        # An edited plan: validate it (bounds included) and return its summary, keeping who planned it.
+        try:
+            spec = WorkflowSpec.model_validate(body["spec"])
+        except (ValueError, ValidationError) as exc:
+            return jsonify({"error": str(exc)[:500]}), 400
+        planner_info = body.get("planner") if isinstance(body.get("planner"), dict) else {}
+        return jsonify({"spec": spec.model_dump(), "summary": spec.summary(), "edited": True,
+                        "planner": planner_info.get("planner", "deterministic"), "model": planner_info.get("model"),
+                        "fallback_reason": planner_info.get("fallback_reason")})
     text = str(body.get("text") or body.get("command") or "").strip()
     planner = str(body.get("planner") or "auto")
     if planner not in ("auto", "model", "deterministic"):
@@ -8839,7 +8862,8 @@ def agent_run():
     job = {"job_id": job_id, "command": command, "profile": spec.collect[0], "mode": mode,
            "source": str(body.get("source") or "dashboard")[:20], "status": "running", "started_at": time.time(),
            "steps": [], "result": None, "error": None, "workflow": spec.model_dump(), "summary": spec.summary(),
-           "planner": planner_info, "events": [], "alerts": [], "simulated": agent_simulated(simulate)}
+           "planner": planner_info, "events": [], "alerts": [], "simulated": agent_simulated(simulate),
+           "activity": []}
     gateway = AgentGateway(mode, job_id, _agent_approvals(),
                            on_pending=lambda p: job["steps"].append({"t": round(time.time() - job["started_at"], 1),
                                                                      "message": f"Approval needed for {p['tool']} {p['params']} (action {p['action_id']})"}))
@@ -8861,7 +8885,7 @@ def agent_run():
                         job["alerts"].append(event)
             job["result"] = run_workflow(
                 agent, spec, on_step=lambda m: job["steps"].append({"t": round(time.time() - job["started_at"], 1), "message": m}),
-                on_detection=lambda e: _agent_ingest(e.get("agent_profile") or spec.collect[0], e), on_event=on_event,
+                on_detection=lambda e: _agent_detection(job, spec, e), on_event=on_event,
                 gain_db=float(gain) if gain is not None else None, planner=planner_info,
                 base_dir=RF_SENTINEL_LOG_DIR / "agent-runs")
             from rf_platform.agent.report import save

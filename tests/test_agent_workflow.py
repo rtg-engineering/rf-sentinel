@@ -287,3 +287,38 @@ class SimulationTest(unittest.TestCase):
             result = core.Agent(simulate=True).run("find bluetooth devices for 5 seconds", on_step=lambda m: None)
         self.assertEqual((result["receiver"], result["companion"]["receiver"]), ("sim:0", "sim:1"))
         self.assertEqual({d["protocol"] for d in result["devices"]}, {"ble", "classic"})
+
+
+class MixedSourceTest(unittest.TestCase):
+    MIXED = ("watch for trackers and rogue cell towers for 14 seconds. if an airtag is seen for more than 4 seconds, "
+             "send an urgent alert. send an urgent alert if an unknown network appears or if a 2G cell shows up")
+
+    def test_planning_and_bounds(self):
+        spec = plan_deterministic(self.MIXED)
+        self.assertEqual(spec.collect, ["ble", "cellular"])
+        self.assertEqual([t.when[0].field for t in spec.triggers], ["label", "operator", "generation"])
+        self.assertTrue(all(t.do[0].severity == "critical" for t in spec.triggers))
+        self.assertEqual(plan_deterministic("find zigbee and lte cells for 60 seconds").collect, ["zigbee", "cellular"])
+        with self.assertRaises(ValueError):
+            WorkflowSpec(collect=["zigbee", "tpms", "cellular"])  # still one SDR group
+
+    def test_filters_are_scoped_per_source(self):
+        spec = WorkflowSpec(collect=["ble", "cellular"], filters=[
+            Condition(field="device_class", op="eq", value="tracker"), Condition(field="rssi_dbfs", op="ge", value=-60),
+            Condition(field="operator", op="contains", value="Verizon")])
+        engine = WorkflowEngine(spec, FakeAgent(), lambda m: None, evidence_dir=Path(tempfile.mkdtemp()))
+        engine.observe(detection("AT", label="AirTag", rssi=-50))                       # tracker, strong: kept
+        engine.observe(detection("PH", label="Pixel", rssi=-50))                        # not a tracker: dropped
+        engine.observe({"agent_key": "LTE:1", "agent_profile": "cellular", "identity": "Verizon · LTE",
+                        "operator": "Verizon", "rat": "LTE", "rssi_dbfs": -95.0})       # dBm cell, Verizon: kept
+        engine.observe({"agent_key": "LTE:2", "agent_profile": "cellular", "identity": "AT&T · LTE",
+                        "operator": "AT&T", "rat": "LTE", "rssi_dbfs": -80.0})          # not Verizon: dropped
+        self.assertEqual(engine.matched, {"AT", "LTE:1"})
+
+    def test_simulated_mixed_run(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"RF_SENTINEL_AGENT_RUNS_DIR": temp}):
+            result = run_workflow(core.Agent(simulate=True), plan_deterministic(self.MIXED), on_step=lambda m: None)
+        self.assertEqual(result["cellular"]["receiver"], "sim:cellmodem")
+        keys = {a["device"]["key"] for a in result["workflow"]["alerts"]}
+        self.assertEqual(keys, {"5A:11:00:00:00:A7", "2G GSM:0F00001"})
+        self.assertEqual({d.get("protocol") for d in result["devices"]}, {"ble", "cellular"})
