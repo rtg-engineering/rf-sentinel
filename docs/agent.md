@@ -180,6 +180,8 @@ Limits:
 
 A request beyond a limit is refused with the reason.
 
+**Surviving restarts.** While a scheduled playbook or a standing watch runs, it is recorded in `<log dir>/agent-runs/active/`. If the dashboard restarts, the watch resumes from its next scheduled cycle, in the same mode, and is marked *resumed*. A cycle that was in progress when the dashboard stopped is not re-run, and its results are lost. A run that ends normally, or is stopped, is no longer recorded there.
+
 **Saved plans.** **Save** under a plan stores it by name on the server, so the dashboard and the CLI share it. Typing "run tonight's watch" (or clicking the saved plan) loads that plan, re-validated, without planning again; `rf-sentinel agent library` lists saved plans. Saved plans live in `<log dir>/agent-runs/library.json`.
 
 **Limits:** devices are followed from step to step by address. BLE devices that rotate their random address can therefore look new in a later step; phones and AirTags rotate about every 15 minutes. "Seen for" (dwell) is counted within a step.

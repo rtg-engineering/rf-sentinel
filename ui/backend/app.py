@@ -8929,10 +8929,26 @@ def agent_run():
         return jsonify({"error": f"{mode} mode is read-only: it cannot start collection.", "mode": mode}), 403
     if _agent_running():
         return jsonify({"error": "An agent run is already active; stop it first."}), 409
+    job = _launch_agent_job(spec, book, command, mode, planner_info, simulate, body.get("gain_db"),
+                            str(body.get("source") or "dashboard")[:20])
+    return jsonify(_agent_public(job))
+
+
+def _active_dir() -> Path:
+    return RF_SENTINEL_LOG_DIR / "agent-runs" / "active"
+
+
+def _launch_agent_job(spec, book, command: str, mode: str, planner_info: dict[str, Any], simulate: bool, gain,
+                      source: str, resumed: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Start a workflow or playbook job in the background. Long playbooks (scheduled or repeating) are recorded in
+    <log dir>/agent-runs/active/ while they run, so a dashboard restart can resume them (resume_agent_watches)."""
+    from rf_platform.agent.core import Agent
+    from rf_platform.agent.gateway import AgentGateway, PermissionDenied
+    from rf_platform.agent.playbook import run_playbook
+    from rf_platform.agent.workflow import run_workflow
     job_id = f"run-{uuid.uuid4().hex[:10]}"
-    gain = body.get("gain_db")
     job = {"job_id": job_id, "command": command, "profile": spec.collect[0], "mode": mode,
-           "source": str(body.get("source") or "dashboard")[:20], "status": "running", "started_at": time.time(),
+           "source": source, "status": "running", "started_at": time.time(),
            "steps": [], "result": None, "error": None, "workflow": spec.model_dump(), "summary": spec.summary(),
            "planner": planner_info, "events": [], "alerts": [], "simulated": agent_simulated(simulate),
            "activity": []}
@@ -9005,8 +9021,68 @@ def agent_run():
             job["finished_at"] = time.time()
             job["audit"] = gateway.audit
 
-    threading.Thread(target=work, name=job_id, daemon=True).start()
-    return jsonify(_agent_public(job))
+    active_file = None
+    if book is not None and (book.repeat or book.start):
+        origin = book.start.resolve(job["started_at"]) if book.start else job["started_at"]
+        active_file = _active_dir() / f"{job_id}.json"
+        try:
+            active_file.parent.mkdir(parents=True, exist_ok=True)
+            active_file.write_text(json.dumps({"job_id": job_id, "playbook": (resumed or {}).get("original") or book.model_dump(),
+                                               "origin": (resumed or {}).get("origin", origin), "mode": mode,
+                                               "planner": planner_info, "simulate": bool(simulate), "command": command,
+                                               "source": source, "gain_db": gain}))
+        except OSError:
+            active_file = None
+    if resumed:
+        job["resumed"] = resumed["note"]
+        job["steps"].append({"t": 0.0, "message": resumed["note"]})
+
+    def run_and_forget():
+        try:
+            work()
+        finally:
+            if active_file is not None:
+                try:
+                    active_file.unlink()
+                except OSError:
+                    pass
+    threading.Thread(target=run_and_forget, name=job_id, daemon=True).start()
+    return job
+
+
+def resume_agent_watches(now: float | None = None) -> list[dict[str, Any]]:
+    """After a restart: continue standing watches and scheduled playbooks that were running, from their next
+    scheduled cycle. A cycle that was in progress when the dashboard stopped is not re-run; its results are lost."""
+    from rf_platform.agent.playbook import PlaybookSpec, Repeat, Start
+    now = time.time() if now is None else now
+    resumed: list[dict[str, Any]] = []
+    for path in sorted(_active_dir().glob("run-*.json")) if _active_dir().is_dir() else []:
+        try:
+            entry = json.loads(path.read_text())
+            original = PlaybookSpec.model_validate(entry["playbook"])
+        except (OSError, ValueError, KeyError):
+            path.unlink(missing_ok=True)
+            continue
+        path.unlink(missing_ok=True)
+        origin = float(entry["origin"])
+        every = original.repeat.every_s if original.repeat else None
+        times = original.repeat.times if original.repeat else 1
+        next_k = 0 if now <= origin else (int(-(-(now - origin) // every)) if every else times)
+        remaining = times - next_k
+        if remaining <= 0 or _agent_running():
+            continue
+        book = original.model_copy(deep=True)
+        book.repeat = Repeat(every_s=every, times=remaining) if every and remaining >= 2 else None
+        book.start = Start(in_s=int(max(0, origin + next_k * (every or 0) - now)))
+        book = PlaybookSpec.model_validate(book.model_dump())
+        note = (f"Resumed after a dashboard restart: cycles {next_k + 1}–{times} of {times}" if every
+                else "Resumed after a dashboard restart: waiting for the scheduled start")
+        job = _launch_agent_job(book.steps[0].workflow, book, entry.get("command") or book.goal, entry["mode"],
+                                entry.get("planner") or {"planner": "deterministic"}, bool(entry.get("simulate")),
+                                entry.get("gain_db"), "resumed",
+                                resumed={"note": note, "origin": origin, "original": original.model_dump()})
+        resumed.append(job)
+    return resumed
 
 
 def _saved_agent_runs(limit: int = 20, exclude: set[str] | None = None) -> list[dict[str, Any]]:

@@ -375,3 +375,52 @@ class EndpointTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResumeTest(unittest.TestCase):
+    """A standing watch survives a dashboard restart: it continues from its next scheduled cycle."""
+
+    @classmethod
+    def setUpClass(cls):
+        from tests.test_validation_harness import BackendValidationTest
+        BackendValidationTest.setUpClass()
+        cls.harness, cls.backend, cls.client = BackendValidationTest, BackendValidationTest.backend, BackendValidationTest.client
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.harness.tearDownClass()
+
+    def test_active_watch_is_recorded_and_resumed(self):
+        backend = self.backend
+        book = plan_playbook_deterministic("find ble devices for 5 seconds. repeat every 10 minutes, 6 times")
+        started = self.client.post("/api/agent/run", json={"playbook": book.model_dump(), "simulate": True,
+                                                           "mode": "passive-auto"}).get_json()
+        active = backend._active_dir() / f"{started['job_id']}.json"
+        self.assertTrue(active.exists())
+        entry = json.loads(active.read_text())
+        self.client.post(f"/api/agent/jobs/{started['job_id']}/stop")
+        deadline = time.time() + 30
+        while time.time() < deadline and active.exists():
+            time.sleep(0.3)
+        self.assertFalse(active.exists())  # a run that ends normally is no longer "active"
+        # Simulate a restart 25 minutes into the watch: cycles 1-3 have started, so 4-6 remain.
+        active.write_text(json.dumps(entry))
+        with backend.agent_jobs_lock:
+            backend.agent_jobs.clear()
+        jobs = backend.resume_agent_watches(now=entry["origin"] + 25 * 60)
+        self.assertEqual(len(jobs), 1)
+        job = jobs[0]
+        try:
+            self.assertEqual(job["source"], "resumed")
+            self.assertIn("cycles 4–6 of 6", job["resumed"])
+            self.assertEqual(job["playbook"]["repeat"]["times"], 3)
+            self.assertEqual(job["playbook"]["start"]["in_s"], 300)  # cycle 4 is due at 30 min; the restart is at 25 min
+        finally:
+            job["agent"].stop()
+        # Nothing left to resume after the last cycle's start time.
+        (backend._active_dir() / "run-old.json").write_text(json.dumps(entry))
+        with backend.agent_jobs_lock:
+            backend.agent_jobs.clear()
+        time.sleep(1)
+        self.assertEqual(backend.resume_agent_watches(now=entry["origin"] + 3 * 3600), [])
+        self.assertFalse((backend._active_dir() / "run-old.json").exists())

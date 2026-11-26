@@ -6437,6 +6437,7 @@
         wfLive.morphHtml = `
           <div class="wf-status"><span class="wf-pulse ${running ? "" : "idle"}"></span><strong>${escapeHtml(statusText)}</strong>
             ${job.simulated ? `<span class="wf-sim">${materialIcon("science")} SIMULATED</span>` : ""}
+            ${job.resumed ? `<span class="wf-badge" title="${escapeHtml(job.resumed)}">${materialIcon("restart_alt")} resumed</span>` : ""}
             <span class="small">${escapeHtml(book ? (current || `Playbook · ${book.steps.length} steps`) : (job.summary?.find || ""))} · ${Math.round(elapsed)} s · ${escapeHtml(WF_MODE_LABEL[job.mode] || job.mode)}</span>
             <div class="wf-progress"><span style="width:${pct}%"></span></div>
             ${job.report_dir ? `<a class="wf-badge" href="/api/agent/jobs/${encodeURIComponent(job.job_id)}/report" target="_blank" rel="noopener">${materialIcon("verified")} Verifiable report</a>` : ""}</div>
