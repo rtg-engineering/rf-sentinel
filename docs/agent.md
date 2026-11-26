@@ -182,6 +182,10 @@ A request beyond a limit is refused with the reason.
 
 **Surviving restarts.** While a scheduled playbook or a standing watch runs, it is recorded in `<log dir>/agent-runs/active/`. If the dashboard restarts, the watch resumes from its next scheduled cycle, in the same mode, and is marked *resumed*. A cycle that was in progress when the dashboard stopped is not re-run, and its results are lost. A run that ends normally, or is stopped, is no longer recorded there.
 
+**Ask about a run.** When a run has finished, including runs loaded from **Recent runs**, an *Ask* bar takes questions such as "what alerted?", "which trackers came back every cycle?", "what was strongest?" or "why was step 2 skipped?" (`POST /api/agent/jobs/<id>/ask`).
+- **With a model:** the model answers, and it can read the run only through tools (overview, devices, alerts). Its answer is then checked by code: every device it cites must be one the run recorded, and every number must appear in what the tools returned.
+- **Without a model, or if the check fails:** code answers the common questions from the run's records, and the answer states the reason.
+
 **Saved plans.** **Save** under a plan stores it by name on the server, so the dashboard and the CLI share it. Typing "run tonight's watch" (or clicking the saved plan) loads that plan, re-validated, without planning again; `rf-sentinel agent library` lists saved plans. Saved plans live in `<log dir>/agent-runs/library.json`.
 
 **Limits:** devices are followed from step to step by address. BLE devices that rotate their random address can therefore look new in a later step; phones and AirTags rotate about every 15 minutes. "Seen for" (dwell) is counted within a step.

@@ -1964,6 +1964,11 @@
       .wf-tstep.error .wf-bnum { background: var(--red); }
       .wf-stepno { font-size: 0.68rem; font-weight: 800; padding: 0 6px; border-radius: 99px; background: var(--chip); color: var(--muted); margin-left: 4px; }
       .wf-persist { display: flex; flex-direction: column; gap: 6px; }
+      .wf-ask { grid-column: 1 / -1; display: grid; gap: 8px; }
+      .wf-qa { display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); animation: wf-in 0.3s ease; }
+      .wf-qa .q { font-weight: 700; display: flex; gap: 6px; align-items: center; }
+      .wf-qa .a { white-space: pre-wrap; line-height: 1.5; }
+      .wf-qa .by { font-size: 0.74rem; color: var(--muted); }
       .wf-say { grid-column: 1 / -1; display: flex; gap: 10px; align-items: flex-start; padding: 10px 14px; border-radius: 12px; line-height: 1.5;
         background: linear-gradient(120deg, color-mix(in srgb, var(--wf-a) 9%, var(--panel)), color-mix(in srgb, var(--wf-c) 9%, var(--panel)));
         border: 1px solid color-mix(in srgb, var(--wf-b) 30%, var(--line)); }
@@ -6373,6 +6378,51 @@
         }).join("")}</div>`;
       }
 
+      const wfAnswers = new Map();  // job_id -> [{q, a, by, pending}]
+      function wfAsk(job) {
+        if (WF_ACTIVE.includes(job.status) || !job.result) return "";
+        const qa = (wfAnswers.get(job.job_id) || []).map((x, i) => `<div class="wf-qa" data-key="qa-${i}">
+            <div class="q">${materialIcon("help")} ${escapeHtml(x.q)}</div>
+            <div class="a">${x.pending ? "Reading the run's records…" : escapeHtml(x.a)}</div>
+            ${x.pending ? "" : `<div class="by">${escapeHtml(x.by)}</div>`}</div>`).join("");
+        return `<div class="wf-ask">${qa}
+            <form class="wf-refine" data-ask="${escapeHtml(job.job_id)}">${materialIcon("forum")}
+              <input type="text" class="wf-ask-text" autocomplete="off" aria-label="Ask about this run"
+                placeholder="Ask about this run: “what alerted?” · “which trackers came back every cycle?” · “what was strongest?”">
+              <button type="submit" class="wf-btn ghost">${materialIcon("send")}Ask</button></form></div>`;
+      }
+      wfLive.addEventListener("submit", async (event) => {
+        const form = event.target.closest("[data-ask]");
+        if (!form) return;
+        event.preventDefault();
+        const input = form.querySelector("input");
+        const question = input.value.trim();
+        if (!question) return;
+        const jobId = form.dataset.ask;
+        const list = wfAnswers.get(jobId) || [];
+        const entry = { q: question, pending: true };
+        list.push(entry);
+        wfAnswers.set(jobId, list);
+        input.value = "";
+        const rerender = async () => { const j = await (await fetch(`/api/agent/jobs/${encodeURIComponent(jobId)}`)).json().catch(() => null);
+          if (j && !j.error) renderAgent(j); else if (wfHistoryList.__jobs?.get(jobId)) renderAgent(wfHistoryList.__jobs.get(jobId)); };
+        await rerender();
+        try {
+          const response = await fetch(`/api/agent/jobs/${encodeURIComponent(jobId)}/ask`, { method: "POST",
+            headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question, planner: wfPlanner }) });
+          const out = await response.json();
+          if (!response.ok) throw new Error(out.error || "Could not answer");
+          entry.a = out.answer;
+          entry.by = out.by === "model" ? `Answered by ${out.model}; every device and number checked against this run's records`
+            : `Answered from this run's records by code${out.fallback_reason ? ` (model: ${out.fallback_reason})` : ""}`;
+        } catch (err) {
+          entry.a = err.message; entry.by = "";
+        }
+        entry.pending = false;
+        await rerender();
+        wfLive.querySelector(".wf-ask-text")?.focus();
+      });
+
       function renderAgent(job) {
         const running = WF_ACTIVE.includes(job.status);
         wf.classList.toggle("running", running);
@@ -6454,6 +6504,7 @@
             <div class="wf-stat wide"><span>Detections / s</span>${wfSparkline(job.activity, book ? (job.summary?.total_s || 60) : (spec.duration_s || 60))}</div>
           </div>
           ${story ? `<div class="wf-card wf-story"><h4>${materialIcon("summarize")} What happened</h4><ul>${story}</ul></div>` : ""}
+          ${wfAsk(job)}
           ${persist ? `<div class="wf-card" style="grid-column:1/-1"><h4>${materialIcon("history")} Persistent across steps</h4><div class="wf-persist">${persist}</div></div>` : ""}
           ${recurring ? `<div class="wf-card" style="grid-column:1/-1"><h4>${materialIcon("autorenew")} Recurring across cycles (${recurList.length})</h4><div class="wf-persist">${recurring}</div>
             ${recurMore ? `<div class="wf-note">${recurMore} more in the report. Alerted and tagged devices are listed first.</div>` : ""}</div>` : ""}

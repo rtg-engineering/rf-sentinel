@@ -9169,6 +9169,30 @@ def agent_job_report(job_id: str):
     return Response((Path(job["report_dir"]) / "report.html").read_text(), mimetype="text/html")
 
 
+@app.post("/api/agent/jobs/<job_id>/ask")
+def agent_job_ask(job_id: str):
+    """Ask about a finished run. Answers come from the run's own records (model answers are checked against them)."""
+    from rf_platform.agent.ask import ask
+    body = request.get_json(silent=True) or {}
+    job = _agent_job(job_id)
+    result = job.get("result") if job else None
+    if job is None and re.fullmatch(r"saved-RUN-[0-9a-f]{12}", job_id):
+        path = RF_SENTINEL_LOG_DIR / "agent-runs" / job_id[len("saved-"):] / "run.json"
+        try:
+            result = json.loads(path.read_text())
+        except (OSError, ValueError):
+            result = None
+    if result is None:
+        return jsonify({"error": "Ask once the run has finished" if job else "Unknown run"}), 409 if job else 404
+    planner = str(body.get("planner") or "auto")
+    if planner not in ("auto", "model", "deterministic"):
+        return jsonify({"error": "planner must be auto, model, or deterministic"}), 400
+    try:
+        return jsonify(ask(result, str(body.get("question") or ""), planner))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
 @app.post("/api/agent/jobs/<job_id>/stop")
 def agent_job_stop(job_id: str):
     """Stop one run. Only that run's own scan and receiver stream are released."""
