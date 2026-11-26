@@ -21,7 +21,7 @@ rf-sentinel agent run "find bluetooth devices" --local            # no dashboard
 
 Runs are managed by the dashboard's run service, which is the single source of truth. A run started from the dashboard can be inspected and stopped from the CLI, and the reverse. The CLI talks to `--server`, else `RF_SENTINEL_URL`, else `http://127.0.0.1:5050`. Stopping a run ends its scan, or its gain measurement or approval wait, within about 1–2 s, and releases only that run's receiver stream.
 
-In the dashboard, type the same request into the **Ask RF Sentinel** bar. Its steps (including every gain change) appear as they happen. Decoded devices appear in the normal detections table, and a link opens the verifiable report. The dashboard and CLI use the same agent code and the same IQ service.
+In the dashboard, type the same request into the **Agent workflows** panel. Its steps (including every gain change) appear under *Agent steps* as they happen. Decoded devices appear in the normal detections table, and a link opens the verifiable report. The dashboard and CLI use the same agent code and the same IQ service.
 
 ## Workflows: find, keep, when → do
 
