@@ -8845,6 +8845,24 @@ def agent_plan():
         return jsonify({"error": str(exc)}), 400
 
 
+@app.post("/api/agent/refine")
+def agent_refine():
+    """Change the current plan in plain words. Returns the updated, validated plan and what changed."""
+    from pydantic import ValidationError
+    from rf_platform.agent.refine import refine
+    body = request.get_json(silent=True) or {}
+    current = body.get("current") if isinstance(body.get("current"), dict) else {}
+    if not (isinstance(current.get("spec"), dict) or isinstance(current.get("playbook"), dict)):
+        return jsonify({"error": "current must hold the plan to change ({spec} or {playbook})"}), 400
+    planner = str(body.get("planner") or "auto")
+    if planner not in ("auto", "model", "deterministic"):
+        return jsonify({"error": "planner must be auto, model, or deterministic"}), 400
+    try:
+        return jsonify(refine(current, str(body.get("instruction") or ""), str(body.get("text") or ""), planner))
+    except (ValueError, ValidationError) as exc:
+        return jsonify({"error": str(exc)[:500]}), 400
+
+
 @app.post("/api/agent/run")
 def agent_run():
     from pydantic import ValidationError

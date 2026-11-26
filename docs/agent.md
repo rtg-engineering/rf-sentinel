@@ -143,6 +143,29 @@ In the dashboard, a playbook plan is a numbered pipeline: each step shows its co
 
 Whether a request has steps is decided by the rules (sequencing words and step verbs). A single request always plans exactly as before; the 30-phrase workflow corpus is checked for that.
 
+**Standing watches.** A watch repeats a whole playbook on a schedule:
+
+> "Every 10 minutes for the next 2 hours, sweep for bluetooth trackers for 1 minute and send an urgent alert when a new one appears."
+
+Other phrasings it understands:
+- "…, repeat 4 times, every 15 minutes"
+- "…, every hour until I stop it" (with no end given, the watch runs as many cycles as fit within the limits)
+
+Cycles start on the schedule (start to start), and **Stop** ends the watch even while it is waiting. If the first cycle cannot run any step, for example because there is no receiver, the watch ends at once instead of waiting through the remaining cycles.
+
+Results:
+- A "new" rule fires only for devices that no earlier cycle (or run) has seen. A watch therefore alerts on arrivals, not on the same crowd every cycle.
+- **Recurring** devices are those decoded in two or more cycles, with how many cycles and over how long.
+- The dashboard shows the cycles (alerts marked), a countdown to the next cycle, and a recurring-devices card. The report has a per-cycle table.
+
+Limits:
+- cycles start 60 s to 6 h apart;
+- at most 48 cycles;
+- the watch ends within 12 h;
+- a cycle must fit within the interval.
+
+A request beyond a limit is refused with the reason.
+
 **Limits:** devices are followed from step to step by address. BLE devices that rotate their random address can therefore look new in a later step; phones and AirTags rotate about every 15 minutes. "Seen for" (dwell) is counted within a step.
 
 ## What it does

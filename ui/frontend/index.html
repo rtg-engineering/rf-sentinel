@@ -1964,6 +1964,14 @@
       .wf-tstep.error .wf-bnum { background: var(--red); }
       .wf-stepno { font-size: 0.68rem; font-weight: 800; padding: 0 6px; border-radius: 99px; background: var(--chip); color: var(--muted); margin-left: 4px; }
       .wf-persist { display: flex; flex-direction: column; gap: 6px; }
+      .wf-refine { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; padding: 6px 6px 6px 12px; border-radius: 12px;
+        border: 1px dashed color-mix(in srgb, var(--wf-b) 45%, var(--line)); background: color-mix(in srgb, var(--wf-b) 5%, var(--panel)); }
+      .wf-refine > .material-symbols-rounded { color: var(--wf-b); }
+      .wf-refine input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; padding: 6px 0; }
+      .wf-changes { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+      .wf-changes span { font-size: 0.8rem; padding: 2px 9px; border-radius: 999px; font-weight: 600; }
+      .wf-changes .add { color: var(--green); background: color-mix(in srgb, var(--green) 14%, var(--panel)); }
+      .wf-changes .del { color: var(--red); background: color-mix(in srgb, var(--red) 12%, var(--panel)); text-decoration: line-through; }
       .wf-watch { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 12px;
         border: 1px solid color-mix(in srgb, var(--wf-c) 40%, var(--line)); background: color-mix(in srgb, var(--wf-c) 8%, var(--panel)); }
       .wf-watch > .material-symbols-rounded { color: var(--wf-c); }
@@ -6039,13 +6047,27 @@
         wfPlanEl.innerHTML = `${watch}
           <div class="wf-book">${book.steps.map((step, i) => wfBookStep(step, summary.steps[i], i, { edit: true, last: i === book.steps.length - 1 })).join("")}</div>
           <div class="wf-meta"><span class="wf-badges"><span class="wf-badge">${materialIcon("format_list_numbered")} Playbook · ${book.steps.length} step${book.steps.length > 1 ? "s" : ""} · up to ${wfDuration(summary.total_s)}${book.repeat ? " per cycle" : ""}</span>
-            ${wfPlannerBadge(planned)}${planned.edited ? `<span class="wf-badge">${materialIcon("edit")} edited</span>` : ""}
+            ${wfPlannerBadge(planned)}${planned.edited || planned.refined ? `<span class="wf-badge">${materialIcon("edit")} ${planned.refined ? "refined" : "edited"}</span>` : ""}
             <button type="button" class="wf-badge wf-save" data-save="1" title="Save this plan as a one-click preset in this browser">${materialIcon("bookmark_add")} Save</button></span>
             <span class="wf-note">Steps run in order on the same receivers, policy and audit. ${(book.notes || []).map(escapeHtml).join(" · ")}${planned.fallback_reason ? ` · model: ${escapeHtml(planned.fallback_reason)}` : ""}</span></div>`;
         wfPlanEl.hidden = false;
       }
 
+      function wfRefineBar(planned) {
+        const changes = (planned.changes || []).map((c) => `<span class="${c.startsWith("+") ? "add" : "del"}">${escapeHtml(c.slice(2))}</span>`).join("");
+        return `${changes ? `<div class="wf-changes">${changes}</div>` : ""}
+          <form class="wf-refine" id="wfRefineForm">${materialIcon("edit_note")}
+            <input id="wfRefineText" type="text" autocomplete="off" aria-label="Change the plan"
+              placeholder="Change it in words: “also alert me if an AirTag appears” · “make it 10 minutes” · “drop the signal filter” · “then survey cell towers for 1 minute” · “repeat every 15 minutes for 2 hours”">
+            <button type="submit" class="wf-btn ghost" id="wfRefineBtn">${materialIcon("auto_fix_high")}Update</button></form>`;
+      }
+
       function renderPlan(planned) {
+        wfRenderPlanInner(planned);
+        wfPlanEl.insertAdjacentHTML("beforeend", wfRefineBar(planned));
+      }
+
+      function wfRenderPlanInner(planned) {
         if (planned.playbook) return renderPlaybookPlan(planned);
         const spec = planned.spec, summary = planned.summary;
         const x = (attr, i, title) => `<button type="button" class="wf-x" data-${attr}="${i}" title="${title}" aria-label="${title}">${materialIcon("close")}</button>`;
@@ -6070,7 +6092,7 @@
           <div class="wf-card"><h4>${materialIcon("radar")} Find</h4>${find}</div>
           <div class="wf-card"><h4>${materialIcon("filter_alt")} Keep</h4>${filters}</div>
           <div class="wf-card"><h4>${materialIcon("bolt")} When → Do</h4>${rules}</div>
-          <div class="wf-meta"><span class="wf-badges">${badge}${planned.edited ? `<span class="wf-badge">${materialIcon("edit")} edited</span>` : ""}
+          <div class="wf-meta"><span class="wf-badges">${badge}${planned.edited || planned.refined ? `<span class="wf-badge">${materialIcon("edit")} ${planned.refined ? "refined" : "edited"}</span>` : ""}
             <button type="button" class="wf-badge wf-save" data-save="1" title="Save this plan as a one-click preset in this browser">${materialIcon("bookmark_add")} Save</button></span>
             <span class="wf-note">${(spec.notes || []).map(escapeHtml).join(" · ")}${planned.fallback_reason ? ` · model: ${escapeHtml(planned.fallback_reason)}` : ""}</span></div>`;
         wfPlanEl.hidden = false;
@@ -6141,6 +6163,32 @@
             const index = Math.max(0, Math.min(steps.length - 1, (at < 0 ? steps.length - 1 : at) + Number(btn.dataset.duration)));
             s.duration_s = steps[index] === s.duration_s && Number(btn.dataset.duration) > 0 ? steps[Math.min(index + 1, steps.length - 1)] : steps[index];
           });
+        }
+      });
+
+      wfPlanEl.addEventListener("submit", async (event) => {
+        if (event.target.id !== "wfRefineForm" || !wfPlanned) return;
+        event.preventDefault();
+        const input = document.getElementById("wfRefineText");
+        const button = document.getElementById("wfRefineBtn");
+        const instruction = input.value.trim();
+        if (!instruction) return;
+        button.disabled = true;
+        button.innerHTML = `${materialIcon("progress_activity")}Updating…`;
+        try {
+          const current = wfPlanned.playbook ? { playbook: wfPlanned.playbook, summary: wfPlanned.summary } : { spec: wfPlanned.spec, summary: wfPlanned.summary };
+          const response = await fetch("/api/agent/refine", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ current, instruction, text: wfPlannedText || wfText.value.trim(), planner: wfPlanner }) });
+          const planned = await response.json();
+          if (!response.ok) throw new Error(planned.error || `Could not change the plan (${response.status})`);
+          wfPlanned = planned;
+          wfPlanned.edited = true;  // Run uses this plan as shown
+          renderPlan(planned);
+          document.getElementById("wfRefineText")?.focus();
+        } catch (err) {
+          showToast(err.message);
+          button.disabled = false;
+          button.innerHTML = `${materialIcon("auto_fix_high")}Update`;
         }
       });
 
