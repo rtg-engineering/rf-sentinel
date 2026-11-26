@@ -527,13 +527,20 @@ def _plan_playbook_with_model(text: str, model: Any) -> PlaybookSpec:
     return spec
 
 
-def plan_any(text: str, planner: str = "auto", model: Any = None, utc_offset_min: int | None = None) -> dict[str, Any]:
+def plan_any(text: str, planner: str = "auto", model: Any = None, utc_offset_min: int | None = None,
+             library_dir: Path | None = None) -> dict[str, Any]:
     """One entry point for the dashboard and CLI: a single workflow, or a playbook when the request has steps.
 
     Returns the workflow plan (see workflow.plan) or {"playbook", "summary", "planner", "model", "fallback_reason"}.
     """
     from .explain import explain
+    from .library import find
     from .workflow import plan
+    saved = find(text, library_dir)
+    if saved is not None:
+        out = {**saved["plan"], "planner": "library", "model": None, "fallback_reason": None, "library": saved["name"]}
+        out["explain"] = explain(out)
+        return out
     if not is_multistep(text):
         out = plan(text, planner, model)
         out["explain"] = explain(out)

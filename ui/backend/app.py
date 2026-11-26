@@ -8848,9 +8848,38 @@ def agent_plan():
     offset = body.get("tz_offset_min")
     offset = int(offset) if isinstance(offset, (int, float)) and -840 <= offset <= 840 else None
     try:
-        return jsonify(plan_any(text, planner, utc_offset_min=offset))
+        return jsonify(plan_any(text, planner, utc_offset_min=offset, library_dir=RF_SENTINEL_LOG_DIR / "agent-runs"))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
+
+
+@app.get("/api/agent/library")
+def agent_library():
+    from rf_platform.agent import library
+    return jsonify([{k: e[k] for k in ("name", "text", "saved_at")} | {"summary": e["plan"].get("summary"),
+                    "kind": "playbook" if e["plan"].get("playbook") else "workflow"}
+                    for e in library.load(RF_SENTINEL_LOG_DIR / "agent-runs")])
+
+
+@app.post("/api/agent/library")
+def agent_library_save():
+    from pydantic import ValidationError
+    from rf_platform.agent import library
+    body = request.get_json(silent=True) or {}
+    plan = body.get("plan") if isinstance(body.get("plan"), dict) else {}
+    try:
+        entry = library.save(str(body.get("name") or ""), plan, str(body.get("text") or ""), RF_SENTINEL_LOG_DIR / "agent-runs")
+    except (ValueError, ValidationError) as exc:
+        return jsonify({"error": str(exc)[:500]}), 400
+    return jsonify({"name": entry["name"], "saved_at": entry["saved_at"]})
+
+
+@app.delete("/api/agent/library/<path:name>")
+def agent_library_delete(name: str):
+    from rf_platform.agent import library
+    if not library.delete(name, RF_SENTINEL_LOG_DIR / "agent-runs"):
+        return jsonify({"error": "No saved plan by that name"}), 404
+    return jsonify({"ok": True})
 
 
 @app.post("/api/agent/refine")

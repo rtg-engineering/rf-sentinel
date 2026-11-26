@@ -180,6 +180,8 @@ Limits:
 
 A request beyond a limit is refused with the reason.
 
+**Saved plans.** **Save** under a plan stores it by name on the server, so the dashboard and the CLI share it. Typing "run tonight's watch" (or clicking the saved plan) loads that plan, re-validated, without planning again; `rf-sentinel agent library` lists saved plans. Saved plans live in `<log dir>/agent-runs/library.json`.
+
 **Limits:** devices are followed from step to step by address. BLE devices that rotate their random address can therefore look new in a later step; phones and AirTags rotate about every 15 minutes. "Seen for" (dwell) is counted within a step.
 
 ## What it does

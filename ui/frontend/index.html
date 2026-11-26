@@ -6016,6 +6016,7 @@
       }
 
       function wfPlannerBadge(planned) {
+        if (planned.planner === "library") return `<span class="wf-badge">${materialIcon("bookmark")} Saved plan “${escapeHtml(planned.library)}”</span>`;
         return planned.planner === "model"
           ? `<span class="wf-badge model">${materialIcon("neurology")} Planned by ${escapeHtml(planned.model || "model")}</span>`
           : `<span class="wf-badge">${materialIcon("rule")} Planned by rules${planned.fallback_reason ? " (model unavailable)" : ""}</span>`;
@@ -6060,7 +6061,7 @@
           <div class="wf-book">${book.steps.map((step, i) => wfBookStep(step, summary.steps[i], i, { edit: true, last: i === book.steps.length - 1 })).join("")}</div>
           <div class="wf-meta"><span class="wf-badges"><span class="wf-badge">${materialIcon("format_list_numbered")} Playbook · ${book.steps.length} step${book.steps.length > 1 ? "s" : ""} · up to ${wfDuration(summary.total_s)}${book.repeat ? " per cycle" : ""}</span>
             ${wfPlannerBadge(planned)}${planned.edited || planned.refined ? `<span class="wf-badge">${materialIcon("edit")} ${planned.refined ? "refined" : "edited"}</span>` : ""}
-            <button type="button" class="wf-badge wf-save" data-save="1" title="Save this plan as a one-click preset in this browser">${materialIcon("bookmark_add")} Save</button></span>
+            <button type="button" class="wf-badge wf-save" data-save="1" title="Save this plan by name (dashboard and CLI: “run <name>”)">${materialIcon("bookmark_add")} Save</button></span>
             <span class="wf-note">Steps run in order on the same receivers, policy and audit. ${(book.notes || []).map(escapeHtml).join(" · ")}${planned.fallback_reason ? ` · model: ${escapeHtml(planned.fallback_reason)}` : ""}</span></div>`;
         wfPlanEl.hidden = false;
       }
@@ -6106,7 +6107,7 @@
           <div class="wf-card"><h4>${materialIcon("filter_alt")} Keep</h4>${filters}</div>
           <div class="wf-card"><h4>${materialIcon("bolt")} When → Do</h4>${rules}</div>
           <div class="wf-meta"><span class="wf-badges">${badge}${planned.edited || planned.refined ? `<span class="wf-badge">${materialIcon("edit")} ${planned.refined ? "refined" : "edited"}</span>` : ""}
-            <button type="button" class="wf-badge wf-save" data-save="1" title="Save this plan as a one-click preset in this browser">${materialIcon("bookmark_add")} Save</button></span>
+            <button type="button" class="wf-badge wf-save" data-save="1" title="Save this plan by name (dashboard and CLI: “run <name>”)">${materialIcon("bookmark_add")} Save</button></span>
             <span class="wf-note">${(spec.notes || []).map(escapeHtml).join(" · ")}${planned.fallback_reason ? ` · model: ${escapeHtml(planned.fallback_reason)}` : ""}</span></div>`;
         wfPlanEl.hidden = false;
       }
@@ -6124,35 +6125,50 @@
         renderPlan(planned);
       }
 
+      // Saved plans live on the server (shared with the CLI: "run <name>"). Older per-browser presets move there once.
       const wfSaved = document.getElementById("wfSaved");
-      function wfPresets() { try { return JSON.parse(wfStore.get("wf.presets", "[]")) || []; } catch { return []; } }
-      function wfRenderPresets() {
-        wfSaved.innerHTML = wfPresets().map((p, i) => `<span class="preset-wrap">
-            <button type="button" class="preset" data-preset="${i}" title="${escapeHtml(p.text)}">${materialIcon("bookmark")} ${escapeHtml(p.name)}</button>
-            <button type="button" class="wf-x" data-unpreset="${i}" title="Remove preset" aria-label="Remove preset">${materialIcon("close")}</button></span>`).join("");
+      let wfLibrary = [];
+      async function wfSavePlan(name, text, planned) {
+        const plan = planned.playbook ? { playbook: planned.playbook } : { spec: planned.spec };
+        const response = await fetch("/api/agent/library", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, text, plan }) });
+        const out = await response.json();
+        if (!response.ok) throw new Error(out.error || "Could not save");
+        return out;
       }
-      wfSaved.addEventListener("click", (event) => {
+      async function wfRenderPresets() {
+        try {
+          const local = JSON.parse(wfStore.get("wf.presets", "[]") || "[]");
+          if (local.length) {
+            for (const p of local) { try { await wfSavePlan(p.name, p.text, p.planned); } catch { /* invalid old preset: drop */ } }
+            wfStore.set("wf.presets", "[]");
+          }
+        } catch { /* nothing to migrate */ }
+        try { wfLibrary = await (await fetch("/api/agent/library")).json(); } catch { wfLibrary = []; }
+        wfSaved.innerHTML = wfLibrary.map((p) => `<span class="preset-wrap">
+            <button type="button" class="preset" data-preset="${escapeHtml(p.name)}" title="${escapeHtml(p.text || p.name)} · also: “run ${escapeHtml(p.name)}”">${materialIcon(p.kind === "playbook" ? "format_list_numbered" : "bookmark")} ${escapeHtml(p.name)}</button>
+            <button type="button" class="wf-x" data-unpreset="${escapeHtml(p.name)}" title="Remove from saved plans" aria-label="Remove from saved plans">${materialIcon("close")}</button></span>`).join("");
+      }
+      wfSaved.addEventListener("click", async (event) => {
         const run = event.target.closest("[data-preset]"), remove = event.target.closest("[data-unpreset]");
-        const presets = wfPresets();
-        if (remove) { presets.splice(Number(remove.dataset.unpreset), 1); wfStore.set("wf.presets", JSON.stringify(presets)); wfRenderPresets(); return; }
+        if (remove) {
+          await fetch(`/api/agent/library/${encodeURIComponent(remove.dataset.unpreset)}`, { method: "DELETE" });
+          wfRenderPresets();
+          return;
+        }
         if (!run) return;
-        const preset = presets[Number(run.dataset.preset)];
-        wfText.value = preset.text;
-        wfPlanned = preset.planned;
-        wfPlannedText = preset.text;
-        renderPlan(wfPlanned);
+        wfText.value = `run ${run.dataset.preset}`;
+        await wfPlan();
       });
       wfRenderPresets();
 
       wfPlanEl.addEventListener("click", (event) => {
         if (event.target.closest("[data-save]") && wfPlanned) {
-          const name = (prompt("Name this preset", wfPlanned.summary?.find || (wfPlanned.playbook ? `Playbook (${wfPlanned.playbook.steps.length} steps)` : "My workflow")) || "").trim();
+          const name = (prompt("Name this plan (then say “run <name>” here or in the CLI)", wfPlanned.library || (wfPlanned.playbook ? `Playbook (${wfPlanned.playbook.steps.length} steps)` : wfPlanned.summary?.find || "My workflow")) || "").trim();
           if (!name) return;
-          const presets = wfPresets().filter((p) => p.name !== name);
-          presets.unshift({ name: name.slice(0, 40), text: wfText.value.trim(), planned: wfPlanned });
-          wfStore.set("wf.presets", JSON.stringify(presets.slice(0, 12)));
-          wfRenderPresets();
-          showToast(`Saved “${name}”`);
+          wfSavePlan(name, wfText.value.trim(), wfPlanned)
+            .then(() => { wfRenderPresets(); showToast(`Saved “${name}”. Say “run ${name}” to use it.`); })
+            .catch((err) => showToast(err.message));
           return;
         }
         const btn = event.target.closest("button.wf-x");

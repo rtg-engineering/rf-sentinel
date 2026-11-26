@@ -10,6 +10,7 @@ so runs started from the CLI or the dashboard can be inspected and stopped from 
   rf-sentinel agent approve <run-id> <action-id> --operator NAME     # or: deny ... --reason "..."
   rf-sentinel agent report <run-id>
   rf-sentinel agent policy
+  rf-sentinel agent library                                         # saved plans; run one: agent run "run <name>"
   rf-sentinel agent run "find bluetooth devices" --local              # no dashboard: run in this process
   rf-sentinel agent plan "watch for trackers for 5 minutes; if one is seen for 2 minutes, alert me"
   rf-sentinel agent run "watch for trackers ...; if ..., alert me and record 5 seconds of IQ" --planner model
@@ -28,7 +29,7 @@ import time
 
 import requests
 
-COMMANDS = ("run", "plan", "status", "stop", "list", "approve", "deny", "report", "policy")
+COMMANDS = ("run", "plan", "status", "stop", "list", "approve", "deny", "report", "policy", "library")
 TERMINAL = ("done", "stopped", "denied", "error")
 
 
@@ -212,6 +213,7 @@ def main(argv: list[str] | None = None) -> int:
         sub.add_parser(name, parents=[common]).add_argument("run_id")
     sub.add_parser("list", parents=[common])
     sub.add_parser("policy", parents=[common])
+    sub.add_parser("library", parents=[common], help="Saved plans; run one with: agent run \"run <name>\"")
     for name in ("approve", "deny"):
         c = sub.add_parser(name, parents=[common])
         c.add_argument("run_id")
@@ -283,6 +285,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "report":
         job = server.call("GET", f"/api/agent/jobs/{args.run_id}")
         print(f"{server.url}/api/agent/jobs/{args.run_id}/report" if job.get("report_dir") else "No report yet.")
+        return 0
+    if args.cmd == "library":
+        for entry in server.call("GET", "/api/agent/library"):
+            summary = entry.get("summary") or {}
+            what = f"{len(summary.get('steps', []))} steps" if entry["kind"] == "playbook" else summary.get("find", "")
+            print(f"{entry['name']:<28} {entry['kind']:<9} {what}")
         return 0
     if args.cmd == "policy":
         print(json.dumps(server.call("GET", "/api/agent/policy"), indent=2))
