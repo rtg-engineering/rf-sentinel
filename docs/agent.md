@@ -96,6 +96,55 @@ In `observe` mode, collect actions are denied; alerts and tags still work. In `a
 - 5 devices matched (Microsoft, Apple ×2, Tile, Bose), 5 alerts and tags.
 - 2 s of IQ was captured on the second receiver when an Apple device appeared, with a hashed evidence file.
 
+## Playbooks: a whole operation in one request
+
+Chain workflows with *then*, *after that*, *next*, *finally*, or a numbered list. Each step is an ordinary workflow (find / keep / when → do). A step can also build on the steps before it:
+
+| You say | The step |
+|---|---|
+| "watch **them**", "the apple devices **you found**", "any trackers you saw" | focuses on the devices an earlier step matched, and ignores everything else |
+| "the **flagged** ones", "the alerted ones" / "the **tagged** ones" | focuses on devices that raised an alert / were tagged |
+| "**if you find any** trackers, …", "if anything turns up, …" | runs only if the earlier step matched such a device |
+| "**if nothing turns up**, …", "if you see nothing, …" | runs only if it did not. After a step with only alert rules, this means "if no alert fired" |
+| "if any alerts were raised, …", "if something alerted, …" | runs only if the earlier step alerted |
+| "**otherwise**, …" | the inverse of the previous step's condition, about the same earlier step |
+
+A step that names no protocol continues with the protocol of the step it builds on. An action with no condition of its own ("and tag them as suspect", "record 3 seconds of IQ") applies to every device the step keeps.
+
+```bash
+rf-sentinel agent plan "Sweep for bluetooth trackers for 2 minutes. If you find any, watch them for 5 minutes and \
+  send an urgent alert if one is still there after 3 minutes, and record 5 seconds of IQ. Then survey cell towers \
+  for 1 minute and alert me if a 2G cell shows up."
+Playbook (deterministic)
+  1. Sweep BLE
+     FIND    BLE for 120 s
+     FILTER  kind is "tracker"
+  2. Follow up on what was found (BLE)
+     IF      only if step 1 found something
+     FOCUS   devices from step 1
+     FIND    BLE for 300 s
+     WHEN    when seen for ≥ 180 s → alert (critical), record 5 s of IQ evidence
+  3. Survey Cellular
+     FIND    Cellular (modem) for 60 s
+     WHEN    when generation is "2G" → alert (warning)
+  up to 480 s of collection
+```
+
+The steps run in order under one gateway (mode, approvals, audit) and one stop control. A playbook has at most 6 steps and 1800 s of collection; a longer request is refused, never shortened. Tags travel with a device into later steps. The result lists, for every device, the steps that decoded it, and calls out **persistent** devices (decoded in more than one step, alerted and tagged ones first). One verifiable report covers the whole playbook.
+
+In the dashboard, a playbook plan is a numbered pipeline: each step shows its condition and focus, and its duration can be changed. While it runs, a stepper shows each step as waiting, running (with how many devices it focuses on), done (with its results), or skipped (with the reason). The timeline marks which step each event came from. The two playbook example prompts show the flow. In simulation, all the steps share one scripted scenario clock, so the strong newcomer arrives part-way through, as it would live.
+
+**Planning quality.** `tests/fixtures/playbook_phrases.json` holds 17 reviewed multi-step requests and 2 that must be refused. Each request is recorded with the exact plan it must produce. `python3 scripts/evaluate_planner.py --playbooks [--model …]` scores a planner per step part:
+- **Rules planner:** 17/17, with 2/2 refusals.
+- **Model planner** (`openai-codex:gpt-6-astra`), live:
+  - 16/17, with 2/2 refusals and no fallbacks.
+  - The one miss gates on "found a tracker" instead of filtering for trackers. That is the same devices, reached a different way.
+  - The guidance was refined on the first 12 requests. The last 5 were written afterwards as a held-out check.
+
+Whether a request has steps is decided by the rules (sequencing words and step verbs). A single request always plans exactly as before; the 30-phrase workflow corpus is checked for that.
+
+**Limits:** devices are followed from step to step by address. BLE devices that rotate their random address can therefore look new in a later step; phones and AirTags rotate about every 15 minutes. "Seen for" (dwell) is counted within a step.
+
 ## What it does
 
 1. **Understands the request.** Supported: Bluetooth Low Energy ("BLE", "beacons", "AirTag"), Bluetooth Classic ("bluetooth classic", "BR/EDR"), Zigbee / 802.15.4, TPMS tire sensors, and cell towers through a cellular modem ("cell towers", "LTE", "5G"). A plain "bluetooth" request covers both kinds of Bluetooth (see [Bluetooth Classic](#bluetooth-classic)). It understands durations ("for 2 minutes", up to 600 s), a receiver ("on bladerf:1"), and a Zigbee channel. Requests to transmit, jam, spoof, or replay are refused. WiFi needs a monitor-mode adapter, not an SDR, so the agent says so.
