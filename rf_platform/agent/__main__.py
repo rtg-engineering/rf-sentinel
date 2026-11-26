@@ -11,6 +11,9 @@ so runs started from the CLI or the dashboard can be inspected and stopped from 
   rf-sentinel agent report <run-id>
   rf-sentinel agent policy
   rf-sentinel agent library                                         # saved plans; run one: agent run "run <name>"
+  rf-sentinel agent library save "night watch" "from 10pm to 6am, every 30 minutes, sweep for trackers for 1 minute"
+  rf-sentinel agent ready "survey cell towers for 2 minutes"          # can it run here now? (nothing runs)
+  rf-sentinel agent ask <run-id> "which trackers came back every cycle?"
   rf-sentinel agent run "find bluetooth devices" --local              # no dashboard: run in this process
   rf-sentinel agent plan "watch for trackers for 5 minutes; if one is seen for 2 minutes, alert me"
   rf-sentinel agent run "watch for trackers ...; if ..., alert me and record 5 seconds of IQ" --planner model
@@ -29,7 +32,7 @@ import time
 
 import requests
 
-COMMANDS = ("run", "plan", "status", "stop", "list", "approve", "deny", "report", "policy", "library")
+COMMANDS = ("run", "plan", "status", "stop", "list", "approve", "deny", "report", "policy", "library", "ask", "ready")
 TERMINAL = ("done", "stopped", "denied", "error")
 
 
@@ -213,7 +216,17 @@ def main(argv: list[str] | None = None) -> int:
         sub.add_parser(name, parents=[common]).add_argument("run_id")
     sub.add_parser("list", parents=[common])
     sub.add_parser("policy", parents=[common])
-    sub.add_parser("library", parents=[common], help="Saved plans; run one with: agent run \"run <name>\"")
+    lib = sub.add_parser("library", parents=[common], help="Saved plans; run one with: agent run \"run <name>\"")
+    lib.add_argument("action", nargs="?", choices=["list", "save", "delete"], default="list")
+    lib.add_argument("name", nargs="?")
+    lib.add_argument("request", nargs="*", help="for save: the request to plan and store under the name")
+    ask_cmd = sub.add_parser("ask", parents=[common], help="Ask about a finished run")
+    ask_cmd.add_argument("run_id")
+    ask_cmd.add_argument("question", nargs="+")
+    ask_cmd.add_argument("--planner", choices=["auto", "model", "deterministic"], default="auto")
+    ready = sub.add_parser("ready", parents=[common], help="Plan a request and check it can run here now (nothing runs)")
+    ready.add_argument("request", nargs="+")
+    ready.add_argument("--mode", choices=["observe", "approval-required", "passive-auto"])
     for name in ("approve", "deny"):
         c = sub.add_parser(name, parents=[common])
         c.add_argument("run_id")
@@ -286,10 +299,41 @@ def main(argv: list[str] | None = None) -> int:
         job = server.call("GET", f"/api/agent/jobs/{args.run_id}")
         print(f"{server.url}/api/agent/jobs/{args.run_id}/report" if job.get("report_dir") else "No report yet.")
         return 0
+    if args.cmd == "ask":
+        out = server.call("POST", f"/api/agent/jobs/{args.run_id}/ask", {"question": " ".join(args.question),
+                                                                          "planner": args.planner}, timeout=180)
+        print(out["answer"])
+        print(f"\n({'answered by ' + out['model'] + ', checked against the run' if out['by'] == 'model' else 'answered from the run records by code'}"
+              + (f"; model: {out['fallback_reason']}" if out.get("fallback_reason") else "") + ")")
+        return 0
+    if args.cmd == "ready":
+        planned = server.call("POST", "/api/agent/plan", {"text": " ".join(args.request), "planner": "deterministic"}, timeout=60)
+        plan = {"playbook": planned["playbook"]} if planned.get("playbook") else {"spec": planned["spec"]}
+        out = server.call("POST", "/api/agent/readiness", {"plan": plan, **({"mode": args.mode} if args.mode else {})})
+        mark = {"ok": "ok  ", "warn": "WARN", "fail": "FAIL"}
+        for c in out["checks"]:
+            print(f"{mark[c['status']]}  {c['name']}: {c['detail']}")
+        print("\nReady." if out["status"] == "ok" else "\nReady, with warnings." if out["ok"] else "\nNot ready.")
+        return 0 if out["ok"] else 1
+    if args.cmd == "library" and args.action == "save":
+        if not args.name or not args.request:
+            raise SystemExit('usage: agent library save NAME "request ..."')
+        text = " ".join(args.request)
+        planned = server.call("POST", "/api/agent/plan", {"text": text, "planner": "deterministic"}, timeout=60)
+        plan = {"playbook": planned["playbook"]} if planned.get("playbook") else {"spec": planned["spec"]}
+        saved = server.call("POST", "/api/agent/library", {"name": args.name, "plan": plan, "text": text})
+        print(f"Saved \"{saved['name']}\". Run it with: rf-sentinel agent run \"run {saved['name']}\"")
+        return 0
+    if args.cmd == "library" and args.action == "delete":
+        server.call("DELETE", f"/api/agent/library/{args.name}")
+        print(f"Removed \"{args.name}\"")
+        return 0
     if args.cmd == "library":
         for entry in server.call("GET", "/api/agent/library"):
             summary = entry.get("summary") or {}
-            what = f"{len(summary.get('steps', []))} steps" if entry["kind"] == "playbook" else summary.get("find", "")
+            n = len(summary.get("steps", []))
+            what = (f"{n} step{'s' if n != 1 else ''}" + (f", {summary['repeat']}" if summary.get("repeat") else "")
+                    if entry["kind"] == "playbook" else summary.get("find", ""))
             print(f"{entry['name']:<28} {entry['kind']:<9} {what}")
         return 0
     if args.cmd == "policy":

@@ -17,6 +17,10 @@ rf-sentinel agent approve <run-id> <action-id> --operator NAME   # or: deny ... 
 rf-sentinel agent report <run-id>
 rf-sentinel agent policy
 rf-sentinel agent run "find bluetooth devices" --local            # no dashboard: run in this process
+rf-sentinel agent ready "survey cell towers for 2 minutes"          # can this plan run here now? (nothing runs)
+rf-sentinel agent ask <run-id> "which trackers came back every cycle?"
+rf-sentinel agent library save "night watch" "from 10pm to 6am, every 30 minutes, sweep for trackers for 1 minute"
+rf-sentinel agent run "run night watch"                             # a saved plan, by name
 ```
 
 Runs are managed by the dashboard's run service, which is the single source of truth. A run started from the dashboard can be inspected and stopped from the CLI, and the reverse. The CLI talks to `--server`, else `RF_SENTINEL_URL`, else `http://127.0.0.1:5050`. Stopping a run ends its scan, or its gain measurement or approval wait, within about 1–2 s, and releases only that run's receiver stream.
