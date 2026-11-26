@@ -322,3 +322,35 @@ class MixedSourceTest(unittest.TestCase):
         keys = {a["device"]["key"] for a in result["workflow"]["alerts"]}
         self.assertEqual(keys, {"5A:11:00:00:00:A7", "2G GSM:0F00001"})
         self.assertEqual({d.get("protocol") for d in result["devices"]}, {"ble", "cellular"})
+
+
+class HistoryAndErrorsTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from tests.test_validation_harness import BackendValidationTest
+        BackendValidationTest.setUpClass()
+        cls.harness, cls.backend, cls.client = BackendValidationTest, BackendValidationTest.backend, BackendValidationTest.client
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.harness.tearDownClass()
+
+    def test_saved_runs_appear_in_history_and_reports_are_served(self):
+        from rf_platform.agent.report import save
+        result = run_workflow(core.Agent(simulate=True), plan_deterministic("find ble devices for 5 seconds"),
+                              on_step=lambda m: None)
+        folder = save(result, self.backend.RF_SENTINEL_LOG_DIR / "agent-runs")
+        jobs = self.client.get("/api/agent/jobs").get_json()
+        saved = next(j for j in jobs if j.get("run_id") == result["run_id"])
+        self.assertTrue(saved["saved"] and saved["simulated"])
+        self.assertEqual(saved["summary"]["find"], "BLE for 5 s")
+        report = self.client.get(f"/api/agent/jobs/{saved['job_id']}/report")
+        self.assertEqual(report.status_code, 200)
+        self.assertIn("SIMULATED RUN", report.get_data(as_text=True))
+        self.assertEqual(self.client.get("/api/agent/jobs/saved-RUN-..%2F..%2Fx/report").status_code, 404)
+        self.assertTrue(folder.exists())
+
+    def test_iq_service_down_is_explained(self):
+        from rf_platform.agent.radio import Radio
+        with self.assertRaisesRegex(RuntimeError, "IQ service at http://127.0.0.1:9 is not running"):
+            Radio("http://127.0.0.1:9", "").devices()

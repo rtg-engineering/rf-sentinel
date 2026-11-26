@@ -8904,11 +8904,48 @@ def agent_run():
     return jsonify(_agent_public(job))
 
 
+def _saved_agent_runs(limit: int = 20, exclude: set[str] | None = None) -> list[dict[str, Any]]:
+    """Finished runs from their saved reports, shaped like jobs, so history survives dashboard restarts."""
+    from datetime import datetime
+    folder = RF_SENTINEL_LOG_DIR / "agent-runs"
+    out: list[dict[str, Any]] = []
+    try:
+        candidates = sorted(folder.glob("RUN-*/run.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    except OSError:
+        return out
+    for path in candidates:
+        if len(out) >= limit:
+            break
+        try:
+            result = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if exclude and result.get("run_id") in exclude:
+            continue
+        workflow = result.get("workflow") or {}
+        try:
+            started = datetime.fromisoformat(str(result.get("started_at"))).timestamp()
+        except ValueError:
+            started = path.stat().st_mtime
+        out.append({"job_id": f"saved-{result.get('run_id')}", "run_id": result.get("run_id"), "saved": True,
+                    "command": (workflow.get("spec") or {}).get("goal") or result.get("command"),
+                    "profile": result.get("profile"), "mode": result.get("mode"), "source": "saved",
+                    "status": "stopped" if result.get("stopped") else "done", "started_at": started,
+                    "finished_at": started + float(result.get("elapsed_s") or 0), "steps": result.get("steps") or [],
+                    "result": result, "error": None, "workflow": workflow.get("spec"), "summary": workflow.get("summary"),
+                    "planner": workflow.get("planner"), "events": workflow.get("timeline") or [],
+                    "alerts": workflow.get("alerts") or [], "simulated": bool(result.get("simulated")), "activity": [],
+                    "report_dir": str(path.parent), "pending_approvals": []})
+    return out
+
+
 @app.get("/api/agent/jobs")
 def agent_jobs_list():
     with agent_jobs_lock:
         jobs = sorted(agent_jobs.values(), key=lambda j: -j["started_at"])[:20]
-    return jsonify([_agent_public(j) for j in jobs])
+    live = [_agent_public(j) for j in jobs]
+    saved = _saved_agent_runs(exclude={j.get("run_id") for j in jobs if j.get("run_id")})
+    return jsonify(sorted(live + saved, key=lambda j: -j["started_at"])[:20])
 
 
 @app.get("/api/agent/jobs/<job_id>")
@@ -8920,6 +8957,10 @@ def agent_job(job_id: str):
 @app.get("/api/agent/jobs/<job_id>/report")
 def agent_job_report(job_id: str):
     job = _agent_job(job_id)
+    if job is None and re.fullmatch(r"saved-RUN-[0-9a-f]{12}", job_id):
+        report = RF_SENTINEL_LOG_DIR / "agent-runs" / job_id[len("saved-"):] / "report.html"
+        if report.is_file() and report.parent.parent == RF_SENTINEL_LOG_DIR / "agent-runs":
+            return Response(report.read_text(), mimetype="text/html")
     if job is None or not job.get("report_dir"):
         return Response("No report for this run yet.", status=404, mimetype="text/plain")
     return Response((Path(job["report_dir"]) / "report.html").read_text(), mimetype="text/html")

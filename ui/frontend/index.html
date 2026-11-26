@@ -1908,6 +1908,8 @@
       .wf-saved .preset-wrap { display: inline-flex; align-items: center; }
       .wf-save { cursor: pointer; background: transparent; }
       .wf-save:hover { color: var(--ink); border-color: var(--wf-b); }
+      .wf-error { border-color: color-mix(in srgb, var(--red) 50%, var(--line)); }
+      .wf-error-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
       .wf-badges { display: inline-flex; gap: 6px; flex-wrap: wrap; }
       .wf-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
       .wf-seg-label { font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-right: 2px; }
@@ -6088,6 +6090,17 @@
       }
 
       wfLive.addEventListener("click", async (event) => {
+        const sim = event.target.closest("[data-simulate]");
+        if (sim) {
+          const job = await (await fetch(`/api/agent/jobs/${encodeURIComponent(sim.dataset.simulate)}`)).json();
+          const response = await fetch("/api/agent/run", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ command: job.command, workflow: job.workflow, mode: job.mode, simulate: true, planner: job.planner }) });
+          const started = await response.json();
+          if (!response.ok) { showToast(started.error || "Could not start the simulation"); return; }
+          agentJobId = started.job_id; wfAlertsSeen = 0; renderAgent(started);
+          clearInterval(agentTimer); agentTimer = setInterval(pollAgent, 1000); wfLoadHistory();
+          return;
+        }
         const btn = event.target.closest("[data-approve],[data-deny]");
         if (!btn || !agentJobId) return;
         const operator = btn.parentElement.querySelector(".wf-operator")?.value.trim();
@@ -6157,7 +6170,10 @@
             <div class="wf-list">${matched.length ? matched.map(wfDevice).join("") : `<div class="wf-empty">${running ? "Listening…" : "No device matched the filters."}</div>`}</div></div>
           <div class="wf-card"><h4>${materialIcon("timeline")} Live timeline</h4>
             ${events.length ? `<ul class="wf-timeline">${events.slice(-80).reverse().map(wfTimelineItem).join("")}</ul>` : `<div class="wf-empty">${running ? "Waiting for the first match…" : "Nothing matched."}</div>`}</div>
-          ${job.error ? `<div class="wf-card" style="grid-column:1/-1"><strong>${escapeHtml(job.error)}</strong></div>` : ""}
+          ${job.error ? `<div class="wf-card wf-error" style="grid-column:1/-1"><strong>${escapeHtml(job.error)}</strong>
+            ${!job.simulated && /no attached receiver|not delivering samples|receiver is busy|every suitable receiver|not available|not reopening|iq service .* is not running|connection refused/i.test(job.error)
+              ? `<div class="wf-error-actions"><span class="wf-note">No usable receiver right now.</span>
+                 <button type="button" class="wf-btn ghost" data-simulate="${escapeHtml(job.job_id)}">${materialIcon("science")}Run this plan as a simulation</button></div>` : ""}</div>` : ""}
           <details class="wf-steps"><summary>Agent steps (${(job.steps || []).length}) · receivers, gain, approvals, actions</summary>
             <ol>${(job.steps || []).map((s) => `<li><span class="small">${Number(s.t).toFixed(1)} s</span> ${escapeHtml(s.message)}</li>`).join("")}</ol></details>`;
         if (alerts.length > wfAlertsSeen) {
