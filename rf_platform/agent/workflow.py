@@ -192,6 +192,8 @@ ACTION_PATTERNS: list[tuple[str, Callable[[re.Match], Action]]] = [
                       severity="critical" if (m.group(1) or m.group(3)) else "warning")),
     (rf"\b(?:record|capture|save)\s*(?:(\d+(?:\.\d+)?)\s*({UNIT_S})\s*)?(?:of\s+)?(?:iq|samples|evidence|it|the signal)?\b",
      lambda m: Action(kind="record_iq", seconds=_seconds(m.group(1), m.group(2)) if m.group(1) else 5)),
+    (rf"\b(?:grab|take|get|pull|keep)\s+(\d+(?:\.\d+)?)\s*({UNIT_S})\s+of\s+(?:iq|samples|evidence|raw iq)\b",
+     lambda m: Action(kind="record_iq", seconds=_seconds(m.group(1), m.group(2)))),
     (rf"\b(?:scan|look|sweep|check|listen|survey)\s+(?:for\s+|the\s+)?(bluetooth classic|classic bluetooth|classic|br/edr|zigbee|tpms|tire sensors?|ble|cell towers?|cellular|cells|lte|5g)"
      rf"(?:\s+devices)?(?:\s+for\s+(\d+(?:\.\d+)?)\s*({UNIT_S}))?",
      lambda m: Action(kind="start_scan", protocol=_protocol_word(m.group(1)),
@@ -251,6 +253,11 @@ def _conditions(text: str) -> list[Condition]:
         found.append(Condition(field="operator", op="eq", value="unknown operator"))
     for generation in ("2g", "3g", "4g", "5g"):
         if re.search(rf"\b(?:downgrades?|drops?|falls?|fall back|switch(?:es)?) to {generation}\b|\b{generation} (?:cell|tower|cells|towers)\b", text):
+            found.append(Condition(field="generation", op="eq", value=generation.upper()))
+    for generation in ("2g", "3g"):
+        # "anything 2G": suspicious generations named on their own (4G/5G alone usually describe the survey)
+        if re.search(rf"\b(?:anything|any|something|a|an|every|each) {generation}\b(?! (?:cell|tower|cells|towers))", text) \
+                and not any(c.field == "generation" and c.value == generation.upper() for c in found):
             found.append(Condition(field="generation", op="eq", value=generation.upper()))
     if re.search(r"\b(?:gsm)\b", text):
         found.append(Condition(field="generation", op="eq", value="2G"))
@@ -318,6 +325,9 @@ def plan_deterministic(text: str, standing_actions: bool = False) -> WorkflowSpe
     lower = raw.lower()
     if re.search(r"\b(transmit|jam|spoof|replay|attack|inject|deauth|page)\b", lower):
         raise ValueError("RF Sentinel only receives. It will not transmit, jam, spoof, replay, or page devices.")
+    # "alert me on anything 2G or any unknown network" = "alert me if ...": the condition follows the action.
+    lower = re.sub(r"\b((?:send (?:me )?an? )?(?:(?:urgent|critical|high[- ]priority) )?(?:alert|notify|warn)(?: me)?) "
+                   r"(?:on|about|for|of) (?=(?:any|anything|every|each|new|unknown)\b|(?:a|an) (?!\d))", r"\1 if ", lower)
     main, trigger_clauses = _split_triggers(lower)
     # A sentence boundary ends a rule: "if X, alert. Send an urgent alert if Y" - the second sentence's action
     # leads the next condition rather than joining the first rule.

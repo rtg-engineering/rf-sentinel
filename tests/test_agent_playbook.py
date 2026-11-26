@@ -18,6 +18,19 @@ OPERATION = ("Sweep for bluetooth trackers for 2 minutes. If you find any, watch
              "alert if one is still there after 3 minutes, and record 5 seconds of IQ. Then survey cell towers for "
              "1 minute and alert me if a 2G cell shows up.")
 CORPUS = json.loads((Path(__file__).parent / "fixtures" / "workflow_phrases.json").read_text())["cases"]
+PLAYBOOKS = json.loads((Path(__file__).parent / "fixtures" / "playbook_phrases.json").read_text())["cases"]
+
+
+def step_shape(book: PlaybookSpec, index: int) -> dict:
+    """One step as tests/fixtures/playbook_phrases.json records it (step references resolved)."""
+    from tests.test_workflow_corpus import shape as workflow_shape
+    step = book.steps[index]
+    ref = lambda value: (index - 1 if value is None else value)  # noqa: E731
+    out = {"focus": step.focus, "focus_step": ref(step.focus_step) if step.focus != "all" else None,
+           "gate": step.gate.when, "gate_step": ref(step.gate.step) if step.gate.when != "always" else None,
+           "gate_conditions": sorted([c.field, c.op, c.value] for c in step.gate.conditions), **workflow_shape(step.workflow)}
+    out.pop("device_id")
+    return json.loads(json.dumps(out))
 
 
 def shape(book: PlaybookSpec):
@@ -63,6 +76,16 @@ class PlannerTest(unittest.TestCase):
                                            "2. watch for trackers for 3 minutes 3. watch the flagged ones for 2 minutes")
         self.assertEqual([s.workflow.collect for s in book.steps], [["cellular"], ["ble"], ["cellular"]])
         self.assertEqual((book.steps[2].focus, book.steps[2].focus_step), ("alerted", 0))  # the step that could alert
+
+    def test_reviewed_playbook_corpus(self):
+        for case in PLAYBOOKS:
+            with self.subTest(case["text"]):
+                if case.get("refused"):
+                    with self.assertRaises(ValueError):
+                        plan_any(case["text"], "deterministic")
+                    continue
+                book = plan_playbook_deterministic(case["text"])
+                self.assertEqual([step_shape(book, i) for i in range(len(book.steps))], case["steps"])
 
     def test_single_requests_stay_single(self):
         for case in CORPUS:

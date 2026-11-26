@@ -107,25 +107,27 @@ def _title(step: "Step") -> str:
 SEQUENCER = r"(?:then|after that|afterwards|afterward|next|finally|once (?:that'?s|that is|it'?s|this is) (?:done|finished))"
 BREAK = re.compile(rf"((?<=[.;!?])\s+(?:and\s+)?(?:{SEQUENCER}\b[,:]?\s*)?|,?\s+(?:and\s+)?{SEQUENCER}\b[,:]?\s*)", re.I)
 NUMBERED = re.compile(r"(?:^|\s+)(?:step\s*)?([1-9])[.):]\s+", re.I)
-VERB = (r"(?:find|watch|monitor|survey|scan|sweep|look|listen|search|track|focus|follow|observe|check|re-?scan|"
-        r"keep (?:watching|an eye on|tabs on) (?:them|those|these|the)|stay on|go back to)\b")
+VERB = (r"(?:(?:do|run) (?:an?|another) (?:quick |short |long |full )?(?:\d+[- ]\w+ )?(?:sweep|scan|survey|pass|check)|"
+        r"find|watch|monitor|survey|scan|sweep|look|listen|search|track|focus|follow|observe|check|re-?scan|spend|"
+        r"try|dwell|camp|switch to|move to|repeat|keep (?:watching|an eye on|tabs on) (?:them|those|these|the)|"
+        r"stay on|go back to)\b")
 PROTO = (r"\b(?:bluetooth|ble|btle|zigbee|802\.15\.4|thread|tpms|tire|tyre|classic|beacons?|airtags?|trackers?|tiles?|"
          r"cell|cells|cellular|towers?|lte|5g|4g|2g|gsm|base stations?|carriers?|wi-?fi)\b")
-FOCUS_FOUND = (r"\b(?:(?:the|those|these) (?:[\w&-]+ ){0,3}?(?:devices?|trackers?|cells?|ones?|phones?|beacons?|airtags?|towers?) (?:that )?(?:you|we|it) (?:found|saw)|them|those|these|it|the same (?:devices?|ones|cells?|trackers?)|(?:the )?ones? (?:you |we )?(?:found|saw)|"
+FOCUS_FOUND = (r"\b(?:(?:the|those|these|any) (?:[\w&-]+ ){0,3}?(?:devices?|trackers?|cells?|ones?|phones?|beacons?|airtags?|towers?) (?:that )?(?:you|we|it) (?:found|saw)|them|those|these|it|the same (?:devices?|ones|cells?|trackers?)|(?:the )?ones? (?:you |we )?(?:found|saw)|"
                r"what (?:you|we|was|it) (?:found|saw)|(?:the|those|these) (?:devices?|trackers?|cells?|airtags?|beacons?|phones?)"
                r"(?: (?:you|we|it) (?:found|saw))?)\b")
 FOCUS_ALERTED = r"\b(?:the )?(?:flagged|alerted|suspicious) (?:ones?|devices?|trackers?|cells?)\b|\bthe ones? that (?:alerted|triggered)\b"
 FOCUS_TAGGED = r"\b(?:the )?tagged (?:ones?|devices?|trackers?|cells?)\b"
 GATES = [
     # (pattern, gate kind); "what" names the devices the gate is about
+    (r"^if (?:nothing|no (?P<what>.+?)) (?:is |are |was |were )?(?:found|seen|detected|turns? up|turned up|shows? up|showed up)\s*,?\s*(?:then\b\s*)?", "none_found"),
+    (r"^if (?:you|we|it) (?:find|found|see|saw) (?:nothing|no (?P<what>[^,]+?))\s*(?:,|$)\s*(?:then\b\s*)?", "none_found"),
+    (r"^if (?:no alerts? (?:is |are |was |were )?(?:raised|fired)|nothing (?:alerted|triggered))\s*,?\s*(?:then\b\s*)?(?P<what>)", "no_alerts"),
     (r"^if (?:you|we|it) (?:find|found|see|saw|spot|spotted|detect|detected) (?:any|an?|some|one or more)?\s*(?P<what>[^,]*?)\s*(?:,|$)\s*(?:then\b\s*)?", "found"),
     (r"^if (?:there (?:is|are|was|were) )?(?:any|an?|some) (?P<what>.+?) (?:is |are |was |were )?(?:found|seen|detected|spotted|turns? up|shows? up)\s*,?\s*(?:then\b\s*)?", "found"),
     (r"^if (?:anything|something) (?:is |was )?(?:found|seen|turns? up|turned up|shows? up|showed up)\s*,?\s*(?:then\b\s*)?(?P<what>)", "found"),
-    (r"^if (?:nothing|no (?P<what>.+?)) (?:is |are |was |were )?(?:found|seen|detected|turns? up|turned up|shows? up|showed up)\s*,?\s*(?:then\b\s*)?", "none_found"),
-    (r"^if (?:you|we|it) (?:find|found|see|saw) (?:nothing|no (?P<what>[^,]+?))\s*(?:,|$)\s*(?:then\b\s*)?", "none_found"),
     (r"^if (?:any |an? )?alerts? (?:is |are |was |were )?(?:raised|fired|went off|triggered|goes off)\s*,?\s*(?:then\b\s*)?(?P<what>)", "alerted"),
-    (r"^if (?:it|anything) (?:alerted|triggered|alerts)\s*,?\s*(?:then\b\s*)?(?P<what>)", "alerted"),
-    (r"^if (?:no alerts? (?:is |are |was |were )?(?:raised|fired)|nothing (?:alerted|triggered))\s*,?\s*(?:then\b\s*)?(?P<what>)", "no_alerts"),
+    (r"^if (?:it|anything|something|any rule|a rule) (?:alerted|triggered|alerts|fired|went off)\s*,?\s*(?:then\b\s*)?(?P<what>)", "alerted"),
     (r"^otherwise,?\s*(?P<what>)", "otherwise"),
 ]
 DEBRIEF = r"^(?:and )?(?:send|give|write|make|produce|email|show)(?: me)? (?:a |the |an )?(?:summary|report|debrief|write-?up)\b"
@@ -232,6 +234,17 @@ def plan_playbook_deterministic(text: str) -> PlaybookSpec:
                         conditions=previous.conditions)
         elif kind is not None:
             gate = Gate(when=kind, conditions=conditions)
+            previous = steps[-1].gate if steps else Gate()
+            inverse = {"found": "none_found", "none_found": "found"}
+            if previous.when == inverse.get(kind):
+                # "If you find any airtags, ... If nothing turns up, ...": the second branch is about the same step.
+                gate = Gate(when=kind, step=previous.step if previous.step is not None else index - 2,
+                            conditions=conditions or previous.conditions)
+            ref_step = steps[gate.step if gate.step is not None else index - 1]
+            if kind in inverse and not gate.conditions and not ref_step.workflow.filters and any(
+                    a.kind == "alert" for t in ref_step.workflow.triggers for a in t.do):
+                # "alert me if a 2G cell shows up. If nothing turns up, ...": nothing = no alert.
+                gate = Gate(when="alerted" if kind == "found" else "no_alerts", step=gate.step)
         head, rules = _head(rest)
         focus, focus_step = "all", None
         if index:
@@ -252,7 +265,11 @@ def plan_playbook_deterministic(text: str) -> PlaybookSpec:
             # No protocol named: continue with the protocol of the step this one builds on.
             ref = focus_step if focus_step is not None else (gate.step if gate.step is not None else index - 1)
             verbless = re.sub(r"^" + VERB, "", body).strip()
-            body = f"{_what_phrase(steps[ref].workflow.collect)} {verbless}"
+            collect = steps[ref].workflow.collect
+            ble_only = {"device_class", "label", "manufacturer", "device_type"}
+            if set(collect) == {"ble", "classic"} and any(c.field in ble_only for c in gate.conditions):
+                collect = ["ble"]  # trackers, AirTags and vendors come from BLE advertisements
+            body = f"{_what_phrase(collect)} {verbless}"
         try:
             spec = plan_deterministic(body, standing_actions=True)
         except ValueError as exc:
@@ -278,8 +295,16 @@ A playbook is an ordered list of steps (at most 6, at most 1800 s of collection 
   up") | "alerted" | "no_alerts"; step: earlier index or null for the previous step. "otherwise" is the inverse
   of the previous step's gate, about the same earlier step.
 - title: a short imperative title, e.g. "Sweep BLE", "Watch the trackers", "Survey cell towers".
-A step that focuses on earlier devices and names no protocol keeps the earlier step's protocols.
-The first step always has focus "all" and gate "always". Do not add steps the operator did not ask for.
+A step that focuses on earlier devices and names no protocol keeps the earlier step's protocols (BLE only when
+the gate is about trackers, AirTags or vendors). Do not repeat the gate's condition as a filter of a focused step:
+the focus already holds only those devices.
+An action with no condition of its own ("tag them as baseline", "record 3 seconds of IQ") applies to every device
+the step keeps: a trigger when [count ge 1].
+"If nothing turns up" after a step that has no filters and only alert rules means no alert was raised: gate
+"no_alerts" (and "if anything turns up" there means "alerted"). After "if you find any X, ...", a following "if
+nothing turns up, ..." is the other branch: same earlier step, same conditions [X], gate "none_found".
+Write vendor names capitalised ("Apple"). The first step always has focus "all" and gate "always". Do not add
+steps the operator did not ask for, and never shorten what the operator asked for to fit the limits.
 
 Single-step workflow rules:
 """ + PLANNER_INSTRUCTIONS
@@ -306,6 +331,12 @@ def plan_any(text: str, planner: str = "auto", model: Any = None) -> dict[str, A
     if not is_multistep(text):
         return plan(text, planner, model)
     reason = None
+    try:
+        rules = plan_playbook_deterministic(text)
+    except ValueError as exc:
+        if "at most" in str(exc):
+            raise  # over the playbook budget: refuse rather than let a model shorten what was asked for
+        rules = None
     model = model or (default_planner_model() if planner in ("auto", "model") else None)
     if planner != "deterministic" and model is not None:
         try:
@@ -318,7 +349,7 @@ def plan_any(text: str, planner: str = "auto", model: Any = None) -> dict[str, A
             reason = _short_reason(exc)
     elif planner == "model":
         reason = "no planner model configured (set RF_SENTINEL_PLANNER_MODEL)"
-    spec = plan_playbook_deterministic(text)
+    spec = rules or plan_playbook_deterministic(text)
     return {"playbook": spec.model_dump(), "summary": spec.summary(), "planner": "deterministic", "model": None,
             "fallback_reason": reason}
 
