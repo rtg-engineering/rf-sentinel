@@ -245,6 +245,16 @@ class BackendTest(unittest.TestCase):
         self.assertEqual(session.worker.status, "error")
         self.assertIn("driver read error -2", session.worker.error)
         self.assertNotIn("bladerf:0", self.backend._handles)  # next stream reopens the device
+        session.worker._thread.join(2)
+        # The failed session no longer owns the receiver: a new stream starts without replace_existing.
+        recovered = self.backend.start_stream({"device_id": "bladerf:0", "center_freq_hz": 2_402_000_000,
+                                               "sample_rate_sps": 2_000_000})
+        deadline = time.time() + 5
+        while recovered.worker.samples_received == 0 and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertGreater(recovered.worker.samples_received, 0)
+        self.assertEqual(session.status, "stopped")
+        self.assertEqual(self.backend.devices()[0]["occupied_id"], recovered.id)
 
     def test_cs8_conversion_clips_and_scales(self):
         out = np.frombuffer(cf32_to_cs8(np.array([1 + 1j, -2 - 0.5j, 0.5j], dtype=np.complex64)), dtype=np.int8)

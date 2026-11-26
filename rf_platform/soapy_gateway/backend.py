@@ -375,6 +375,12 @@ class SoapyBackend:
     def _claim(self, device_id: str, kind: str, session_id: str, replace: bool) -> None:
         with self._lock:
             owner = self._owners.get(device_id)
+            previous = self.sessions.get(owner[1]) if owner else None
+            if previous is not None and previous.worker is not None and not previous.worker.alive \
+                    and not previous.extra.get("stopped"):
+                # The previous session's receiver failed (e.g. USB error or unplug): it no longer holds the device.
+                previous.extra["stopped"] = True
+                owner = None
             if owner and owner[1] in self.sessions:
                 if not replace:
                     raise DeviceBusy(f"{device_id} is in use by {owner[0]} {owner[1]}")
