@@ -74,10 +74,34 @@ class Agent:
         self._stop = threading.Event()
         self.gateway = gateway or AgentGateway(effective_mode(mode), run_id or "local", stop=self._stop)
         self.gateway.stop = self._stop
+        self._deadline = float("inf")
+        self.stop_reason: str | None = None
 
-    def stop(self) -> None:
+    def child(self) -> "Agent":
+        """Another agent on the same radio service, gateway (policy, approvals, audit), and stop control."""
+        child = Agent.__new__(Agent)
+        child.radio, child._stop, child.gateway = self.radio, self._stop, self.gateway
+        child._deadline, child.stop_reason = float("inf"), None
+        return child
+
+    def stop(self, reason: str = "operator") -> None:
+        self.stop_reason = self.stop_reason or reason
         self._stop.set()
         self.gateway.broker.cancel_run(self.gateway.run_id)
+
+    def finish_early(self, reason: str) -> None:
+        """End collection now and report normally (e.g. a workflow trigger said 'stop')."""
+        self.stop_reason = self.stop_reason or reason
+        self._deadline = time.monotonic()
+
+    def extend(self, seconds: float, limit_s: float) -> float:
+        """Push the end of collection out by `seconds`, never past `limit_s` from the start. Returns the added time."""
+        if self._deadline == float("inf"):
+            return 0.0
+        end = min(self._deadline + seconds, self._started_mono + limit_s)
+        added = max(0.0, end - self._deadline)
+        self._deadline = end
+        return added
 
     def run(self, command: str, on_step: Callable[[str], None] = print,
             on_detection: Callable[[dict[str, Any]], None] | None = None,
@@ -151,8 +175,9 @@ class Agent:
         decoder: dict[str, dict[str, Any]] = {}  # per-channel decoder counters reported by the plugin
         adjustments = 0
         gains_used = [gain]
-        deadline = time.monotonic() + task.duration_s
-        while time.monotonic() < deadline and not self._stop.is_set():
+        self._started_mono = time.monotonic()
+        self._deadline = self._started_mono + task.duration_s
+        while time.monotonic() < self._deadline and not self._stop.is_set():
             proc = subprocess.Popen(plugin_command(task, device, gain, self.radio.base_url, self.radio.token),
                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
             peaks: list[float] = []
@@ -161,7 +186,7 @@ class Agent:
             window_end = time.monotonic() + WINDOW_S
             decided = None
             try:
-                for line in self._lines(proc, deadline):
+                for line in self._lines(proc):
                     event = self._event(line)
                     kind = event.get("kind") if event else None
                     if kind in profile.burst_kinds and isinstance(event.get("peak_dbfs"), (int, float)):
@@ -207,6 +232,8 @@ class Agent:
             gains_used.append(gain)
         if self._stop.is_set():
             step("Stopped by operator; receiver released")
+        elif self.stop_reason:
+            step(f"Collection ended early: {self.stop_reason}; receiver released")
 
         classic = decoder.get("classic")
         if classic and classic.get("streamed_s"):
@@ -235,14 +262,14 @@ class Agent:
                          "receiver_label": device.get("label"), "duration_s": task.duration_s, "gains_db": gains_used,
                          "adjustments": adjustments, "devices": devices, "steps": steps,
                          "elapsed_s": round(time.time() - started, 1), "receive_only": True,
-                         "mode": gw.mode, "stopped": self._stop.is_set(), "audit": gw.audit,
+                         "mode": gw.mode, "stopped": self._stop.is_set(), "stop_reason": self.stop_reason,
+                         "audit": gw.audit,
                          "decoder_stats": decoder}, started)
 
     def _start_companion(self, companion: dict[str, Any], task: Task, step: Callable[[str], None],
                          on_detection, gain_db: float | None, out: dict[str, Any]) -> threading.Thread:
         """Run a second protocol on its own receiver for the same duration, under the same gateway and stop."""
-        child = Agent.__new__(Agent)
-        child.radio, child._stop, child.gateway = self.radio, self._stop, self.gateway
+        child = self.child()
         name = companion["profile"]
         label = "Classic" if name == "classic" else "BLE"
         what = "bluetooth classic" if name == "classic" else "ble"
@@ -260,8 +287,8 @@ class Agent:
         thread.start()
         return thread
 
-    def _lines(self, proc: subprocess.Popen, deadline: float):
-        """Plugin stdout lines until the deadline, without blocking past it."""
+    def _lines(self, proc: subprocess.Popen):
+        """Plugin stdout lines until the (possibly extended or shortened) deadline, without blocking past it."""
         queue: list[str] = []
         lock = threading.Lock()
 
@@ -270,7 +297,7 @@ class Agent:
                 with lock:
                     queue.append(line)
         threading.Thread(target=pump, daemon=True).start()
-        while time.monotonic() < deadline and not self._stop.is_set() and (proc.poll() is None or queue):
+        while time.monotonic() < self._deadline and not self._stop.is_set() and (proc.poll() is None or queue):
             with lock:
                 batch, queue[:] = list(queue), []
             if not batch:
@@ -329,4 +356,6 @@ class Agent:
         if isinstance(event.get("manufacturer"), dict):
             item["manufacturer"] = event["manufacturer"].get("company_name")
         if on_detection:
+            event.setdefault("agent_profile", profile.name)
+            event.setdefault("agent_key", key)
             on_detection(event)

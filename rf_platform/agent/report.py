@@ -51,6 +51,27 @@ def _render(result: dict[str, Any]) -> str:
         + "".join(f"<tr><td>{e(ch)}</td>" + "".join(f"<td>{e(int(v.get(k, 0)))}</td>" for k, _ in cols)
                   + f"<td>{e(v.get('crc_valid_fraction'))}</td></tr>" for ch, v in sorted(stats.items()))
         + "</table></div>")
+    wf = result.get("workflow") or {}
+    workflow_html = ""
+    if wf:
+        summary = wf.get("summary") or {}
+        planner = wf.get("planner") or {}
+        alerts = "".join(f"<li><strong>{e(a['severity'])}</strong> at {e(a['t'])} s: {e(a['message'])} "
+                         f"({e((a.get('device') or {}).get('label'))})</li>" for a in wf.get("alerts", []))
+        evidence = "".join(f"<li><code>{e(x['file'])}</code> · {e(x['seconds'])} s on {e(x['receiver'])} at "
+                           f"{e(round(x['center_freq_hz'] / 1e6))} MHz · sha256 <code>{e(x['sha256'][:16])}…</code></li>"
+                           for x in wf.get("evidence", []))
+        workflow_html = (
+            "<h2>Workflow</h2><div class='card'>"
+            f"<p><strong>Find:</strong> {e(summary.get('find'))}<br><strong>Keep:</strong> "
+            f"{e('; '.join(summary.get('filters') or []) or 'everything decoded')}<br><strong>Triggers:</strong></p><ul>"
+            + "".join(f"<li>{e(t)}</li>" for t in summary.get("triggers") or []) + "</ul>"
+            f"<p class='muted'>Planned by {e(planner.get('planner'))}{(' (' + e(planner.get('model')) + ')') if planner.get('model') else ''}. "
+            f"{e(wf.get('seen'))} device(s) seen, {e(len(wf.get('matched') or []))} matched, "
+            f"{e(wf.get('triggers_fired'))} trigger(s) fired. Every action was authorized by the run's tool gateway "
+            "(see the audit in run.json).</p>"
+            + (f"<h3>Alerts</h3><ul>{alerts}</ul>" if alerts else "")
+            + (f"<h3>Evidence captured</h3><ul>{evidence}</ul>" if evidence else "") + "</div>")
     steps = "".join(f"<li><span class='t'>{s['t']:.1f} s</span> {e(s['message'])}</li>" for s in result["steps"])
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RF Sentinel Agent Run</title><style>
@@ -65,7 +86,7 @@ th,td{{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}}code
 gain {e(', '.join(f'{g:.0f}' for g in result['gains_db']))} dB ({e(result['adjustments'])} automatic adjustment(s))</div>
 <div class="card"><strong>{len(result['devices'])} device(s), {sum(d['count'] for d in result['devices'])} detection(s)</strong>
 <table><tr><th>Device</th><th>Seen</th><th>Best RSSI (dBFS)</th><th>Details</th><th>Gain (dB)</th></tr>{rows}</table></div>
-{decoder}<h2>What the agent did</h2><ol>{steps}</ol>
+{workflow_html}{decoder}<h2>What the agent did</h2><ol>{steps}</ol>
 <h2>Limitations</h2><ul>{''.join(f'<li>{e(x)}</li>' for x in result['limitations'])}</ul></main></body></html>"""
 
 

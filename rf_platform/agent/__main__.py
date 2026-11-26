@@ -11,6 +11,8 @@ so runs started from the CLI or the dashboard can be inspected and stopped from 
   rf-sentinel agent report <run-id>
   rf-sentinel agent policy
   rf-sentinel agent run "find bluetooth devices" --local              # no dashboard: run in this process
+  rf-sentinel agent plan "watch for trackers for 5 minutes; if one is seen for 2 minutes, alert me"
+  rf-sentinel agent run "watch for trackers ...; if ..., alert me and record 5 seconds of IQ" --planner model
 
 Server: --server, else RF_SENTINEL_URL, else http://127.0.0.1:5050. Receive-only.
 """
@@ -24,7 +26,7 @@ import time
 
 import requests
 
-COMMANDS = ("run", "status", "stop", "list", "approve", "deny", "report", "policy")
+COMMANDS = ("run", "plan", "status", "stop", "list", "approve", "deny", "report", "policy")
 TERMINAL = ("done", "stopped", "denied", "error")
 
 
@@ -32,9 +34,9 @@ class Server:
     def __init__(self, url: str | None):
         self.url = (url or os.getenv("RF_SENTINEL_URL") or "http://127.0.0.1:5050").rstrip("/")
 
-    def call(self, method: str, path: str, body: dict | None = None):
+    def call(self, method: str, path: str, body: dict | None = None, timeout: float = 30):
         try:
-            response = requests.request(method, f"{self.url}{path}", json=body, timeout=30)
+            response = requests.request(method, f"{self.url}{path}", json=body, timeout=timeout)
         except requests.ConnectionError:
             raise SystemExit(f"error: cannot reach the RF Sentinel service at {self.url} "
                              f"(start the dashboard, set --server, or use --local)")
@@ -96,6 +98,19 @@ def follow(server: Server, job_id: str, as_json: bool) -> int:
     return 0 if job["status"] in ("done", "stopped") else 1
 
 
+def print_plan(planned: dict) -> None:
+    summary = planned["summary"]
+    who = planned["planner"] + (f" ({planned['model']})" if planned.get("model") else "")
+    print(f"Plan ({who}{'; fallback: ' + planned['fallback_reason'] if planned.get('fallback_reason') else ''})")
+    print(f"  FIND    {summary['find']}")
+    for f in summary["filters"]:
+        print(f"  FILTER  {f}")
+    for t in summary["triggers"]:
+        print(f"  WHEN    {t}")
+    for note in planned["spec"].get("notes", []):
+        print(f"  note    {note}")
+
+
 def run_local(args) -> int:
     from rf_platform.sdr_backend import configure
     from .core import Agent
@@ -107,11 +122,15 @@ def run_local(args) -> int:
         if not sdr.get("available", True):
             print(f"error: SoapySDR is unavailable: {sdr.get('error')}", file=sys.stderr)
             return 2
+    from .workflow import WorkflowSpec, plan, run_workflow
     try:
-        result = Agent(mode=args.mode).run(" ".join(args.request),
-                                           on_step=lambda m: None if args.json else print(f"• {m}", flush=True),
-                                           gain_db=args.gain)
-    except (IntentError, PermissionDenied) as exc:
+        planned = plan(" ".join(args.request), args.planner)
+        if not args.json:
+            print_plan(planned)
+        result = run_workflow(Agent(mode=args.mode), WorkflowSpec.model_validate(planned["spec"]),
+                              on_step=lambda m: None if args.json else print(f"• {m}", flush=True),
+                              gain_db=args.gain, planner={k: planned[k] for k in ("planner", "model", "fallback_reason")})
+    except (IntentError, PermissionDenied, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     except RuntimeError as exc:
@@ -142,6 +161,12 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--detach", action="store_true", help="Start the run and print its id")
     run.add_argument("--json", action="store_true")
     run.add_argument("--local", action="store_true", help="Run in this process instead of the service")
+    run.add_argument("--planner", choices=["auto", "model", "deterministic"], default="deterministic",
+                     help="Who turns the request into a plan (model needs RF_SENTINEL_PLANNER_MODEL or a login)")
+    plan_cmd = sub.add_parser("plan", parents=[common], help="Show the plan for a request without running it")
+    plan_cmd.add_argument("request", nargs="+")
+    plan_cmd.add_argument("--planner", choices=["auto", "model", "deterministic"], default="auto")
+    plan_cmd.add_argument("--json", action="store_true")
     for name in ("status", "stop", "report"):
         sub.add_parser(name, parents=[common]).add_argument("run_id")
     sub.add_parser("list", parents=[common])
@@ -158,7 +183,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "run":
         if args.local:
             return run_local(args)
-        body = {"command": " ".join(args.request), "source": "cli"}
+        planned = server.call("POST", "/api/agent/plan", {"text": " ".join(args.request), "planner": args.planner},
+                              timeout=180)
+        if not args.json:
+            print_plan(planned)
+        body = {"command": " ".join(args.request), "source": "cli", "workflow": planned["spec"],
+                "planner": {k: planned[k] for k in ("planner", "model", "fallback_reason")}}
         if args.mode:
             body["mode"] = args.mode
         if args.gain is not None:
@@ -169,6 +199,22 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         print(f"Run {job['job_id']} ({job['mode']} mode)", flush=True)
         return follow(server, job["job_id"], args.json)
+    if args.cmd == "plan":
+        try:
+            planned = server.call("POST", "/api/agent/plan", {"text": " ".join(args.request), "planner": args.planner},
+                                  timeout=180)
+        except SystemExit as exc:
+            if "cannot reach" not in str(exc):
+                raise
+            from .workflow import plan  # no service: plan locally
+            try:
+                planned = plan(" ".join(args.request), args.planner)
+            except ValueError as err:
+                raise SystemExit(f"error: {err}")
+        print(json.dumps(planned, indent=2) if args.json else "", end="")
+        if not args.json:
+            print_plan(planned)
+        return 0
     if args.cmd == "status":
         job = server.call("GET", f"/api/agent/jobs/{args.run_id}")
         print(f"{job['job_id']}  {job['status']}  {job['mode']}  from {job['source']}  \"{job['command']}\"")

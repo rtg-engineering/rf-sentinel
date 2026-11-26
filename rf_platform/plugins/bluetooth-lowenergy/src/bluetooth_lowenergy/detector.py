@@ -144,20 +144,47 @@ def manufacturer_from_uuid16(uuid16_values: list[str]) -> dict[str, Any] | None:
     return None
 
 
+# Apple Find My advertisements (manufacturer data type 0x12) carry a status byte whose bits 4-5 encode the
+# kind of device, as documented by tracker-detection research (AirGuard, Heinrich et al.). Only "AirTag"
+# means an AirTag; iPhones, Macs and AirPods send Find My frames too.
+FIND_MY_KINDS = {0: "Apple device", 1: "AirTag", 2: "Find My accessory", 3: "AirPods"}
+
+
+def apple_find_my(manufacturer: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Parse an Apple Find My manufacturer frame: kind, status byte, and whether it is separated from its owner."""
+    if canonical_ble_vendor(str((manufacturer or {}).get("company_name") or "")) != "Apple, Inc.":
+        return None
+    if (manufacturer or {}).get("source") == "uuid16":
+        return None
+    data = str((manufacturer or {}).get("data") or "").upper()
+    if not data.startswith("12") or len(data) < 6:
+        return None
+    try:
+        length, status = int(data[2:4], 16), int(data[4:6], 16)
+    except ValueError:
+        return None
+    # A full (0x19-byte) frame carries the rotating public key: sent when the device is away from its owner.
+    return {"kind": FIND_MY_KINDS[(status >> 4) & 0x3], "status": status, "separated": length >= 0x19}
+
+
+def _apple_uuid16_service(manufacturer: dict[str, Any] | None) -> bool:
+    return (canonical_ble_vendor(str((manufacturer or {}).get("company_name") or "")) == "Apple, Inc."
+            and (manufacturer or {}).get("source") == "uuid16")
+
+
 def ble_identity_label(name: str, uuid16_name_values: list[str], manufacturer: dict[str, Any] | None, mac: str) -> str:
     local_name = str(name or "").strip()
     if local_name:
         return local_name
+    find_my = apple_find_my(manufacturer)
+    if find_my and find_my["kind"] != "Apple device":
+        return find_my["kind"]
+    if _apple_uuid16_service(manufacturer):
+        return "Find My accessory"  # Apple's UUID16 service is advertised by third-party Find My accessories
     manufacturer_name = canonical_ble_vendor(str((manufacturer or {}).get("company_name") or ""))
-    manufacturer_source = str((manufacturer or {}).get("source") or "")
     if uuid16_name_values:
-        first_uuid_name = str(uuid16_name_values[0] or "").strip()
-        if manufacturer_name == "Apple, Inc." and manufacturer_source == "uuid16":
-            return "AirTag"
-        return first_uuid_name
+        return str(uuid16_name_values[0] or "").strip()
     if manufacturer_name:
-        if manufacturer_name == "Apple, Inc." and manufacturer_source == "uuid16":
-            return "AirTag"
         return manufacturer_name
     return mac
 
@@ -166,28 +193,30 @@ def ble_device_type_label(name: str, uuid16_name_values: list[str], manufacturer
     local_name = str(name or "").strip()
     if local_name:
         return ""
-    manufacturer_name = canonical_ble_vendor(str((manufacturer or {}).get("company_name") or ""))
-    manufacturer_source = str((manufacturer or {}).get("source") or "")
-    if manufacturer_name == "Apple, Inc." and manufacturer_source == "uuid16":
-        return "AirTag"
+    find_my = apple_find_my(manufacturer)
+    if find_my:
+        return {"AirTag": "AirTag", "Find My accessory": "Tracker", "AirPods": "Headphones"}.get(find_my["kind"], "")
+    if _apple_uuid16_service(manufacturer):
+        return "Tracker"
     if appearance and str(appearance.get("label") or "").strip():
         return str(appearance.get("label") or "").strip()
-    if manufacturer_name == "Tile, Inc.":
+    if canonical_ble_vendor(str((manufacturer or {}).get("company_name") or "")) == "Tile, Inc.":
         return "Tracker"
     return ""
 
 
 def ble_device_type_detail(uuid16_name_values: list[str], manufacturer: dict[str, Any] | None, appearance: dict[str, Any] | None) -> str:
     manufacturer_name = canonical_ble_vendor(str((manufacturer or {}).get("company_name") or ""))
-    manufacturer_source = str((manufacturer or {}).get("source") or "")
     manufacturer_data = str((manufacturer or {}).get("data") or "").upper()
-    if manufacturer_name == "Apple, Inc." and manufacturer_source == "uuid16":
-        return "Find My UUID16"
+    if _apple_uuid16_service(manufacturer):
+        return f"Apple UUID16 service {(manufacturer or {}).get('uuid16', '')} (Find My accessory)".replace("  ", " ")
+    find_my = apple_find_my(manufacturer)
+    if find_my:
+        where = "separated from owner" if find_my["separated"] else "near owner"
+        return f"Find My frame: {find_my['kind']} (status 0x{find_my['status']:02X}, {where})"
     if manufacturer_name == "Apple, Inc." and manufacturer_data:
         prefix = manufacturer_data[:4]
-        if prefix == "1202":
-            return "Find My manufacturer frame"
-        if prefix in {"1005", "1003", "1001"}:
+        if prefix[:2] == "10":
             return "Continuity frame"
         return f"Apple manufacturer frame {prefix}" if prefix else "Apple manufacturer frame"
     if manufacturer_name == "Microsoft" and manufacturer_data:
@@ -210,15 +239,15 @@ def ble_identity_source(name: str, uuid16_name_values: list[str], manufacturer: 
     manufacturer_name = str((manufacturer or {}).get("company_name") or "")
     if name:
         return "Local name"
+    find_my = apple_find_my(manufacturer)
+    if find_my:
+        return f"Find My status byte 0x{find_my['status']:02X}"
+    if _apple_uuid16_service(manufacturer):
+        return "Apple UUID16 service"
     if uuid16_name_values:
-        label = uuid16_name_values[0]
-        if canonical_ble_vendor(label) == "Apple, Inc.":
-            return "AirTag inferred from UUID16 service"
-        return f"{label} UUID16 service"
+        return f"{uuid16_name_values[0]} UUID16 service"
     if manufacturer_name:
         if (manufacturer or {}).get("source") == "uuid16":
-            if canonical_ble_vendor(manufacturer_name) == "Apple, Inc.":
-                return "AirTag inferred from UUID16 service"
             return f"{manufacturer_name} inferred from UUID16 service"
         return f"{manufacturer_name} manufacturer data"
     return "MAC only"

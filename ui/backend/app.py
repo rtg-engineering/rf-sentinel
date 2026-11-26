@@ -1659,93 +1659,32 @@ def _manufacturer_from_uuid16(uuid16_values: list[str]) -> dict[str, Any] | None
     return None
 
 
+def _ble_labels():
+    """BLE identity labelling from the bluetooth-lowenergy plugin, so the dashboard and agent agree."""
+    try:
+        from bluetooth_lowenergy import detector
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "rf_platform/plugins/bluetooth-lowenergy/src"))
+        from bluetooth_lowenergy import detector
+    return detector
+
+
 def _ble_identity_label(name: str, uuid16_names: list[str], manufacturer: dict[str, Any] | None, mac: str) -> str:
-    local_name = str(name or "").strip()
-    if local_name:
-        return local_name
-    manufacturer_name = _canonical_ble_vendor(str((manufacturer or {}).get("company_name") or ""))
-    manufacturer_source = str((manufacturer or {}).get("source") or "")
-    if uuid16_names:
-        first_uuid_name = str(uuid16_names[0] or "").strip()
-        if manufacturer_name == "Apple, Inc." and manufacturer_source == "uuid16":
-            return "AirTag"
-        return first_uuid_name
-    if manufacturer_name:
-        if manufacturer_name == "Apple, Inc." and manufacturer_source == "uuid16":
-            return "AirTag"
-        return manufacturer_name
-    return mac
+    return _ble_labels().ble_identity_label(name, uuid16_names, manufacturer, mac)
 
 
-def _ble_device_type_label(
-    name: str,
-    uuid16_names: list[str],
-    manufacturer: dict[str, Any] | None,
-    appearance: dict[str, Any] | None,
-) -> str:
-    local_name = str(name or "").strip()
-    if local_name:
-        return ""
-    manufacturer_name = _canonical_ble_vendor(str((manufacturer or {}).get("company_name") or ""))
-    manufacturer_source = str((manufacturer or {}).get("source") or "")
-    if manufacturer_name == "Apple, Inc." and manufacturer_source == "uuid16":
-        return "AirTag"
-    if appearance and str(appearance.get("label") or "").strip():
-        return str(appearance.get("label") or "").strip()
-    if manufacturer_name == "Tile, Inc.":
-        return "Tracker"
-    return ""
+def _ble_device_type_label(name: str, uuid16_names: list[str], manufacturer: dict[str, Any] | None,
+                           appearance: dict[str, Any] | None) -> str:
+    return _ble_labels().ble_device_type_label(name, uuid16_names, manufacturer, appearance)
 
 
-def _ble_device_type_detail(
-    uuid16_names: list[str],
-    manufacturer: dict[str, Any] | None,
-    appearance: dict[str, Any] | None,
-) -> str:
-    manufacturer_name = _canonical_ble_vendor(str((manufacturer or {}).get("company_name") or ""))
-    manufacturer_source = str((manufacturer or {}).get("source") or "")
-    manufacturer_data = str((manufacturer or {}).get("data") or "").upper()
-    if manufacturer_name == "Apple, Inc." and manufacturer_source == "uuid16":
-        return "Find My UUID16"
-    if manufacturer_name == "Apple, Inc." and manufacturer_data:
-        prefix = manufacturer_data[:4]
-        if prefix == "1202":
-            return "Find My manufacturer frame"
-        if prefix in {"1005", "1003", "1001"}:
-            return "Continuity frame"
-        return f"Apple manufacturer frame {prefix}" if prefix else "Apple manufacturer frame"
-    if manufacturer_name == "Microsoft" and manufacturer_data:
-        prefix = manufacturer_data[:2]
-        if prefix == "03":
-            return "Swift Pair frame"
-        return f"Microsoft manufacturer frame {manufacturer_data[:4]}" if manufacturer_data else "Microsoft manufacturer frame"
-    if manufacturer_name == "Tile, Inc.":
-        if uuid16_names:
-            return "Tile UUID16 service"
-        if manufacturer_data:
-            return "Tile manufacturer frame"
-        return "Tile tracker"
-    if appearance and str(appearance.get("code") or "").strip():
-        return str(appearance.get("code") or "").strip()
-    return ""
+def _ble_device_type_detail(uuid16_names: list[str], manufacturer: dict[str, Any] | None,
+                            appearance: dict[str, Any] | None) -> str:
+    return _ble_labels().ble_device_type_detail(uuid16_names, manufacturer, appearance)
 
 
 def _ble_identity_source(name: str, uuid16_names: list[str], manufacturer: dict[str, Any] | None) -> str:
-    manufacturer_name = str((manufacturer or {}).get("company_name") or "")
-    if name:
-        return "Local name"
-    if uuid16_names:
-        label = uuid16_names[0]
-        if _canonical_ble_vendor(label) == "Apple, Inc.":
-            return "AirTag inferred from UUID16 service"
-        return f"{label} UUID16 service"
-    if manufacturer_name:
-        if (manufacturer or {}).get("source") == "uuid16":
-            if _canonical_ble_vendor(manufacturer_name) == "Apple, Inc.":
-                return "AirTag inferred from UUID16 service"
-            return f"{manufacturer_name} inferred from UUID16 service"
-        return f"{manufacturer_name} manufacturer data"
-    return "MAC only"
+    return _ble_labels().ble_identity_source(name, uuid16_names, manufacturer)
 
 
 def _load_ble_identity_cache() -> dict[str, dict[str, Any]]:
@@ -8780,7 +8719,7 @@ def analyst_report():
 # path as scanner output, so they appear in the normal detections table.
 agent_jobs: dict[str, dict[str, Any]] = {}
 agent_jobs_lock = threading.Lock()
-AGENT_PROTOCOL_TAG = {"ble": "ble", "zigbee": "ieee802154", "tpms": "tpms"}
+AGENT_PROTOCOL_TAG = {"ble": "ble", "zigbee": "ieee802154", "tpms": "tpms", "classic": "btc"}
 _agent_broker = None
 
 
@@ -8827,29 +8766,49 @@ def agent_policy():
     return jsonify({"ceiling": server_ceiling(), "modes": list(MODES), "tools": TOOLS, "never": sorted(NEVER)})
 
 
+@app.post("/api/agent/plan")
+def agent_plan():
+    """Plain language -> a validated workflow plan (find / filter / when->do). Nothing runs."""
+    from rf_platform.agent.workflow import plan
+    body = request.get_json(silent=True) or {}
+    text = str(body.get("text") or body.get("command") or "").strip()
+    planner = str(body.get("planner") or "auto")
+    if planner not in ("auto", "model", "deterministic"):
+        return jsonify({"error": "planner must be auto, model, or deterministic"}), 400
+    try:
+        return jsonify(plan(text, planner))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
 @app.post("/api/agent/run")
 def agent_run():
+    from pydantic import ValidationError
     from rf_platform.agent.core import Agent
     from rf_platform.agent.gateway import AgentGateway, PermissionDenied, decide, effective_mode
-    from rf_platform.agent.profiles import IntentError, parse
+    from rf_platform.agent.workflow import WorkflowSpec, plan_deterministic, run_workflow
     body = request.get_json(silent=True) or {}
     command = str(body.get("command") or "").strip()
     if RF_SENTINEL_DEMO_MODE:
         return jsonify({"error": "The agent needs live receivers; this dashboard is running the synthetic demo."}), 409
     try:
-        task = parse(command)
+        # A confirmed plan is re-validated here: a client (or model) cannot exceed the schema's bounds.
+        spec = WorkflowSpec.model_validate(body["workflow"]) if body.get("workflow") else plan_deterministic(command)
         mode = effective_mode(body.get("mode"))
-    except (IntentError, PermissionDenied) as exc:
-        return jsonify({"error": str(exc)}), 400
+    except (ValueError, ValidationError, PermissionDenied) as exc:
+        return jsonify({"error": str(exc)[:500]}), 400
+    command = command or spec.goal or spec.command()
+    planner_info = body.get("planner") if isinstance(body.get("planner"), dict) else {"planner": "deterministic"}
     if decide("start_scan", mode) == "deny":
         return jsonify({"error": f"{mode} mode is read-only: it cannot start collection.", "mode": mode}), 403
     if _agent_running():
         return jsonify({"error": "An agent run is already active; stop it first."}), 409
     job_id = f"run-{uuid.uuid4().hex[:10]}"
     gain = body.get("gain_db")
-    job = {"job_id": job_id, "command": command, "profile": task.profile.name, "mode": mode,
+    job = {"job_id": job_id, "command": command, "profile": spec.collect[0], "mode": mode,
            "source": str(body.get("source") or "dashboard")[:20], "status": "running", "started_at": time.time(),
-           "steps": [], "result": None, "error": None}
+           "steps": [], "result": None, "error": None, "workflow": spec.model_dump(), "summary": spec.summary(),
+           "planner": planner_info, "events": [], "alerts": []}
     gateway = AgentGateway(mode, job_id, _agent_approvals(),
                            on_pending=lambda p: job["steps"].append({"t": round(time.time() - job["started_at"], 1),
                                                                      "message": f"Approval needed for {p['tool']} {p['params']} (action {p['action_id']})"}))
@@ -8860,10 +8819,15 @@ def agent_run():
 
     def work():
         try:
-            job["result"] = agent.run(
-                command, on_step=lambda m: job["steps"].append({"t": round(time.time() - job["started_at"], 1), "message": m}),
-                on_detection=lambda e: _agent_ingest(task.profile.name, e),
-                gain_db=float(gain) if gain is not None else None)
+            def on_event(event):
+                job["events"].append(event)
+                if event["kind"] == "alert":
+                    job["alerts"].append(event)
+            job["result"] = run_workflow(
+                agent, spec, on_step=lambda m: job["steps"].append({"t": round(time.time() - job["started_at"], 1), "message": m}),
+                on_detection=lambda e: _agent_ingest(e.get("agent_profile") or spec.collect[0], e), on_event=on_event,
+                gain_db=float(gain) if gain is not None else None, planner=planner_info,
+                base_dir=RF_SENTINEL_LOG_DIR / "agent-runs")
             from rf_platform.agent.report import save
             job["report_dir"] = str(save(job["result"], RF_SENTINEL_LOG_DIR / "agent-runs"))
             job["run_id"] = job["result"]["run_id"]
