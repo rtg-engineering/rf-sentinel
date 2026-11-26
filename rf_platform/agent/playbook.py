@@ -644,6 +644,19 @@ def _merge_devices(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(merged.values(), key=lambda d: (-len(d["cycles"]), -len(d["steps"]), -d["count"]))
 
 
+def cycle_stats(records: list[dict[str, Any]]) -> dict[str, int]:
+    """One cycle in numbers: distinct devices, how many were new, alerts raised."""
+    seen, new, alerts = set(), set(), 0
+    for record in records:
+        wf = (record.get("result") or {}).get("workflow") or {}
+        for d in wf.get("all_devices") or []:
+            seen.add(d["key"])
+            if d.get("new"):
+                new.add(d["key"])
+        alerts += len(wf.get("alerts") or [])
+    return {"seen": len(seen), "new": len(new), "alerts": alerts}
+
+
 def recurring(records: list[dict[str, Any]], devices: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Standing watch: devices decoded in more than one cycle, most cycles first."""
     ran = sorted({r["cycle"] + 1 for r in records if r["status"] == "done"})
@@ -876,6 +889,9 @@ def run_playbook(agent, spec: PlaybookSpec, on_step: Callable[[str], None] = pri
             emit({"t": round(time.time() - started, 1), "kind": "cycle", "cycle": cycle, "status": "running"})
         ran = _run_cycle(agent, spec, cycle, started, emit, step_log, say, on_detection, planner, base_dir, gain_db)
         records += ran
+        if spec.repeat:
+            emit({"t": round(time.time() - started, 1), "kind": "cycle", "cycle": cycle, "status": "done",
+                  "stats": cycle_stats(ran)})
         cycles_run += 1
         if cycle == 0 and cycles > 1 and not any(r["status"] == "done" for r in ran) and any(r["status"] == "error" for r in ran):
             say("The first cycle could not run any step; the standing watch ends here instead of waiting for later cycles")

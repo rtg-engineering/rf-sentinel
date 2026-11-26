@@ -8970,7 +8970,9 @@ def _launch_agent_job(spec, book, command: str, mode: str, planner_info: dict[st
     def work():
         try:
             def on_event(event):
-                if event["kind"] == "cycle" and book is not None:
+                if event["kind"] == "cycle" and event["status"] == "done" and event.get("stats"):
+                    job.setdefault("cycle_stats", []).append({"cycle": event["cycle"], **event["stats"]})
+                if event["kind"] == "cycle" and book is not None and event["status"] != "done":
                     job["cycle"] = {"index": event["cycle"], "total": book.repeat.times if book.repeat else 1,
                                     "status": event["status"], "next_at": event.get("next_at"),
                                     "scheduled": bool(event.get("scheduled"))}
@@ -9124,6 +9126,9 @@ def _saved_agent_runs(limit: int = 20, exclude: set[str] | None = None) -> list[
                       for e in ((r.get("result") or {}).get("workflow") or {}).get("timeline") or []]
             last_cycle = max((r.get("cycle", 0) for r in records), default=0)
             cycles = result.get("cycles")
+            from rf_platform.agent.playbook import cycle_stats
+            per_cycle = [{"cycle": c, **cycle_stats([r for r in records if r.get("cycle", 0) == c])}
+                         for c in sorted({r.get("cycle", 0) for r in records})] if cycles else []
             out.append({"job_id": f"saved-{result.get('run_id')}", "run_id": result.get("run_id"), "saved": True,
                         "kind": "playbook", "command": result.get("command"), "profile": result.get("profile"),
                         "mode": result.get("mode"), "source": "saved", "status": "stopped" if result.get("stopped") else "done",
@@ -9136,7 +9141,7 @@ def _saved_agent_runs(limit: int = 20, exclude: set[str] | None = None) -> list[
                                          "focus": len(r["focus"]) if r.get("focus") is not None else None,
                                          "summary": step_summary(r) if r.get("status") == "done" else ""}
                                         for r in records if r.get("cycle", 0) == last_cycle],
-                        "current_step": None,
+                        "current_step": None, "cycle_stats": per_cycle,
                         "cycle": {"index": last_cycle, "total": cycles["planned"], "status": "done", "next_at": None} if cycles else None})
             continue
         out.append({"job_id": f"saved-{result.get('run_id')}", "run_id": result.get("run_id"), "saved": True,

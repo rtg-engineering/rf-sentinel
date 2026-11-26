@@ -233,7 +233,11 @@ class RunTest(unittest.TestCase):
         self.assertEqual([r["cycle"] for r in result["steps_run"]], [0, 1, 2])
         self.assertTrue(result["recurring"])
         self.assertTrue(all(r["of"] == 3 and len(r["cycles"]) >= 2 for r in result["recurring"]))
-        self.assertEqual([e["status"] for e in events if e["kind"] == "cycle"], ["running", "waiting", "running", "waiting", "running"])
+        self.assertEqual([e["status"] for e in events if e["kind"] == "cycle"],
+                         ["running", "done", "waiting", "running", "done", "waiting", "running", "done"])
+        stats = [e["stats"] for e in events if e["kind"] == "cycle" and e["status"] == "done"]
+        self.assertEqual(len(stats), 3)
+        self.assertTrue(all(s["seen"] >= s["new"] for s in stats))
         # "new" means not seen in an earlier cycle either: the trackers alert in cycle 1 only.
         self.assertTrue(result["alerts"])
         self.assertEqual({a["cycle"] for a in result["alerts"]}, {0})
