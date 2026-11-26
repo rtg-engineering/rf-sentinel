@@ -1845,6 +1845,8 @@
       .wf-chip.classic { background: color-mix(in srgb, var(--btc-blue) 22%, var(--panel)); font-weight: 600; }
       .wf-chip.zigbee { background: color-mix(in srgb, var(--zigbee-purple) 18%, var(--panel)); color: var(--zigbee-purple); font-weight: 600; }
       .wf-chip.tpms { background: color-mix(in srgb, var(--gold) 20%, var(--panel)); font-weight: 600; }
+      .wf-chip.cellular { background: color-mix(in srgb, var(--cellular-magenta) 18%, var(--panel)); color: var(--cellular-magenta); font-weight: 600; }
+      .wf-dev .proto.cellular { background: var(--cellular-magenta); }
       .wf-rule { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center; padding: 8px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); margin-bottom: 6px; }
       .wf-rule .arrow { color: var(--wf-b); }
       .wf-rule .act { font-weight: 600; }
@@ -2512,6 +2514,7 @@
           <button type="button" data-ex="Find bluetooth devices for 3 minutes. When a new device stronger than -45 appears, alert me 'new device close by' and tag it as close.">New device nearby</button>
           <button type="button" data-ex="Look for apple devices for 2 minutes. If an AirTag appears, alert me and scan bluetooth classic for 60 seconds.">AirTag → Classic sweep</button>
           <button type="button" data-ex="Monitor zigbee for 5 minutes and stop when anything shows up.">Zigbee tripwire</button>
+          <button type="button" data-ex="Survey cell towers for 3 minutes. Send an urgent alert if an unknown network appears or if a 2G cell shows up, and alert me when the serving cell changes.">Rogue cell watch</button>
         </div>
         <div id="wfPlan" class="wf-plan" hidden></div>
         <div id="wfLive" class="wf-live" hidden></div>
@@ -4569,7 +4572,7 @@
                 ${uaps.length > 1 ? `<span class="chip">UAPs ${uaps.slice(0, 6).join(" ")}</span>` : ""}
                 ${candidate.group_count > 1 ? `<span class="chip">${candidate.group_count} merged</span>` : ""}
                 <span class="chip">${fmtFreq(candidate.center_freq_hz)}</span>
-                <span class="chip">${fmtDb(candidate.rssi_dbfs)} dBFS</span>
+                <span class="chip">${candidate.rsrp_dbm != null ? `RSRP ${fmtDb(candidate.rsrp_dbm)} dBm` : `${fmtDb(candidate.rssi_dbfs)} dBFS`}</span>
                 ${candidate.header_relaxed ? `<span class="chip">header ${candidate.header_perfect_triplets || 0}/18</span>` : ""}
                 ${candidate.repaired ? `<span class="chip">repair ${candidate.repair_distance || 0}</span>` : ""}
               </div>
@@ -5709,7 +5712,7 @@
       const wfStopBtn = document.getElementById("wfStopBtn");
       const wfPlanEl = document.getElementById("wfPlan");
       const wfLive = document.getElementById("wfLive");
-      const WF_PROTO = { ble: "BLE", classic: "Bluetooth Classic", zigbee: "Zigbee", tpms: "TPMS" };
+      const WF_PROTO = { ble: "BLE", classic: "Bluetooth Classic", zigbee: "Zigbee", tpms: "TPMS", cellular: "Cellular (modem)" };
       const WF_ICON = { alert: "notifications_active", tag: "sell", record_iq: "radio_button_checked", start_scan: "travel_explore",
         extend: "more_time", stop: "stop_circle" };
       let wfPlanner = "auto";
@@ -5791,12 +5794,13 @@
       function wfDevice(d) {
         const tags = [d.new ? `<span class="wf-tag new">new</span>` : "", ...(d.tags || []).map((t) => `<span class="wf-tag flag">${escapeHtml(t)}</span>`)].join("");
         const rssi = d.best_rssi_dbfs ?? d.rssi_dbfs;
-        const width = rssi == null ? 0 : Math.max(4, Math.min(100, (Number(rssi) + 90) * 1.4));
+        const cell = d.protocol === "cellular";
+        const width = rssi == null ? 0 : Math.max(4, Math.min(100, cell ? (Number(rssi) + 130) * 1.25 : (Number(rssi) + 90) * 1.4));
         return `<div class="wf-dev ${(d.tags || []).length ? "flagged" : ""}">
             <span class="proto ${escapeHtml(d.protocol || "ble")}"></span>
             <div style="min-width:0"><div class="name">${escapeHtml(d.label || d.key)}${tags}</div>
               <div class="sub">${escapeHtml([WF_PROTO[d.protocol] || d.protocol, d.manufacturer, d.device_type, d.device_class, `${d.count}× seen`, d.dwell_s ? `${Math.round(d.dwell_s)} s` : ""].filter(Boolean).join(" · "))}</div></div>
-            <div class="wf-rssi">${rssi == null ? "" : `${Number(rssi).toFixed(0)} dBFS`}<i style="width:${width}%"></i></div>
+            <div class="wf-rssi">${rssi == null ? "" : `${Number(rssi).toFixed(0)} ${cell ? "dBm" : "dBFS"}`}<i style="width:${width}%"></i></div>
           </div>`;
       }
 
@@ -5840,7 +5844,7 @@
             <div class="wf-progress"><span style="width:${pct}%"></span></div>
             ${job.report_dir ? `<a class="wf-badge" href="/api/agent/jobs/${encodeURIComponent(job.job_id)}/report" target="_blank" rel="noopener">${materialIcon("verified")} Verifiable report</a>` : ""}</div>
           ${latestAlert ? `<div class="wf-alert-banner">${materialIcon("notifications_active")}<div><strong>${escapeHtml(latestAlert.message)}</strong>
-            <div class="small" style="color:inherit;opacity:.9">${escapeHtml(latestAlert.device?.label || "")} · ${latestAlert.device?.rssi_dbfs != null ? `${Number(latestAlert.device.rssi_dbfs).toFixed(0)} dBFS · ` : ""}${Number(latestAlert.t).toFixed(1)} s</div></div></div>` : ""}
+            <div class="small" style="color:inherit;opacity:.9">${escapeHtml(latestAlert.device?.label || "")} · ${latestAlert.device?.rssi_dbfs != null ? `${Number(latestAlert.device.rssi_dbfs).toFixed(0)} ${latestAlert.device.protocol === "cellular" ? "dBm" : "dBFS"} · ` : ""}${Number(latestAlert.t).toFixed(1)} s</div></div></div>` : ""}
           <div class="wf-stats">
             <div class="wf-stat"><span>Devices seen</span><strong>${workflow.seen ?? new Set(events.map((e) => e.device?.key).filter(Boolean)).size}</strong></div>
             <div class="wf-stat"><span>Matched</span><strong>${matched.length}</strong></div>

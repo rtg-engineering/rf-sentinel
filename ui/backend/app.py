@@ -4070,6 +4070,30 @@ def _scanner_json_to_events(source: str, payload: dict[str, Any]) -> list[dict[s
             }
         ]
 
+    if kind == "cell":
+        # A cell reported by the cellular survey modem (not SDR spectrum): keyed by cell identity.
+        rsrp = payload.get("rsrp_dbm")
+        detail_bits = [payload.get("operator"), payload.get("rat"), f"PLMN {payload.get('plmn')}" if payload.get("plmn") else "",
+                       f"cell {payload.get('cell_id')}" if payload.get("cell_id") else "",
+                       f"PCI {payload.get('pci')}" if payload.get("pci") is not None else "",
+                       f"ARFCN {payload.get('arfcn')}" if payload.get("arfcn") else "",
+                       f"TAC {payload.get('tac')}" if payload.get("tac") else "", payload.get("role"),
+                       f"RSRP {rsrp:.0f} dBm" if isinstance(rsrp, (int, float)) else "",
+                       f"SINR {payload['sinr_db']:.0f} dB" if isinstance(payload.get("sinr_db"), (int, float)) else ""]
+        return [{
+            "kind": "cellular_signal", "protocol": "CELLULAR", "seen_at": now, "link": payload.get("key"),
+            "identity": payload.get("identity") or payload.get("key"), "mac": payload.get("key"),
+            "detail": " · ".join(str(b) for b in detail_bits if b), "device_type": payload.get("rat") or "Cellular",
+            "device_type_detail": f"{payload.get('role') or 'cell'} cell (modem survey)",
+            # RSRP (dBm from the modem) is kept out of the SDR dBFS fields so receiver health stays in one unit.
+            "rssi_dbfs": None, "last_rssi_dbfs": None, "rsrp_dbm": rsrp, "rsrq_db": payload.get("rsrq_db"),
+            "sinr_db": payload.get("sinr_db"), "technology": payload.get("rat"), "likely_operator": payload.get("operator"),
+            "decoded_plmn": payload.get("plmn"), "decoded_plmn_source": "modem " + str(payload.get("source") or ""),
+            "decoded_mcc": payload.get("mcc"), "decoded_mnc": payload.get("mnc"), "cell_id": payload.get("cell_id"),
+            "pci": payload.get("pci"), "arfcn": payload.get("arfcn"), "tac": payload.get("tac"),
+            "classification": "Cell heard by the survey modem", "passive_only": True, "content_decoded": False,
+        }]
+
     if protocol in {"cellular awareness", "cellular"} or source_protocol == "cellular":
         frequency_hz = payload.get("frequency_hz") or payload.get("center_freq_hz")
         frequency_mhz = payload.get("frequency_mhz")
@@ -4996,6 +5020,9 @@ def _upsert_discovery_row(event: dict[str, Any]) -> None:
         row = {
             "key": f"cellular:{frequency_hz or identity}:{event.get('link') or 'unknown'}",
             "protocol": "CELLULAR",
+            "rsrp_dbm": event.get("rsrp_dbm"),
+            "pci": event.get("pci"),
+            "cell_id": event.get("cell_id"),
             "identity": identity,
             "mac": str(frequency_hz or identity),
             "detail": str(event.get("detail") or "Passive cellular spectrum awareness"),
@@ -8719,7 +8746,7 @@ def analyst_report():
 # path as scanner output, so they appear in the normal detections table.
 agent_jobs: dict[str, dict[str, Any]] = {}
 agent_jobs_lock = threading.Lock()
-AGENT_PROTOCOL_TAG = {"ble": "ble", "zigbee": "ieee802154", "tpms": "tpms", "classic": "btc"}
+AGENT_PROTOCOL_TAG = {"ble": "ble", "zigbee": "ieee802154", "tpms": "tpms", "classic": "btc", "cellular": "cellular"}
 _agent_broker = None
 
 
