@@ -1,0 +1,1057 @@
+{
+ "about": "Multi-step requests (playbooks) and the plan each must produce, reviewed by hand. Step references are resolved (0-based indexes); filters and rule conditions use the workflow corpus shape.",
+ "cases": [
+  {
+   "text": "Sweep for bluetooth trackers for 2 minutes. If you find any, watch them for 5 minutes and send an urgent alert if one is still there after 3 minutes, and record 5 seconds of IQ. Then survey cell towers for 1 minute and alert me if a 2G cell shows up.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 120,
+     "channel": null,
+     "filters": [
+      [
+       "device_class",
+       "eq",
+       "tracker"
+      ]
+     ],
+     "triggers": []
+    },
+    {
+     "focus": "found",
+     "focus_step": 0,
+     "gate": "found",
+     "gate_step": 0,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 300,
+     "channel": null,
+     "filters": [],
+     "triggers": [
+      {
+       "when": [
+        [
+         "dwell_s",
+         "ge",
+         180.0
+        ]
+       ],
+       "do": [
+        "alert",
+        "record_iq"
+       ],
+       "severity": "critical",
+       "repeat": false
+      }
+     ]
+    },
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "cellular"
+     ],
+     "duration_s": 60,
+     "channel": null,
+     "filters": [],
+     "triggers": [
+      {
+       "when": [
+        [
+         "generation",
+         "eq",
+         "2G"
+        ]
+       ],
+       "do": [
+        "alert"
+       ],
+       "severity": "warning",
+       "repeat": false
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "text": "Find ble devices for 1 minute and tag them as baseline. Then watch for new devices for 3 minutes and alert me when one stronger than -50 appears. Finally, watch the flagged ones for 2 minutes and record 3 seconds of IQ.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 60,
+     "channel": null,
+     "filters": [],
+     "triggers": [
+      {
+       "when": [
+        [
+         "count",
+         "ge",
+         1.0
+        ]
+       ],
+       "do": [
+        "tag"
+       ],
+       "severity": null,
+       "repeat": false
+      }
+     ]
+    },
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 180,
+     "channel": null,
+     "filters": [
+      [
+       "new",
+       "eq",
+       true
+      ]
+     ],
+     "triggers": [
+      {
+       "when": [
+        [
+         "rssi_dbfs",
+         "ge",
+         -50.0
+        ]
+       ],
+       "do": [
+        "alert"
+       ],
+       "severity": "warning",
+       "repeat": false
+      }
+     ]
+    },
+    {
+     "focus": "alerted",
+     "focus_step": 1,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 120,
+     "channel": null,
+     "filters": [],
+     "triggers": [
+      {
+       "when": [
+        [
+         "count",
+         "ge",
+         1.0
+        ]
+       ],
+       "do": [
+        "record_iq"
+       ],
+       "severity": null,
+       "repeat": false
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "text": "watch for trackers for 1 minute. if nothing turns up, survey cell towers for 1 minute. otherwise, focus on them for 3 minutes and alert me when one is seen for more than 2 minutes",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 60,
+     "channel": null,
+     "filters": [
+      [
+       "device_class",
+       "eq",
+       "tracker"
+      ]
+     ],
+     "triggers": []
+    },
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "none_found",
+     "gate_step": 0,
+     "gate_conditions": [],
+     "collect": [
+      "cellular"
+     ],
+     "duration_s": 60,
+     "channel": null,
+     "filters": [],
+     "triggers": []
+    },
+    {
+     "focus": "found",
+     "focus_step": 0,
+     "gate": "found",
+     "gate_step": 0,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 180,
+     "channel": null,
+     "filters": [],
+     "triggers": [
+      {
+       "when": [
+        [
+         "dwell_s",
+         "ge",
+         120.0
+        ]
+       ],
+       "do": [
+        "alert"
+       ],
+       "severity": "warning",
+       "repeat": false
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "text": "find ble devices for 60 seconds, then watch the apple devices you found for 2 minutes",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 60,
+     "channel": null,
+     "filters": [],
+     "triggers": []
+    },
+    {
+     "focus": "found",
+     "focus_step": 0,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 120,
+     "channel": null,
+     "filters": [
+      [
+       "manufacturer",
+       "contains",
+       "Apple"
+      ]
+     ],
+     "triggers": []
+    }
+   ]
+  },
+  {
+   "text": "1. survey cell towers for 2 minutes and alert me if an unknown network appears 2. watch for trackers for 3 minutes 3. watch the flagged ones for 2 minutes",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "cellular"
+     ],
+     "duration_s": 120,
+     "channel": null,
+     "filters": [],
+     "triggers": [
+      {
+       "when": [
+        [
+         "operator",
+         "eq",
+         "unknown operator"
+        ]
+       ],
+       "do": [
+        "alert"
+       ],
+       "severity": "warning",
+       "repeat": false
+      }
+     ]
+    },
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 180,
+     "channel": null,
+     "filters": [
+      [
+       "device_class",
+       "eq",
+       "tracker"
+      ]
+     ],
+     "triggers": []
+    },
+    {
+     "focus": "alerted",
+     "focus_step": 0,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "cellular"
+     ],
+     "duration_s": 120,
+     "channel": null,
+     "filters": [],
+     "triggers": []
+    }
+   ]
+  },
+  {
+   "text": "Survey cell towers for 2 minutes. If any alerts were raised, watch for trackers for 3 minutes and send an urgent alert if an airtag appears.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "cellular"
+     ],
+     "duration_s": 120,
+     "channel": null,
+     "filters": [],
+     "triggers": []
+    },
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "alerted",
+     "gate_step": 0,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 180,
+     "channel": null,
+     "filters": [
+      [
+       "device_class",
+       "eq",
+       "tracker"
+      ]
+     ],
+     "triggers": [
+      {
+       "when": [
+        [
+         "label",
+         "contains",
+         "AirTag"
+        ]
+       ],
+       "do": [
+        "alert"
+       ],
+       "severity": "critical",
+       "repeat": false
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "text": "Monitor zigbee on channel 20 for 2 minutes, then look for tire sensors for 1 minute.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "zigbee"
+     ],
+     "duration_s": 120,
+     "channel": 20,
+     "filters": [],
+     "triggers": []
+    },
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "tpms"
+     ],
+     "duration_s": 60,
+     "channel": null,
+     "filters": [],
+     "triggers": []
+    }
+   ]
+  },
+  {
+   "text": "find bluetooth devices for 1 minute. if you find any trackers, then watch them for 2 minutes and tag them as suspect",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble",
+      "classic"
+     ],
+     "duration_s": 60,
+     "channel": null,
+     "filters": [],
+     "triggers": []
+    },
+    {
+     "focus": "found",
+     "focus_step": 0,
+     "gate": "found",
+     "gate_step": 0,
+     "gate_conditions": [
+      [
+       "device_class",
+       "eq",
+       "tracker"
+      ]
+     ],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 120,
+     "channel": null,
+     "filters": [],
+     "triggers": [
+      {
+       "when": [
+        [
+         "count",
+         "ge",
+         1.0
+        ]
+       ],
+       "do": [
+        "tag"
+       ],
+       "severity": null,
+       "repeat": false
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "text": "Watch for trackers for 2 minutes and alert me if an airtag appears. After that, survey cell towers for 90 seconds and alert me when the serving cell changes.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 120,
+     "channel": null,
+     "filters": [
+      [
+       "device_class",
+       "eq",
+       "tracker"
+      ]
+     ],
+     "triggers": [
+      {
+       "when": [
+        [
+         "label",
+         "contains",
+         "AirTag"
+        ]
+       ],
+       "do": [
+        "alert"
+       ],
+       "severity": "warning",
+       "repeat": false
+      }
+     ]
+    },
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "cellular"
+     ],
+     "duration_s": 90,
+     "channel": null,
+     "filters": [],
+     "triggers": [
+      {
+       "when": [
+        [
+         "role",
+         "eq",
+         "serving"
+        ]
+       ],
+       "do": [
+        "alert"
+       ],
+       "severity": "warning",
+       "repeat": false
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "text": "First, find ble devices stronger than -60 for 30 seconds. Next, keep watching them for 2 minutes and alert me if one is seen for more than 90 seconds.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 30,
+     "channel": null,
+     "filters": [
+      [
+       "rssi_dbfs",
+       "ge",
+       -60.0
+      ]
+     ],
+     "triggers": []
+    },
+    {
+     "focus": "found",
+     "focus_step": 0,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 120,
+     "channel": null,
+     "filters": [],
+     "triggers": [
+      {
+       "when": [
+        [
+         "dwell_s",
+         "ge",
+         90.0
+        ]
+       ],
+       "do": [
+        "alert"
+       ],
+       "severity": "warning",
+       "repeat": false
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "text": "Look for apple devices for 1 minute. If you find any airtags, watch them for 3 minutes and record 5 seconds of IQ. If nothing turns up, scan bluetooth classic for 1 minute.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 60,
+     "channel": null,
+     "filters": [
+      [
+       "manufacturer",
+       "contains",
+       "Apple"
+      ]
+     ],
+     "triggers": []
+    },
+    {
+     "focus": "found",
+     "focus_step": 0,
+     "gate": "found",
+     "gate_step": 0,
+     "gate_conditions": [
+      [
+       "label",
+       "contains",
+       "AirTag"
+      ]
+     ],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 180,
+     "channel": null,
+     "filters": [],
+     "triggers": [
+      {
+       "when": [
+        [
+         "count",
+         "ge",
+         1.0
+        ]
+       ],
+       "do": [
+        "record_iq"
+       ],
+       "severity": null,
+       "repeat": false
+      }
+     ]
+    },
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "none_found",
+     "gate_step": 0,
+     "gate_conditions": [
+      [
+       "label",
+       "contains",
+       "AirTag"
+      ]
+     ],
+     "collect": [
+      "classic"
+     ],
+     "duration_s": 60,
+     "channel": null,
+     "filters": [],
+     "triggers": []
+    }
+   ]
+  },
+  {
+   "text": "Survey cell towers for 1 minute and alert me if a 2G cell shows up. If nothing turns up, watch for trackers for 2 minutes.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "cellular"
+     ],
+     "duration_s": 60,
+     "channel": null,
+     "filters": [],
+     "triggers": [
+      {
+       "when": [
+        [
+         "generation",
+         "eq",
+         "2G"
+        ]
+       ],
+       "do": [
+        "alert"
+       ],
+       "severity": "warning",
+       "repeat": false
+      }
+     ]
+    },
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "no_alerts",
+     "gate_step": 0,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 120,
+     "channel": null,
+     "filters": [
+      [
+       "device_class",
+       "eq",
+       "tracker"
+      ]
+     ],
+     "triggers": []
+    }
+   ]
+  },
+  {
+   "text": "Do a quick 45 second bluetooth sweep. Then spend 4 minutes on any trackers you saw, and if one hangs around for more than 2 minutes send an urgent alert and grab 5 seconds of IQ.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble",
+      "classic"
+     ],
+     "duration_s": 45,
+     "channel": null,
+     "filters": [],
+     "triggers": []
+    },
+    {
+     "focus": "found",
+     "focus_step": 0,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 240,
+     "channel": null,
+     "filters": [
+      [
+       "device_class",
+       "eq",
+       "tracker"
+      ]
+     ],
+     "triggers": [
+      {
+       "when": [
+        [
+         "dwell_s",
+         "ge",
+         120.0
+        ]
+       ],
+       "do": [
+        "alert",
+        "record_iq"
+       ],
+       "severity": "critical",
+       "repeat": false
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "text": "Check the cell towers for 2 minutes, alert me on anything 2G or any unknown network. If something alerted, sweep for trackers for 3 minutes.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "cellular"
+     ],
+     "duration_s": 120,
+     "channel": null,
+     "filters": [],
+     "triggers": [
+      {
+       "when": [
+        [
+         "generation",
+         "eq",
+         "2G"
+        ]
+       ],
+       "do": [
+        "alert"
+       ],
+       "severity": "warning",
+       "repeat": false
+      },
+      {
+       "when": [
+        [
+         "operator",
+         "eq",
+         "unknown operator"
+        ]
+       ],
+       "do": [
+        "alert"
+       ],
+       "severity": "warning",
+       "repeat": false
+      }
+     ]
+    },
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "alerted",
+     "gate_step": 0,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 180,
+     "channel": null,
+     "filters": [
+      [
+       "device_class",
+       "eq",
+       "tracker"
+      ]
+     ],
+     "triggers": []
+    }
+   ]
+  },
+  {
+   "text": "Watch for samsung devices for 90 seconds and tag them as samsung. After that look for tire sensors for 1 minute. Finally survey cell towers for 1 minute.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 90,
+     "channel": null,
+     "filters": [
+      [
+       "manufacturer",
+       "contains",
+       "Samsung"
+      ]
+     ],
+     "triggers": [
+      {
+       "when": [
+        [
+         "count",
+         "ge",
+         1.0
+        ]
+       ],
+       "do": [
+        "tag"
+       ],
+       "severity": null,
+       "repeat": false
+      }
+     ]
+    },
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "tpms"
+     ],
+     "duration_s": 60,
+     "channel": null,
+     "filters": [],
+     "triggers": []
+    },
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "cellular"
+     ],
+     "duration_s": 60,
+     "channel": null,
+     "filters": [],
+     "triggers": []
+    }
+   ]
+  },
+  {
+   "text": "Find ble devices for 2 minutes and alert me when a new one shows up. Then follow the alerted ones for 3 minutes and record 2 seconds of IQ from each.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 120,
+     "channel": null,
+     "filters": [],
+     "triggers": [
+      {
+       "when": [
+        [
+         "new",
+         "eq",
+         true
+        ]
+       ],
+       "do": [
+        "alert"
+       ],
+       "severity": "warning",
+       "repeat": false
+      }
+     ]
+    },
+    {
+     "focus": "alerted",
+     "focus_step": 0,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 180,
+     "channel": null,
+     "filters": [],
+     "triggers": [
+      {
+       "when": [
+        [
+         "count",
+         "ge",
+         1.0
+        ]
+       ],
+       "do": [
+        "record_iq"
+       ],
+       "severity": null,
+       "repeat": false
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "text": "Scan zigbee for 1 minute. If you see nothing, try channel 25 for 1 minute.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "zigbee"
+     ],
+     "duration_s": 60,
+     "channel": null,
+     "filters": [],
+     "triggers": []
+    },
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "none_found",
+     "gate_step": 0,
+     "gate_conditions": [],
+     "collect": [
+      "zigbee"
+     ],
+     "duration_s": 60,
+     "channel": 25,
+     "filters": [],
+     "triggers": []
+    }
+   ]
+  },
+  {
+   "text": "watch for trackers for 1 minute. then jam them",
+   "refused": true
+  },
+  {
+   "text": "find ble devices for 10 minutes. then survey cell towers for 10 minutes. then find ble devices for 10 minutes. then survey cell towers for 5 minutes",
+   "refused": true
+  }
+ ]
+}
