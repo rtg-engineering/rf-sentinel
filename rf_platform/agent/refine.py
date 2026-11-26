@@ -187,6 +187,8 @@ def refine(current: dict[str, Any], instruction: str, original: str = "", planne
     if out is None:
         out = refine_rules(current, instruction, original)
         out.update(planner="deterministic", model=None, fallback_reason=reason)
+    from .explain import explain
+    out["explain"] = explain(out)
     out["changes"] = _changes(before, out["summary"])
     out["refined"] = True
     if not out["changes"]:

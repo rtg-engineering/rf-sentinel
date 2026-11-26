@@ -8824,7 +8824,9 @@ def agent_plan():
         except (ValueError, ValidationError) as exc:
             return jsonify({"error": str(exc)[:500]}), 400
         planner_info = body.get("planner") if isinstance(body.get("planner"), dict) else {}
+        from rf_platform.agent.explain import explain
         return jsonify({"playbook": book.model_dump(), "summary": book.summary(), "edited": True,
+                        "explain": explain({"playbook": book.model_dump()}),
                         "planner": planner_info.get("planner", "deterministic"), "model": planner_info.get("model"),
                         "fallback_reason": planner_info.get("fallback_reason")})
     if isinstance(body.get("spec"), dict):
@@ -8834,7 +8836,9 @@ def agent_plan():
         except (ValueError, ValidationError) as exc:
             return jsonify({"error": str(exc)[:500]}), 400
         planner_info = body.get("planner") if isinstance(body.get("planner"), dict) else {}
+        from rf_platform.agent.explain import explain
         return jsonify({"spec": spec.model_dump(), "summary": spec.summary(), "edited": True,
+                        "explain": explain({"spec": spec.model_dump()}),
                         "planner": planner_info.get("planner", "deterministic"), "model": planner_info.get("model"),
                         "fallback_reason": planner_info.get("fallback_reason")})
     text = str(body.get("text") or body.get("command") or "").strip()

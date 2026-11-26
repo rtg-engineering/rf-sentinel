@@ -532,9 +532,12 @@ def plan_any(text: str, planner: str = "auto", model: Any = None, utc_offset_min
 
     Returns the workflow plan (see workflow.plan) or {"playbook", "summary", "planner", "model", "fallback_reason"}.
     """
+    from .explain import explain
     from .workflow import plan
     if not is_multistep(text):
-        return plan(text, planner, model)
+        out = plan(text, planner, model)
+        out["explain"] = explain(out)
+        return out
     reason = None
     try:
         rules = plan_playbook_deterministic(text, utc_offset_min)
@@ -550,8 +553,10 @@ def plan_any(text: str, planner: str = "auto", model: Any = None, utc_offset_min
                 spec.start = rules.start  # clock times are resolved by code, in the operator's time zone
             if spec.start is not None and spec.start.at is not None and utc_offset_min is not None:
                 spec.start.utc_offset_min = int(utc_offset_min)
-            return {"playbook": spec.model_dump(), "summary": spec.summary(), "planner": "model",
-                    "model": model if isinstance(model, str) else type(model).__name__, "fallback_reason": None}
+            out = {"playbook": spec.model_dump(), "summary": spec.summary(), "planner": "model",
+                   "model": model if isinstance(model, str) else type(model).__name__, "fallback_reason": None}
+            out["explain"] = explain(out)
+            return out
         except Exception as exc:
             if isinstance(exc, ValueError) and "only receives" in str(exc):
                 raise
@@ -559,8 +564,10 @@ def plan_any(text: str, planner: str = "auto", model: Any = None, utc_offset_min
     elif planner == "model":
         reason = "no planner model configured (set RF_SENTINEL_PLANNER_MODEL)"
     spec = rules or plan_playbook_deterministic(text, utc_offset_min)
-    return {"playbook": spec.model_dump(), "summary": spec.summary(), "planner": "deterministic", "model": None,
-            "fallback_reason": reason}
+    out = {"playbook": spec.model_dump(), "summary": spec.summary(), "planner": "deterministic", "model": None,
+           "fallback_reason": reason}
+    out["explain"] = explain(out)
+    return out
 
 
 # --------------------------------------------------------------------------------------------- execution

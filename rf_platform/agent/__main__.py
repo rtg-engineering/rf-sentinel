@@ -116,6 +116,9 @@ def print_plan(planned: dict) -> None:
     who = planned["planner"] + (f" ({planned['model']})" if planned.get("model") else "")
     print(f"{'Playbook' if planned.get('playbook') else 'Plan'} ({who}"
           f"{'; fallback: ' + planned['fallback_reason'] if planned.get('fallback_reason') else ''})")
+    if planned.get("explain"):
+        import textwrap
+        print(textwrap.fill(planned["explain"], width=100, initial_indent="  ", subsequent_indent="  ") + "\n")
     if planned.get("playbook"):
         for index, step in enumerate(summary["steps"]):
             print(f"  {index + 1}. {step['title']}")

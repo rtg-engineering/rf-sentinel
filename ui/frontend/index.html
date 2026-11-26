@@ -1964,6 +1964,10 @@
       .wf-tstep.error .wf-bnum { background: var(--red); }
       .wf-stepno { font-size: 0.68rem; font-weight: 800; padding: 0 6px; border-radius: 99px; background: var(--chip); color: var(--muted); margin-left: 4px; }
       .wf-persist { display: flex; flex-direction: column; gap: 6px; }
+      .wf-say { grid-column: 1 / -1; display: flex; gap: 10px; align-items: flex-start; padding: 10px 14px; border-radius: 12px; line-height: 1.5;
+        background: linear-gradient(120deg, color-mix(in srgb, var(--wf-a) 9%, var(--panel)), color-mix(in srgb, var(--wf-c) 9%, var(--panel)));
+        border: 1px solid color-mix(in srgb, var(--wf-b) 30%, var(--line)); }
+      .wf-say > .material-symbols-rounded { color: var(--wf-b); margin-top: 1px; }
       .wf-refine { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; padding: 6px 6px 6px 12px; border-radius: 12px;
         border: 1px dashed color-mix(in srgb, var(--wf-b) 45%, var(--line)); background: color-mix(in srgb, var(--wf-b) 5%, var(--panel)); }
       .wf-refine > .material-symbols-rounded { color: var(--wf-b); }
@@ -6072,6 +6076,7 @@
 
       function renderPlan(planned) {
         wfRenderPlanInner(planned);
+        if (planned.explain) wfPlanEl.insertAdjacentHTML("afterbegin", `<div class="wf-say">${materialIcon("record_voice_over")}<div>${escapeHtml(planned.explain)}</div></div>`);
         wfPlanEl.insertAdjacentHTML("beforeend", wfRefineBar(planned));
       }
 
