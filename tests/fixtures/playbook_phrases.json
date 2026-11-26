@@ -1,5 +1,5 @@
 {
- "about": "Multi-step requests (playbooks) and the plan each must produce, reviewed by hand. Step references are resolved (0-based indexes); filters and rule conditions use the workflow corpus shape.",
+ "about": "Multi-step requests (playbooks) and the plan each must produce, reviewed by hand. Step references are resolved (0-based indexes); filters and rule conditions use the workflow corpus shape. Optional 'repeat' and 'start' are compared when present (clock times planned at UTC+0).",
  "cases": [
   {
    "text": "Sweep for bluetooth trackers for 2 minutes. If you find any, watch them for 5 minutes and send an urgent alert if one is still there after 3 minutes, and record 5 seconds of IQ. Then survey cell towers for 1 minute and alert me if a 2G cell shows up.",
@@ -1046,11 +1046,200 @@
    ]
   },
   {
+   "text": "Every 10 minutes for the next hour, sweep for bluetooth trackers for 1 minute and send an urgent alert when a new one appears.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 60,
+     "channel": null,
+     "filters": [
+      [
+       "device_class",
+       "eq",
+       "tracker"
+      ]
+     ],
+     "triggers": [
+      {
+       "when": [
+        [
+         "new",
+         "eq",
+         true
+        ]
+       ],
+       "do": [
+        "alert"
+       ],
+       "severity": "critical",
+       "repeat": false
+      }
+     ]
+    }
+   ],
+   "repeat": {
+    "every_s": 600,
+    "times": 6
+   },
+   "start": null
+  },
+  {
+   "text": "Find ble devices for 30 seconds. Then watch them for 1 minute and alert me if one is stronger than -50. Repeat 4 times, every 5 minutes.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 30,
+     "channel": null,
+     "filters": [],
+     "triggers": []
+    },
+    {
+     "focus": "found",
+     "focus_step": 0,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 60,
+     "channel": null,
+     "filters": [],
+     "triggers": [
+      {
+       "when": [
+        [
+         "rssi_dbfs",
+         "ge",
+         -50.0
+        ]
+       ],
+       "do": [
+        "alert"
+       ],
+       "severity": "warning",
+       "repeat": false
+      }
+     ]
+    }
+   ],
+   "repeat": {
+    "every_s": 300,
+    "times": 4
+   },
+   "start": null
+  },
+  {
+   "text": "In 20 minutes, survey cell towers for 2 minutes and alert me if a 2G cell shows up.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "cellular"
+     ],
+     "duration_s": 120,
+     "channel": null,
+     "filters": [],
+     "triggers": [
+      {
+       "when": [
+        [
+         "generation",
+         "eq",
+         "2G"
+        ]
+       ],
+       "do": [
+        "alert"
+       ],
+       "severity": "warning",
+       "repeat": false
+      }
+     ]
+    }
+   ],
+   "repeat": null,
+   "start": {
+    "in_s": 1200,
+    "at": null
+   }
+  },
+  {
+   "text": "From 10pm to 6am, every 30 minutes, watch for trackers for 1 minute and send an urgent alert if an airtag appears.",
+   "steps": [
+    {
+     "focus": "all",
+     "focus_step": null,
+     "gate": "always",
+     "gate_step": null,
+     "gate_conditions": [],
+     "collect": [
+      "ble"
+     ],
+     "duration_s": 60,
+     "channel": null,
+     "filters": [
+      [
+       "device_class",
+       "eq",
+       "tracker"
+      ]
+     ],
+     "triggers": [
+      {
+       "when": [
+        [
+         "label",
+         "contains",
+         "AirTag"
+        ]
+       ],
+       "do": [
+        "alert"
+       ],
+       "severity": "critical",
+       "repeat": false
+      }
+     ]
+    }
+   ],
+   "repeat": {
+    "every_s": 1800,
+    "times": 16
+   },
+   "start": {
+    "in_s": null,
+    "at": "22:00"
+   }
+  },
+  {
    "text": "watch for trackers for 1 minute. then jam them",
    "refused": true
   },
   {
    "text": "find ble devices for 10 minutes. then survey cell towers for 10 minutes. then find ble devices for 10 minutes. then survey cell towers for 5 minutes",
+   "refused": true
+  },
+  {
+   "text": "watch for trackers for 1 minute every 30 seconds for 5 minutes",
    "refused": true
   }
  ]

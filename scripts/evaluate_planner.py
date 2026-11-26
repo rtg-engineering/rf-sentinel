@@ -45,7 +45,7 @@ STEP_PARTS = ("focus", "focus_step", "gate", "gate_step", "gate_conditions", "co
 
 def evaluate_playbooks(args) -> int:
     from rf_platform.agent.playbook import PlaybookSpec, plan_any, plan_playbook_deterministic
-    from tests.test_agent_playbook import PLAYBOOKS, step_shape
+    from tests.test_agent_playbook import PLAYBOOKS, schedule_shape, step_shape
     rows, totals = [], {"exact": 0, "equivalent": 0, "steps_exact": 0, "steps": 0, "refusals_ok": 0, "fallbacks": 0, "errors": 0}
     totals |= {p: 0 for p in STEP_PARTS}
     planned_cases = [c for c in PLAYBOOKS if not c.get("refused")]
@@ -54,21 +54,24 @@ def evaluate_playbooks(args) -> int:
         row = {"text": case["text"]}
         try:
             if args.model:
-                result = plan_any(case["text"], "model", model=args.model)
+                result = plan_any(case["text"], "model", model=args.model, utc_offset_min=0)
                 row["planner"] = result["planner"]
                 if result["planner"] != "model":
                     row["fallback_reason"] = result["fallback_reason"]
                     totals["fallbacks"] += 1
                 book = PlaybookSpec.model_validate(result["playbook"])
             else:
-                book = plan_playbook_deterministic(case["text"])
+                book = plan_playbook_deterministic(case["text"], utc_offset_min=0)
             got = [step_shape(book, i) for i in range(len(book.steps))]
             if case.get("refused"):
                 row["ok"], row["problem"] = False, "should have been refused"
             else:
                 want = case["steps"]
-                row["ok"] = got == want
-                row["equivalent"] = equivalent(got) == equivalent(want) if len(got) == len(want) else False
+                schedule_ok = "repeat" not in case or schedule_shape(book) == (case["repeat"], case["start"])
+                if "repeat" in case and not schedule_ok:
+                    row["schedule"] = {"got": schedule_shape(book), "expected": (case["repeat"], case["start"])}
+                row["ok"] = got == want and schedule_ok
+                row["equivalent"] = (equivalent(got) == equivalent(want) and schedule_ok) if len(got) == len(want) else False
                 totals["equivalent"] += row["equivalent"]
                 totals["steps"] += len(want)
                 for g, w in zip(got, want):

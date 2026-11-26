@@ -542,8 +542,9 @@ def plan_any(text: str, planner: str = "auto", model: Any = None, utc_offset_min
     try:
         rules = plan_playbook_deterministic(text, utc_offset_min)
     except ValueError as exc:
-        if "at most" in str(exc) or "say how often" in str(exc) or "am/pm" in str(exc):
-            raise  # over the playbook budget: refuse rather than let a model shorten what was asked for
+        if re.search(r"at most|say how often|am/pm|repeats every|cycles|ends within|shorter than one cycle|24 h", str(exc)):
+            # Over a limit or ambiguous: refuse with the reason rather than let a model bend the request to fit.
+            raise
         rules = None
     model = model or (default_planner_model() if planner in ("auto", "model") else None)
     if planner != "deterministic" and model is not None:

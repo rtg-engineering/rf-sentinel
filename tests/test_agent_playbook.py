@@ -21,6 +21,11 @@ CORPUS = json.loads((Path(__file__).parent / "fixtures" / "workflow_phrases.json
 PLAYBOOKS = json.loads((Path(__file__).parent / "fixtures" / "playbook_phrases.json").read_text())["cases"]
 
 
+def schedule_shape(book: PlaybookSpec) -> tuple:
+    return (book.repeat.model_dump() if book.repeat else None,
+            {k: v for k, v in book.start.model_dump().items() if k != "utc_offset_min"} if book.start else None)
+
+
 def step_shape(book: PlaybookSpec, index: int) -> dict:
     """One step as tests/fixtures/playbook_phrases.json records it (step references resolved)."""
     from tests.test_workflow_corpus import shape as workflow_shape
@@ -84,8 +89,10 @@ class PlannerTest(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         plan_any(case["text"], "deterministic")
                     continue
-                book = plan_playbook_deterministic(case["text"])
+                book = plan_playbook_deterministic(case["text"], utc_offset_min=0)
                 self.assertEqual([step_shape(book, i) for i in range(len(book.steps))], case["steps"])
+                if "repeat" in case:
+                    self.assertEqual(schedule_shape(book), (case["repeat"], case["start"]))
 
     def test_single_requests_stay_single(self):
         for case in CORPUS:
