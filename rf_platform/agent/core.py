@@ -43,6 +43,8 @@ def plugin_path(name: str) -> str | None:
 
 def plugin_command(task: Task, device: dict[str, Any], gain_db: float, base_url: str, token: str) -> list[str]:
     p, exe = task.profile, plugin_path(task.profile.plugin)
+    if p.name == "cellular":  # modem survey adapter, not an SDR plugin: no gain
+        return [sys.executable, "-m", "rf_platform.cellular", "--url", device.get("url") or ""]
     lna, vga = split_gain(device["driver"], gain_db)
     common_gain = ["--lna-gain-db", str(lna), "--vga-gain-db", str(vga)]
     auth = ["--token", token] if token else []
@@ -144,7 +146,8 @@ class Agent:
                 step(f"BLE not run alongside Classic: {exc}")
             task = Task(task.profile, task.duration_s, classic_device["id"], task.channel, command)
         profile = task.profile
-        exe = plugin_path(profile.plugin)
+        modem = profile.extra.get("source") == "modem"
+        exe = sys.executable if modem else plugin_path(profile.plugin)
         if not exe:
             raise RuntimeError(f"The {profile.title} receiver ({profile.plugin}) is not installed. "
                                f"Install it with: pip install -e rf_platform/plugins/<plugin>")
@@ -155,12 +158,24 @@ class Agent:
         gw = self.gateway
         step(f"Task: {profile.title} for {task.duration_s} s (receive-only, {gw.mode} mode). {profile.notes}")
         self.gateway.authorize("list_receivers", {})
-        device = self.radio.choose(profile.freqs_hz, profile.sample_rate_sps, task.device_id,
-                                   exclude=(companion["device"]["id"],) if companion else ())
+        if modem:
+            from rf_platform.cellular.survey import cellular_capability
+            cap = cellular_capability()
+            capabilities["cellular"] = cap
+            if not cap["supported"]:
+                raise RuntimeError(f"Cellular survey is not available: {cap['reason']}")
+            device = {"id": "cellmodem:0", "label": f"cellular modem ({cap.get('port') or 'auto'})", "driver": "modem",
+                      "url": cap["url"]}
+        else:
+            device = self.radio.choose(profile.freqs_hz, profile.sample_rate_sps, task.device_id,
+                                       exclude=(companion["device"]["id"],) if companion else ())
         step(f"Receiver: {device['id']} ({device['label']})")
         if gw.mode == "approval-required":
             step("Waiting for operator approval before touching the receiver")
-        if gain_db is None:
+        if modem:
+            gain = None
+            step(f"{cap['reason']}")
+        elif gain_db is None:
             gw.authorize("optimize_gain", {"device_id": device["id"], "freqs_hz": list(profile.freqs_hz),
                                            "gain_bounds_db": [0, 60]})
             gain = auto_gain(self.radio, device, profile.freqs_hz, profile.sample_rate_sps, log=step,
@@ -174,7 +189,7 @@ class Agent:
         detections: dict[str, dict[str, Any]] = {}
         decoder: dict[str, dict[str, Any]] = {}  # per-channel decoder counters reported by the plugin
         adjustments = 0
-        gains_used = [gain]
+        gains_used = [gain] if gain is not None else []
         self._started_mono = time.monotonic()
         self._deadline = self._started_mono + task.duration_s
         while time.monotonic() < self._deadline and not self._stop.is_set():
@@ -245,7 +260,7 @@ class Agent:
                      f"at this bandwidth); packets in the skipped portions were not examined")
         devices = sorted(detections.values(), key=lambda d: -d["count"])
         step(f"Done: {len(devices)} {profile.name} device(s), {sum(d['count'] for d in devices)} detections; "
-             f"gain {', '.join(f'{g:.0f}' for g in gains_used)} dB")
+             + (f"gain {', '.join(f'{g:.0f}' for g in gains_used)} dB" if gains_used else "no gain stage (modem)"))
         companion_summary = None
         if child_thread is not None:
             child_thread.join(timeout=90)

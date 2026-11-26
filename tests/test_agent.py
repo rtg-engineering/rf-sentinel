@@ -119,10 +119,13 @@ class AgentRunTest(unittest.TestCase):
     def test_plugin_commands_are_receive_only_and_bounded(self):
         for name in PROFILES:
             task = parse({"ble": "find bluetooth", "zigbee": "find zigbee", "tpms": "find tire sensors",
-                          "classic": "find bluetooth classic devices"}[name])
+                          "classic": "find bluetooth classic devices", "cellular": "survey cell towers"}[name])
             with patch.object(core, "plugin_path", return_value="/bin/" + PROFILES[name].plugin):
                 command = core.plugin_command(task, DEVICE, 40, "http://127.0.0.1:8790", "tok")
             text = " ".join(command)
+            if name == "cellular":  # the modem survey adapter: no SDR, no gain
+                self.assertEqual(command[1:3], ["-m", "rf_platform.cellular"])
+                continue
             self.assertIn("bladerf:0", text)
             self.assertNotRegex(text, r"\b(tx|transmit|replay)\b|page-stimulus|page_stimulus")
             if name == "classic":
