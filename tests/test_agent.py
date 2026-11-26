@@ -92,7 +92,8 @@ class AgentRunTest(unittest.TestCase):
             seen = []
             with patch.object(core, "plugin_path", return_value=str(plugin)), \
                     patch.object(core, "WINDOW_S", 1.0), \
-                    patch.object(agent.radio, "choose", return_value=DEVICE):
+                    patch.object(agent.radio, "choose", return_value=DEVICE), \
+                    patch.object(agent.radio, "devices", return_value=[DEVICE]):
                 result = agent.run("find bluetooth devices for 6 seconds", on_step=lambda m: None,
                                    on_detection=seen.append, gain_db=40)
         self.assertEqual(result["gains_db"][:2], [40.0, 46.0])
@@ -117,12 +118,15 @@ class AgentRunTest(unittest.TestCase):
 
     def test_plugin_commands_are_receive_only_and_bounded(self):
         for name in PROFILES:
-            task = parse({"ble": "find bluetooth", "zigbee": "find zigbee", "tpms": "find tire sensors"}[name])
+            task = parse({"ble": "find bluetooth", "zigbee": "find zigbee", "tpms": "find tire sensors",
+                          "classic": "find bluetooth classic devices"}[name])
             with patch.object(core, "plugin_path", return_value="/bin/" + PROFILES[name].plugin):
                 command = core.plugin_command(task, DEVICE, 40, "http://127.0.0.1:8790", "tok")
             text = " ".join(command)
             self.assertIn("bladerf:0", text)
-            self.assertNotRegex(text, r"\b(tx|transmit|replay)\b")
+            self.assertNotRegex(text, r"\b(tx|transmit|replay)\b|page-stimulus|page_stimulus")
+            if name == "classic":
+                self.assertEqual(command[1], "listen")  # the only Classic mode the agent runs
 
     def test_missing_plugin_is_reported(self):
         with patch.object(core, "plugin_path", return_value=None), self.assertRaisesRegex(RuntimeError, "not installed"):
