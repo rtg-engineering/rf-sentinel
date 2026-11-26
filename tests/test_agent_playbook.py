@@ -261,6 +261,34 @@ class RunTest(unittest.TestCase):
             plan_playbook_deterministic("watch for trackers for 5 minutes every 2 minutes for 1 hour")
 
 
+    def test_approval_mode_gates_every_step_and_observe_denies(self):
+        from rf_platform.agent.gateway import AgentGateway, ApprovalBroker
+        broker = ApprovalBroker()
+        agent = core.Agent(simulate=True, gateway=AgentGateway("approval-required", "run-pb", broker))
+        book = plan_playbook_deterministic("find ble devices for 5 seconds. then survey cell towers for 5 seconds")
+        approved: list[str] = []
+        done = threading.Event()
+
+        def operator():
+            while not done.is_set():
+                for item in broker.pending("run-pb"):
+                    approved.append(item["tool"])
+                    broker.resolve(item["action_id"], True, "test operator")
+                time.sleep(0.1)
+        threading.Thread(target=operator, daemon=True).start()
+        try:
+            result = run_playbook(agent, book, on_step=lambda m: None)
+        finally:
+            done.set()
+        self.assertEqual([r["status"] for r in result["steps_run"]], ["done", "done"])
+        self.assertEqual(approved.count("start_scan"), 2)  # each step's collection waited for a named operator
+        audit = [a for a in result["audit"] if a["tool"] == "start_scan"]
+        self.assertEqual([a["operator"] for a in audit if a["decision"] == "approved"], ["test operator"] * 2)
+        # Observe mode: no step may start collection.
+        observed = run_playbook(core.Agent(simulate=True, mode="observe"), book, on_step=lambda m: None)
+        self.assertTrue(all(r["status"] == "error" and "observe" in r["reason"].lower() for r in observed["steps_run"]))
+
+
 class CliTest(unittest.TestCase):
     def test_plan_prints_steps_without_a_service(self):
         import contextlib
