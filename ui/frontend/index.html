@@ -5978,6 +5978,12 @@
         wfBellState();
       });
       wfBellState();
+      // Alerts can also go to an operator-configured webhook (server setting); say so where alerts are configured.
+      fetch("/api/agent/policy").then((r) => r.json()).then((policy) => {
+        const d = policy.alert_delivery;
+        if (!d?.enabled) return;
+        wfBell.insertAdjacentHTML("afterend", `<span class="wf-badge" title="Workflow alerts (${escapeHtml(d.min_severity)} and above) are also sent to this webhook host">${materialIcon("send")} ${escapeHtml(d.host)}</span>`);
+      }).catch(() => {});
       function wfNotify(alert) {
         if (!document.hidden || !wfBellState()) return;
         try {
@@ -6240,6 +6246,7 @@
           trigger: () => `${materialIcon("bolt")} Rule fired on <strong>${escapeHtml(d.label || d.key)}</strong><div class="small">${escapeHtml(e.rule)}</div>`,
           action: () => `${materialIcon(WF_ICON[e.action] || "task_alt")} ${escapeHtml(e.action.replace("_", " "))} ${escapeHtml(e.status)}${e.detail ? `<div class="small">${escapeHtml(String(e.detail).split("/").pop())}</div>` : ""}`,
           alert: () => `${materialIcon("notifications_active")} ${escapeHtml(e.message)}`,
+          delivery: () => `${materialIcon(e.status === "delivered" ? "send" : "cancel_schedule_send")} Alert ${e.status === "delivered" ? `sent to ${escapeHtml(e.detail)}` : `not sent: ${escapeHtml(e.detail || e.status)}`}`,
           step: () => `${materialIcon(e.status === "running" ? "play_circle" : e.status === "done" ? "check_circle" : e.status === "skipped" ? "redo" : "cancel")}
             <strong>Step ${e.step + 1} ${escapeHtml({ running: "started", done: "finished", skipped: "skipped", not_run: "not run", error: "failed" }[e.status] || e.status)}</strong>
             ${escapeHtml(e.title || "")}${e.reason ? `<div class="small">${escapeHtml(e.reason)}</div>` : ""}`,

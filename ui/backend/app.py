@@ -8802,7 +8802,9 @@ def _agent_job(job_id: str) -> dict[str, Any] | None:
 @app.get("/api/agent/policy")
 def agent_policy():
     from rf_platform.agent.gateway import MODES, NEVER, TOOLS, server_ceiling
-    return jsonify({"ceiling": server_ceiling(), "modes": list(MODES), "tools": TOOLS, "never": sorted(NEVER)})
+    from rf_platform.agent import notify
+    return jsonify({"ceiling": server_ceiling(), "modes": list(MODES), "tools": TOOLS, "never": sorted(NEVER),
+                    "alert_delivery": notify.describe()})
 
 
 def agent_simulated(requested: bool) -> bool:

@@ -40,6 +40,7 @@ TOOLS: dict[str, str] = {
     "tag_device": "control",        # label a detected device in this run's results
     "record_iq": "collect",         # bounded receive-only IQ evidence capture on a free receiver
     "extend_scan": "collect",       # lengthen the run's own collection, within the duration limit
+    "deliver_alert": "control",     # send an alert's text to the operator-configured webhook (rf_platform.agent.notify)
 }
 # Named explicitly so a request for them gets a clear refusal rather than "unknown tool".
 NEVER = {"transmit", "page_stimulus", "replay", "jam", "spoof", "raw_driver", "shell", "write_register"}

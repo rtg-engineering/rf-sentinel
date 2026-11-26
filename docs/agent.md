@@ -89,7 +89,14 @@ The server validates it again when the run starts. Every action is authorized by
 | `extend` | `extend_scan` (collect) | Lengthens this run, never past 600 s in total. |
 | `stop` | `stop_scan` (control) | Ends collection early and reports normally. |
 
-In `observe` mode, collect actions are denied; alerts and tags still work. In `approval-required` mode, each collect action waits for a named operator.
+In `observe` mode, collect actions are denied; alerts and tags still work.
+
+**Alerts off this machine.** Set `RF_SENTINEL_ALERT_WEBHOOK` to have workflow alerts also posted to a webhook. Delivery is off unless it is set.
+- Slack-style hooks receive `{"text": …}`.
+- An `ntfy.sh/<topic>` URL receives plain text with a priority header.
+- `RF_SENTINEL_ALERT_MIN_SEVERITY` (`info`, `warning` (the default), or `critical`) sets the lowest severity that is sent.
+
+Each message carries the alert text, severity, device label and run id, and is marked `[SIMULATED]` when the run is simulated. It never includes IQ or evidence files. Each delivery goes through the gateway as `deliver_alert` (audited) and appears in the run's timeline as sent or failed. A failed delivery never affects the run. The dashboard shows the webhook host next to the notification bell. In `approval-required` mode, each collect action waits for a named operator.
 
 **Measured live** (two bladeRF 2.0 micro):
 - "Find ble devices for 60 seconds, only stronger than -60. When a device is seen 5 times, alert me and tag it as persistent. If an Apple device appears, record 2 seconds of IQ."

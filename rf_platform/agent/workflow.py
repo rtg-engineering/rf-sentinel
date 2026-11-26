@@ -742,9 +742,27 @@ class WorkflowEngine:
                      "reasons": [reason] if reason else [], "custom": bool(action.message)}
             self.alerts.append(alert)
         self._emit("alert", severity=action.severity, message=message, device=device)
+        self._deliver(alert)
         rssi = device.get("rssi_dbfs")
         self.step(f"ALERT ({action.severity}): {message}" + (f" ({rssi:.0f} {unit})" if isinstance(rssi, (int, float)) else ""))
         return message
+
+    def _deliver(self, alert: dict[str, Any]) -> None:
+        """Also send the alert to the operator's webhook, when one is configured (off by default)."""
+        from . import notify
+        if not notify.webhook_url():
+            return
+        host = notify.describe()["host"]
+        try:
+            self.agent.gateway.authorize("deliver_alert", {"host": host, "severity": alert["severity"]})
+        except Exception as exc:
+            self._emit("delivery", status="denied", detail=str(exc), device_key=alert["device"]["key"])
+            return
+        thread = notify.deliver(alert, self.agent.gateway.run_id, self._simulated,
+                                on_done=lambda status, detail: self._emit("delivery", status=status, detail=detail,
+                                                                          device_key=alert["device"]["key"]))
+        if thread is not None:
+            self._threads.append(thread)
 
     def _do_tag(self, action: Action, device: dict[str, Any]) -> str:
         self.agent.gateway.authorize("tag_device", {"device": device["key"], "label": action.label})
@@ -834,8 +852,10 @@ class WorkflowEngine:
     # results --------------------------------------------------------------------------------
     def finish(self, timeout_s: float = 120) -> dict[str, Any]:
         deadline = time.monotonic() + timeout_s
-        for thread in list(self._threads):
-            thread.join(max(0.0, deadline - time.monotonic()))
+        joined = 0
+        while joined < len(self._threads):  # actions may start more threads (e.g. alert delivery) while we wait
+            self._threads[joined].join(max(0.0, deadline - time.monotonic()))
+            joined += 1
         with self._lock:
             matched = [self._public(self.devices[k]) for k in self.matched]
             try:
