@@ -1659,93 +1659,32 @@ def _manufacturer_from_uuid16(uuid16_values: list[str]) -> dict[str, Any] | None
     return None
 
 
+def _ble_labels():
+    """BLE identity labelling from the bluetooth-lowenergy plugin, so the dashboard and agent agree."""
+    try:
+        from bluetooth_lowenergy import detector
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "rf_platform/plugins/bluetooth-lowenergy/src"))
+        from bluetooth_lowenergy import detector
+    return detector
+
+
 def _ble_identity_label(name: str, uuid16_names: list[str], manufacturer: dict[str, Any] | None, mac: str) -> str:
-    local_name = str(name or "").strip()
-    if local_name:
-        return local_name
-    manufacturer_name = _canonical_ble_vendor(str((manufacturer or {}).get("company_name") or ""))
-    manufacturer_source = str((manufacturer or {}).get("source") or "")
-    if uuid16_names:
-        first_uuid_name = str(uuid16_names[0] or "").strip()
-        if manufacturer_name == "Apple, Inc." and manufacturer_source == "uuid16":
-            return "AirTag"
-        return first_uuid_name
-    if manufacturer_name:
-        if manufacturer_name == "Apple, Inc." and manufacturer_source == "uuid16":
-            return "AirTag"
-        return manufacturer_name
-    return mac
+    return _ble_labels().ble_identity_label(name, uuid16_names, manufacturer, mac)
 
 
-def _ble_device_type_label(
-    name: str,
-    uuid16_names: list[str],
-    manufacturer: dict[str, Any] | None,
-    appearance: dict[str, Any] | None,
-) -> str:
-    local_name = str(name or "").strip()
-    if local_name:
-        return ""
-    manufacturer_name = _canonical_ble_vendor(str((manufacturer or {}).get("company_name") or ""))
-    manufacturer_source = str((manufacturer or {}).get("source") or "")
-    if manufacturer_name == "Apple, Inc." and manufacturer_source == "uuid16":
-        return "AirTag"
-    if appearance and str(appearance.get("label") or "").strip():
-        return str(appearance.get("label") or "").strip()
-    if manufacturer_name == "Tile, Inc.":
-        return "Tracker"
-    return ""
+def _ble_device_type_label(name: str, uuid16_names: list[str], manufacturer: dict[str, Any] | None,
+                           appearance: dict[str, Any] | None) -> str:
+    return _ble_labels().ble_device_type_label(name, uuid16_names, manufacturer, appearance)
 
 
-def _ble_device_type_detail(
-    uuid16_names: list[str],
-    manufacturer: dict[str, Any] | None,
-    appearance: dict[str, Any] | None,
-) -> str:
-    manufacturer_name = _canonical_ble_vendor(str((manufacturer or {}).get("company_name") or ""))
-    manufacturer_source = str((manufacturer or {}).get("source") or "")
-    manufacturer_data = str((manufacturer or {}).get("data") or "").upper()
-    if manufacturer_name == "Apple, Inc." and manufacturer_source == "uuid16":
-        return "Find My UUID16"
-    if manufacturer_name == "Apple, Inc." and manufacturer_data:
-        prefix = manufacturer_data[:4]
-        if prefix == "1202":
-            return "Find My manufacturer frame"
-        if prefix in {"1005", "1003", "1001"}:
-            return "Continuity frame"
-        return f"Apple manufacturer frame {prefix}" if prefix else "Apple manufacturer frame"
-    if manufacturer_name == "Microsoft" and manufacturer_data:
-        prefix = manufacturer_data[:2]
-        if prefix == "03":
-            return "Swift Pair frame"
-        return f"Microsoft manufacturer frame {manufacturer_data[:4]}" if manufacturer_data else "Microsoft manufacturer frame"
-    if manufacturer_name == "Tile, Inc.":
-        if uuid16_names:
-            return "Tile UUID16 service"
-        if manufacturer_data:
-            return "Tile manufacturer frame"
-        return "Tile tracker"
-    if appearance and str(appearance.get("code") or "").strip():
-        return str(appearance.get("code") or "").strip()
-    return ""
+def _ble_device_type_detail(uuid16_names: list[str], manufacturer: dict[str, Any] | None,
+                            appearance: dict[str, Any] | None) -> str:
+    return _ble_labels().ble_device_type_detail(uuid16_names, manufacturer, appearance)
 
 
 def _ble_identity_source(name: str, uuid16_names: list[str], manufacturer: dict[str, Any] | None) -> str:
-    manufacturer_name = str((manufacturer or {}).get("company_name") or "")
-    if name:
-        return "Local name"
-    if uuid16_names:
-        label = uuid16_names[0]
-        if _canonical_ble_vendor(label) == "Apple, Inc.":
-            return "AirTag inferred from UUID16 service"
-        return f"{label} UUID16 service"
-    if manufacturer_name:
-        if (manufacturer or {}).get("source") == "uuid16":
-            if _canonical_ble_vendor(manufacturer_name) == "Apple, Inc.":
-                return "AirTag inferred from UUID16 service"
-            return f"{manufacturer_name} inferred from UUID16 service"
-        return f"{manufacturer_name} manufacturer data"
-    return "MAC only"
+    return _ble_labels().ble_identity_source(name, uuid16_names, manufacturer)
 
 
 def _load_ble_identity_cache() -> dict[str, dict[str, Any]]:

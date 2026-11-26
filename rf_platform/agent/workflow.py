@@ -32,7 +32,8 @@ TEXT_FIELDS = {"protocol", "label", "name", "manufacturer", "device_type", "devi
 NUMBER_FIELDS = {"rssi_dbfs", "count", "dwell_s"}
 MAX_RECORD_S = 10
 MAX_FOLLOW_UP_S = 300
-TRACKER_WORDS = ("airtag", "find my", "tile", "tracker", "smarttag", "chipolo", "pebblebee")
+# Tracker kinds. "find my" alone is not enough: iPhones, Macs and AirPods send Find My frames too.
+TRACKER_WORDS = ("airtag", "find my accessory", "tile", "tracker", "smarttag", "chipolo", "pebblebee")
 
 
 class Condition(BaseModel):

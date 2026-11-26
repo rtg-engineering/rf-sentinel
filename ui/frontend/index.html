@@ -1897,6 +1897,40 @@
       @keyframes wf-glow { 50% { box-shadow: 0 0 22px color-mix(in srgb, var(--red) 55%, transparent); } }
       @media (prefers-reduced-motion: reduce) { .wf *, .wf { animation: none !important; transition: none !important; } }
 
+      /* ---- Layout refresh: header (state + sweep controls) -> agent -> KPIs -> receivers | detections | most interesting ---- */
+      .app { grid-template-rows: auto auto auto 1fr; }
+      header { align-items: center; flex-wrap: wrap; }
+      .header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+      .header-right .status-pill { max-width: min(46vw, 560px); box-shadow: none; }
+      .header-right .toolbar { padding: 0; border: 0; background: transparent !important; box-shadow: none; gap: 8px; flex-wrap: nowrap; }
+      .header-right .auto-plan { display: none; }
+      .header-right .toolbar-actions { margin-left: 0; }
+      .header-right .toolbar-actions button, .header-right .config-menu summary { min-width: 0; min-height: 36px; padding: 6px 12px; }
+      .kpi-strip { padding: 0; }
+      .kpi-strip .metrics { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; }
+      .kpi-strip .metric { flex: 0 1 auto; min-width: 112px; min-height: 0; padding: 7px 12px; border-radius: 10px; background: var(--panel); }
+      .kpi-strip .metric.core { min-width: 140px; }
+      .kpi-strip .metric.core strong { font-size: 1.3rem; }
+      .kpi-strip .metric.zero:not(.core) { opacity: 0.42; min-width: 0; }
+      .kpi-strip .metric.zero:not(.core) strong { font-size: 0.85rem; }
+      html.demo-dark .kpi-strip .metric { background: rgba(42, 31, 0, 0.92); }
+      .wf { margin: 0; padding: 12px 14px; }
+      .wf-plan[hidden], .wf-live[hidden] { display: none; }
+      .wf-head { margin-bottom: 8px; }
+      .wf-plan { align-items: start; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.8fr); position: relative; }
+      .wf-plan .wf-card { position: relative; }
+      @media (min-width: 901px) {
+        .wf-plan > .wf-card:nth-child(1)::after, .wf-plan > .wf-card:nth-child(2)::after {
+          content: "›"; position: absolute; right: -9px; top: 10px; font-size: 1.3rem; line-height: 1; color: var(--muted); }
+      }
+      .wf.running .wf-plan, .wf.running .wf-examples { display: none; }
+      .wf-live { margin-top: 10px; }
+      .section-tools { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+      .section-tools .tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
+      .tab-btn { min-height: 28px; padding: 3px 11px; font-size: 0.84rem; white-space: nowrap; flex: none; }
+      .detection-select-stack { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+      .detection-select-stack .view-select, .detection-select-stack .analytics-btn { min-width: 0; width: auto; min-height: 30px; }
+
       .analyst-actions {
         display: flex;
         flex-wrap: wrap;
@@ -2356,9 +2390,73 @@
             <div class="subtitle">Passive RF intelligence for discovering, identifying, and tracking wireless activity in the local spectrum.</div>
           </div>
         </div>
+        <div class="header-right">
         <div class="status-pill">
-          <span class="dot" id="liveDot"></span>
-          <strong id="runState">Idle</strong>
+            <span class="dot" id="liveDot"></span>
+            <strong id="runState">Idle</strong>
+          </div>
+      <form class="toolbar" id="scanForm">
+          <select id="btcDeviceSelect" hidden></select>
+          <select id="btleDeviceSelect" hidden></select>
+          <select id="btcEngineSelect" hidden>
+            <option value="btcsniffer">btcsniffer C++</option>
+            <option value="python">Python C++-style</option>
+          </select>
+          <div class="auto-plan">
+            <strong>Sweep</strong>
+          </div>
+          <input id="btcCenterInput" type="number" min="2402" max="2480" step="0.5" value="2442" hidden />
+          <input id="sampleRateInput" type="number" min="1" max="60" step="1" value="60" hidden />
+          <input id="btcTargetMacInput" type="text" inputmode="latin" value="" hidden />
+          <label class="span-2 hidden">
+            SDR Gain Profile A
+            <span class="slider-control">
+              <input id="btcGainInput" type="range" min="0" max="102" step="1" value="72" />
+              <span class="control-value" id="btcGainValue">L32 V40</span>
+            </span>
+          </label>
+          <label class="span-2 hidden">
+            SDR Gain Profile B
+            <span class="slider-control">
+              <input id="btleGainInput" type="range" min="0" max="102" step="1" value="56" />
+              <span class="control-value" id="btleGainValue">L40 V16</span>
+            </span>
+          </label>
+          <input id="hopDwellInput" type="number" min="0.25" max="30" step="0.05" value="0.25" hidden />
+          <select id="channelSelect" hidden></select>
+          <input id="btcSweepInput" type="checkbox" checked hidden />
+          <input id="btcLogPassiveFhsInput" type="checkbox" hidden />
+          <input id="btcPeriodicPageScanInput" type="checkbox" hidden />
+          <input id="btcBandHopInput" type="checkbox" hidden />
+          <input id="btcRemoteNameLookupInput" type="checkbox" hidden />
+          <div class="toolbar-actions">
+            <details class="config-menu" id="configMenu">
+              <summary><span class="material-symbols-rounded">tune</span>Config</summary>
+              <div class="config-panel">
+                <div class="config-section">
+                  <div class="config-title">Protocol Groups</div>
+                  <div class="protocol-toggles">
+                    <label class="protocol-row" data-protocol-row="btc"><input id="btcInput" type="checkbox" checked /></label>
+                    <label class="protocol-row" data-protocol-row="ble"><input id="btleInput" type="checkbox" checked /></label>
+                    <label class="protocol-row" data-protocol-row="zigbee"><input id="zigbeeInput" type="checkbox" checked /></label>
+                    <label class="protocol-row" data-protocol-row="tpms"><input id="tpmsInput" type="checkbox" checked /></label>
+                    <label class="protocol-row" id="wifiToggle" data-protocol-row="wifi"><input id="wifiInput" type="checkbox" checked /></label>
+                    <label class="protocol-row" data-protocol-row="fm"><input id="fmInput" type="checkbox" checked /></label>
+                    <label class="protocol-row" id="lfmfToggle" data-protocol-row="lfmf"><input id="lfmfInput" type="checkbox" checked /></label>
+                    <label class="protocol-row" data-protocol-row="cellular"><input id="cellularInput" type="checkbox" checked /></label>
+                  </div>
+                  <div class="config-note">BTC and BLE share one 2.4 GHz ISM SDR stream when a wideband radio is available. VLF/LF/MF is SDRplay RSP2-only and scans the low-frequency spectrum separately.</div>
+                </div>
+                <div class="config-section">
+                  <div class="config-title">SDRs</div>
+                  <div class="sdr-config-list" id="sdrConfigList"></div>
+                </div>
+              </div>
+            </details>
+            <button id="runToggleBtn" type="submit"><span class="material-symbols-rounded">play_arrow</span><span id="runToggleText">Start</span></button>
+            <button id="clearBtn" class="secondary" type="button"><span class="material-symbols-rounded">delete_sweep</span>Clear</button>
+          </div>
+        </form>
         </div>
       </header>
       <script>
@@ -2418,86 +2516,27 @@
         <div id="wfPlan" class="wf-plan" hidden></div>
         <div id="wfLive" class="wf-live" hidden></div>
       </section>
-      <form class="toolbar" id="scanForm">
-        <select id="btcDeviceSelect" hidden></select>
-        <select id="btleDeviceSelect" hidden></select>
-        <select id="btcEngineSelect" hidden>
-          <option value="btcsniffer">btcsniffer C++</option>
-          <option value="python">Python C++-style</option>
-        </select>
-        <div class="auto-plan">
-          <strong>Multi-SDR autonomous sweep</strong>
+
+      <section class="kpi-strip" aria-label="RF health">
+          <div class="metrics">
+          <div class="metric core"><span>Best SDR RSSI</span><strong id="btcRssiMetric">-120.0</strong></div>
+          <div class="metric core"><span>Noise Floor</span><strong id="btleRssiMetric">-120.0</strong></div>
+          <div class="metric core"><span>Total Detections</span><strong id="detectionsMetric">0</strong></div>
+          <div class="metric core"><span>RF Bursts</span><strong id="burstsMetric">0</strong></div>
+          <div class="metric"><span>BLE Devices</span><strong id="bleMetric">0</strong></div>
+          <div class="metric"><span>BTC Evidence</span><strong id="classicMetric">0</strong></div>
+          <div class="metric"><span>Zigbee Frames</span><strong id="zigbeeMetric">0</strong></div>
+          <div class="metric"><span>Sub-GHz</span><strong id="tpmsMetric">0</strong></div>
+          <div class="metric"><span>WiFi Frames</span><strong id="wifiMetric">0</strong></div>
+          <div class="metric"><span>FM Stations</span><strong id="fmMetric">0</strong></div>
+          <div class="metric"><span>VLF/LF/MF</span><strong id="lfmfMetric">0</strong></div>
+          <div class="metric"><span>Cellular</span><strong id="cellularMetric">0</strong></div>
         </div>
-        <input id="btcCenterInput" type="number" min="2402" max="2480" step="0.5" value="2442" hidden />
-        <input id="sampleRateInput" type="number" min="1" max="60" step="1" value="60" hidden />
-        <input id="btcTargetMacInput" type="text" inputmode="latin" value="" hidden />
-        <label class="span-2 hidden">
-          SDR Gain Profile A
-          <span class="slider-control">
-            <input id="btcGainInput" type="range" min="0" max="102" step="1" value="72" />
-            <span class="control-value" id="btcGainValue">L32 V40</span>
-          </span>
-        </label>
-        <label class="span-2 hidden">
-          SDR Gain Profile B
-          <span class="slider-control">
-            <input id="btleGainInput" type="range" min="0" max="102" step="1" value="56" />
-            <span class="control-value" id="btleGainValue">L40 V16</span>
-          </span>
-        </label>
-        <input id="hopDwellInput" type="number" min="0.25" max="30" step="0.05" value="0.25" hidden />
-        <select id="channelSelect" hidden></select>
-        <input id="btcSweepInput" type="checkbox" checked hidden />
-        <input id="btcLogPassiveFhsInput" type="checkbox" hidden />
-        <input id="btcPeriodicPageScanInput" type="checkbox" hidden />
-        <input id="btcBandHopInput" type="checkbox" hidden />
-        <input id="btcRemoteNameLookupInput" type="checkbox" hidden />
-        <div class="toolbar-actions">
-          <details class="config-menu" id="configMenu">
-            <summary><span class="material-symbols-rounded">tune</span>Config</summary>
-            <div class="config-panel">
-              <div class="config-section">
-                <div class="config-title">Protocol Groups</div>
-                <div class="protocol-toggles">
-                  <label class="protocol-row" data-protocol-row="btc"><input id="btcInput" type="checkbox" checked /></label>
-                  <label class="protocol-row" data-protocol-row="ble"><input id="btleInput" type="checkbox" checked /></label>
-                  <label class="protocol-row" data-protocol-row="zigbee"><input id="zigbeeInput" type="checkbox" checked /></label>
-                  <label class="protocol-row" data-protocol-row="tpms"><input id="tpmsInput" type="checkbox" checked /></label>
-                  <label class="protocol-row" id="wifiToggle" data-protocol-row="wifi"><input id="wifiInput" type="checkbox" checked /></label>
-                  <label class="protocol-row" data-protocol-row="fm"><input id="fmInput" type="checkbox" checked /></label>
-                  <label class="protocol-row" id="lfmfToggle" data-protocol-row="lfmf"><input id="lfmfInput" type="checkbox" checked /></label>
-                  <label class="protocol-row" data-protocol-row="cellular"><input id="cellularInput" type="checkbox" checked /></label>
-                </div>
-                <div class="config-note">BTC and BLE share one 2.4 GHz ISM SDR stream when a wideband radio is available. VLF/LF/MF is SDRplay RSP2-only and scans the low-frequency spectrum separately.</div>
-              </div>
-              <div class="config-section">
-                <div class="config-title">SDRs</div>
-                <div class="sdr-config-list" id="sdrConfigList"></div>
-              </div>
-            </div>
-          </details>
-          <button id="runToggleBtn" type="submit"><span class="material-symbols-rounded">play_arrow</span><span id="runToggleText">Start</span></button>
-          <button id="clearBtn" class="secondary" type="button"><span class="material-symbols-rounded">delete_sweep</span>Clear</button>
-        </div>
-      </form>
+      </section>
 
       <main>
         <section class="panel">
-          <h2>RF Health</h2>
-          <div class="metrics">
-            <div class="metric"><span>Best SDR RSSI</span><strong id="btcRssiMetric">-120.0</strong></div>
-            <div class="metric"><span>Noise Floor</span><strong id="btleRssiMetric">-120.0</strong></div>
-            <div class="metric"><span>Total Detections</span><strong id="detectionsMetric">0</strong></div>
-            <div class="metric"><span>RF Bursts</span><strong id="burstsMetric">0</strong></div>
-            <div class="metric"><span>BLE Devices</span><strong id="bleMetric">0</strong></div>
-            <div class="metric"><span>BTC Evidence</span><strong id="classicMetric">0</strong></div>
-            <div class="metric"><span>Zigbee Frames</span><strong id="zigbeeMetric">0</strong></div>
-            <div class="metric"><span>Sub-GHz</span><strong id="tpmsMetric">0</strong></div>
-            <div class="metric"><span>WiFi Frames</span><strong id="wifiMetric">0</strong></div>
-            <div class="metric"><span>FM Stations</span><strong id="fmMetric">0</strong></div>
-            <div class="metric"><span>VLF/LF/MF</span><strong id="lfmfMetric">0</strong></div>
-            <div class="metric"><span>Cellular</span><strong id="cellularMetric">0</strong></div>
-          </div>
+          <h2>Receivers</h2>
           <div class="sdr-assignment-list" id="sdrAssignmentList"></div>
           <div class="spectrum" id="spectrum"></div>
         </section>
@@ -5647,6 +5686,20 @@
       patternAnalyticsBtn.addEventListener("click", () => openPatternAnalytics(applyLastSeenFilter(latestStatus?.discovery_table || [])));
 
       // Operator agent: plain-language, receive-only scans with automatic gain.
+
+      // KPI strip: dim protocol tiles with nothing detected; keep the full status text available on hover.
+      (() => {
+        const tiles = [...document.querySelectorAll(".kpi-strip .metric")];
+        const mark = () => tiles.forEach((tile) => {
+          const value = Number(String(tile.querySelector("strong")?.textContent || "0").replace(/[^0-9.-]/g, ""));
+          tile.classList.toggle("zero", !value);
+        });
+        tiles.forEach((tile) => new MutationObserver(mark).observe(tile, { childList: true, subtree: true, characterData: true }));
+        mark();
+        const runState = document.getElementById("runState");
+        new MutationObserver(() => { runState.title = runState.textContent; }).observe(runState, { childList: true, characterData: true, subtree: true });
+      })();
+
       // Agent workflows: plain language -> plan (find / filter / when -> do) -> live run with triggers.
       const wf = document.getElementById("wf");
       const wfForm = document.getElementById("wfForm");
