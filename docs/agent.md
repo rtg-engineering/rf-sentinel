@@ -105,6 +105,10 @@ Each message carries the alert text, severity, device label and run id, and is m
 
 ## Playbooks: a whole operation in one request
 
+![Planning, refining, running and asking about a playbook (simulated receivers)](media/rf-sentinel-agent-playbook.gif)
+
+*Recorded with `python3 scripts/record_agent_walkthrough.py`. The script starts its own dashboard with simulated receivers, so it needs no radio. [MP4](media/rf-sentinel-agent-playbook.mp4).*
+
 Chain workflows with *then*, *after that*, *next*, *finally*, or a numbered list. Each step is an ordinary workflow (find / keep / when → do). A step can also build on the steps before it:
 
 | You say | The step |

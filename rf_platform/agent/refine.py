@@ -87,7 +87,7 @@ def _edit_workflow(spec: WorkflowSpec, instruction: str) -> WorkflowSpec:
     duration = re.search(rf"\b(?:make it|for|to|change (?:it|the duration) to|run for)\s+(\d+(?:\.\d+)?\s*{UNIT_S})\b", change)
     # A sentence boundary keeps the change's own action ("alert me if X") apart from the collection clause.
     probe = plan_deterministic(f"{_what_phrase(spec.collect)} for {duration.group(1) if duration else '30 seconds'}. {change}",
-                               standing_actions=False)
+                               standing_actions=True)  # "also tag them as suspect": every device the plan keeps
     if duration or re.fullmatch(rf"(?:make (?:it |this )?)?\d+(?:\.\d+)?\s*{UNIT_S}(?: long)?", change):
         updated.duration_s = probe.duration_s if duration else plan_deterministic(f"{_what_phrase(spec.collect)} for {change}").duration_s
     if probe.channel and "zigbee" in spec.collect:

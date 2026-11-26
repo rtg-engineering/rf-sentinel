@@ -28,6 +28,7 @@ class RulesRefineTest(unittest.TestCase):
         no_iq = rules(self.base, "don't record IQ")["spec"]["triggers"][0]["do"]
         self.assertEqual([a["kind"] for a in no_iq], ["alert"])  # only that action goes; the rule stays
         self.assertIn('+ keep manufacturer contains "Apple"', rules(self.base, "only apple devices")["changes"])
+        self.assertEqual(rules(self.base, "also tag them as suspect")["changes"], ['+ when any device → tag as "suspect"'])
 
     def test_steps_and_schedule_keep_earlier_refinements(self):
         plan = rules(self.base, "also alert me if an airtag appears")
