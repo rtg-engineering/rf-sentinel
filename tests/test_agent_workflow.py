@@ -89,6 +89,10 @@ class ModelPlannerTest(unittest.TestCase):
         self.assertIn("model unavailable", planned["fallback_reason"])
         with self.assertRaisesRegex(ValueError, "only receives"):
             plan("jam everything", "model", model=FunctionModel(good))
+        # Unsupported sources are refused deterministically too, before the model is asked.
+        from rf_platform.agent.workflow import _plan_with_model
+        with self.assertRaisesRegex(ValueError, "WiFi"):
+            _plan_with_model("watch wifi for 2 minutes", FunctionModel(good))
 
 
 class FakeAgent:

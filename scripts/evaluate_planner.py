@@ -24,6 +24,18 @@ from tests.test_workflow_corpus import shape  # noqa: E402
 
 CORPUS = json.loads((ROOT / "tests/fixtures/workflow_phrases.json").read_text())["cases"]
 PARTS = ("collect", "duration_s", "device_id", "channel", "filters", "triggers")
+TEXT_OPS = {"eq": "contains", "ne": "not_contains"}
+
+
+def equivalent(value):
+    """Normalise text conditions so exact-vs-contains on the same value and capitalisation count as equal."""
+    if isinstance(value, list) and len(value) == 3 and isinstance(value[2], str):
+        return [value[0], TEXT_OPS.get(value[1], value[1]), value[2].lower()]
+    if isinstance(value, list):
+        return sorted((equivalent(v) for v in value), key=json.dumps)
+    if isinstance(value, dict):
+        return {k: equivalent(v) for k, v in value.items()}
+    return value
 
 
 def main() -> int:
@@ -31,7 +43,7 @@ def main() -> int:
     parser.add_argument("--model", help="Pydantic AI model string; omit for the rules planner")
     parser.add_argument("--json-out", type=Path)
     args = parser.parse_args()
-    rows, totals = [], {p: 0 for p in PARTS} | {"exact": 0, "refusals_ok": 0, "fallbacks": 0, "errors": 0}
+    rows, totals = [], {p: 0 for p in PARTS} | {"exact": 0, "equivalent": 0, "refusals_ok": 0, "fallbacks": 0, "errors": 0}
     planned_cases = [c for c in CORPUS if not c.get("refused")]
     for case in CORPUS:
         started = time.perf_counter()
@@ -55,6 +67,8 @@ def main() -> int:
                 for p in PARTS:
                     totals[p] += row["parts"][p]
                 row["ok"] = all(row["parts"].values())
+                row["equivalent"] = all(equivalent(got[p]) == equivalent(case[p]) for p in PARTS)
+                totals["equivalent"] += row["equivalent"]
                 if not row["ok"]:
                     row["got"] = {p: got[p] for p in PARTS if not row["parts"][p]}
                     row["expected"] = {p: case[p] for p in PARTS if not row["parts"][p]}
@@ -72,7 +86,7 @@ def main() -> int:
         print(f"{'ok ' if row['ok'] else 'BAD'} {row['seconds']:>5.1f}s  {case['text'][:90]}"
               + (f"  [{row.get('planner')}]" if args.model else ""), flush=True)
     n, refusals = len(planned_cases), len(CORPUS) - len(planned_cases)
-    summary = {"planner": args.model or "rules", "cases": len(CORPUS), "exact_plans": f"{totals['exact']}/{n}",
+    summary = {"planner": args.model or "rules", "cases": len(CORPUS), "exact_plans": f"{totals['exact']}/{n}", "equivalent_plans": f"{totals['equivalent']}/{n}",
                "refusals": f"{totals['refusals_ok']}/{refusals}", "fallbacks": totals["fallbacks"], "errors": totals["errors"],
                "by_part": {p: f"{totals[p]}/{n}" for p in PARTS}}
     print(json.dumps(summary, indent=2))

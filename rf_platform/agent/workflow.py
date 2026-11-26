@@ -417,9 +417,14 @@ You turn an RF operator's request into a WorkflowSpec for RF Sentinel, a RECEIVE
   (cell towers via a cellular modem: fields operator, rat ("LTE", "5G NR", "3G WCDMA", "2G GSM"), generation
   ("2G".."5G"), role ("serving", "neighbour", "scanned"); rssi_dbfs holds RSRP in dBm for cells). A plain
   "bluetooth" request means ["ble", "classic"]. Trackers, AirTags, Tiles and beacons are BLE.
-- duration_s: 5 to 600. Default 60 if not stated.
+- duration_s: 5 to 600. Default 30 if not stated.
 - filters: conditions a device must meet to be shown (all must hold).
-- triggers: "when <conditions> do <actions>". Conditions use the same fields. repeat=false fires once per device.
+- triggers: "when <conditions> do <actions>". Conditions use the same fields. repeat=false fires once per device;
+  "whenever", "each time" or "every time" mean repeat=true.
+- "watch for trackers" means a filter device_class eq "tracker"; "airtag" means label contains "AirTag"; text
+  conditions use contains unless the operator gives an exact value; keep the operator's capitalisation of names.
+- "when the serving cell changes" means a trigger when [role eq "serving"] (it fires once for each new serving
+  cell); it is not a filter.
 Condition fields: protocol, label (best identity, e.g. "AirTag", a local name or vendor), name, manufacturer,
 device_type (e.g. Phone, Watch), device_class ("tracker" or "beacon"), address, rssi_dbfs (relative, e.g. -60),
 count (detections so far), dwell_s (seconds between first and last sighting: use for "following me" /
@@ -505,6 +510,8 @@ def _plan_with_model(text: str, model: Any) -> WorkflowSpec:
 
     if re.search(r"\b(transmit|jam|spoof|replay|attack|inject|deauth|page)\b", text.lower()):
         raise ValueError("RF Sentinel only receives. It will not transmit, jam, spoof, replay, or page devices.")
+    if re.search(r"\bwi-?fi\b", text.lower()) and not re.search(r"\b(cell|cellular|lte|5g)\b", text.lower()):
+        raise ValueError("WiFi needs a monitor-mode WiFi adapter, not an SDR; it is not a workflow source.")
     return agent.run_sync(text, usage_limits=UsageLimits(request_limit=4)).output
 
 
