@@ -424,3 +424,32 @@ class ResumeTest(unittest.TestCase):
         time.sleep(1)
         self.assertEqual(backend.resume_agent_watches(now=entry["origin"] + 3 * 3600), [])
         self.assertFalse((backend._active_dir() / "run-old.json").exists())
+
+
+class JobPayloadTest(unittest.TestCase):
+    """A long watch keeps the recent timeline in memory; totals stay exact."""
+
+    @classmethod
+    def setUpClass(cls):
+        from tests.test_validation_harness import BackendValidationTest
+        BackendValidationTest.setUpClass()
+        cls.harness, cls.backend, cls.client = BackendValidationTest, BackendValidationTest.backend, BackendValidationTest.client
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.harness.tearDownClass()
+
+    def test_events_are_capped(self):
+        with patch.object(self.backend, "AGENT_EVENTS_KEPT", 5):
+            with self.backend.agent_jobs_lock:
+                self.backend.agent_jobs.clear()
+            spec = {"collect": ["ble"], "duration_s": 6, "triggers": [{"when": [{"field": "count", "op": "ge", "value": 1}],
+                                                                        "do": [{"kind": "tag", "label": "x"}]}]}
+            job = self.client.post("/api/agent/run", json={"workflow": spec, "simulate": True, "mode": "passive-auto"}).get_json()
+            deadline = time.time() + 40
+            while time.time() < deadline and job["status"] not in ("done", "error", "stopped"):
+                time.sleep(0.5)
+                job = self.client.get(f"/api/agent/jobs/{job['job_id']}").get_json()
+        self.assertEqual(job["status"], "done", job.get("error"))
+        self.assertLessEqual(len(job["events"]), 5)
+        self.assertGreater(sum(job["event_counts"].values()), 5)

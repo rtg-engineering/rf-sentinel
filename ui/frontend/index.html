@@ -5968,7 +5968,7 @@
         });
       }
       wfSegment("#wfPlannerSeg button", "planner", wfPlanner, (v) => { wfPlanner = v; wfStore.set("wf.planner", v); wfPlanned = null; });
-      wfSegment("#wfModeSeg button", "mode", wfMode, (v) => { wfMode = v; wfStore.set("wf.mode", v); });
+      wfSegment("#wfModeSeg button", "mode", wfMode, (v) => { wfMode = v; wfStore.set("wf.mode", v); if (wfPlanned && !wfPlanEl.hidden) renderPlan(wfPlanned); });
 
       // Desktop notifications (local Notification API only): opt-in, shown when the tab is in the background.
       const wfBell = document.getElementById("wfBell");
@@ -6055,6 +6055,8 @@
 
       function renderPlaybookPlan(planned) {
         const book = planned.playbook, summary = planned.summary;
+        const approveWarn = (book.repeat || book.start) && wfMode === "approval-required"
+          ? `<div class="wf-note" style="grid-column:1/-1">${materialIcon("info")} In Approve mode every cycle waits for a named operator, and an unanswered approval expires. For an unattended watch, choose Autonomous.</div>` : "";
         const startChip = summary.start ? `<span class="wf-cond">${materialIcon("schedule")} ${escapeHtml(summary.start)}</span>` : "";
         const watch = book.repeat ? `<div class="wf-watch">${materialIcon("autorenew")}
             <div><strong>Standing watch</strong> <span class="wf-note">${escapeHtml(summary.repeat || "")}</span> ${startChip}</div>
@@ -6062,7 +6064,7 @@
               ${materialIcon("autorenew")} ${book.repeat.times} cycles
               <button type="button" class="wf-x" data-cycles="1" title="More cycles" aria-label="More cycles">${materialIcon("add")}</button></span></div>`
           : summary.start ? `<div class="wf-watch">${materialIcon("schedule")}<div><strong>Scheduled</strong> ${startChip}</div></div>` : "";
-        wfPlanEl.innerHTML = `${watch}
+        wfPlanEl.innerHTML = `${watch}${approveWarn}
           <div class="wf-book">${book.steps.map((step, i) => wfBookStep(step, summary.steps[i], i, { edit: true, last: i === book.steps.length - 1 })).join("")}</div>
           <div class="wf-meta"><span class="wf-badges"><span class="wf-badge">${materialIcon("format_list_numbered")} Playbook · ${book.steps.length} step${book.steps.length > 1 ? "s" : ""} · up to ${wfDuration(summary.total_s)}${book.repeat ? " per cycle" : ""}</span>
             ${wfPlannerBadge(planned)}${planned.edited || planned.refined ? `<span class="wf-badge">${materialIcon("edit")} ${planned.refined ? "refined" : "edited"}</span>` : ""}
@@ -6446,7 +6448,7 @@
         const rank = (d) => (alerted.has(d.key) ? 2 : 0) + ((d.tags || []).length ? 1 : 0);
         const matched = [...matchedMap.values()].map((d) => ({ ...d, alerted: alerted.has(d.key) }))
           .sort((a, b) => rank(b) - rank(a) || (b.count || 0) - (a.count || 0));
-        const triggers = events.filter((e) => e.kind === "trigger").length;
+        const triggers = job.event_counts?.trigger ?? events.filter((e) => e.kind === "trigger").length;
         const spec = job.workflow || {};
         const elapsed = ((job.finished_at || Date.now() / 1000) - job.started_at);
         const extended = (job.steps || []).reduce((sum, s) => { const m = /Extended collection by (\d+)/.exec(s.message); return sum + (m ? Number(m[1]) : 0); }, 0);

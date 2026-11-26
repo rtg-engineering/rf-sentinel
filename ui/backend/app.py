@@ -8745,6 +8745,8 @@ def analyst_report():
 # capped by the server ceiling RF_SENTINEL_AGENT_MODE. Decoded detections are ingested through the same
 # path as scanner output, so they appear in the normal detections table.
 agent_jobs: dict[str, dict[str, Any]] = {}
+AGENT_EVENTS_KEPT = 400   # recent workflow events per job (the dashboard polls the job every second)
+AGENT_STEPS_KEPT = 600
 agent_jobs_lock = threading.Lock()
 AGENT_PROTOCOL_TAG = {"ble": "ble", "zigbee": "ieee802154", "tpms": "tpms", "classic": "btc", "cellular": "cellular"}
 _agent_broker = None
@@ -8982,13 +8984,20 @@ def _launch_agent_job(spec, book, command: str, mode: str, planner_info: dict[st
                     if event["status"] == "running":
                         job["current_step"] = event["step"]
                 job["events"].append(event)
+                counts = job.setdefault("event_counts", {})
+                counts[event["kind"]] = counts.get(event["kind"], 0) + 1
+                if len(job["events"]) > AGENT_EVENTS_KEPT:  # a long watch keeps the recent timeline; totals stay exact
+                    del job["events"][:-AGENT_EVENTS_KEPT]
                 if event["kind"] == "alert":
                     key = (event.get("device") or {}).get("key")
                     if event.get("merged") and job["alerts"] and (job["alerts"][-1].get("device") or {}).get("key") == key:
                         job["alerts"][-1] = event  # several rules matched at once: one alert, every reason
                     else:
                         job["alerts"].append(event)
-            log = lambda m: job["steps"].append({"t": round(time.time() - job["started_at"], 1), "message": m})  # noqa: E731
+            def log(message: str) -> None:
+                job["steps"].append({"t": round(time.time() - job["started_at"], 1), "message": message})
+                if len(job["steps"]) > AGENT_STEPS_KEPT:
+                    del job["steps"][1:-AGENT_STEPS_KEPT + 1]  # keep the first line (the plan) and the recent ones
             if book is not None:
                 from rf_platform.agent.playbook import save as save_playbook
                 job["result"] = run_playbook(agent, book, on_step=log, on_detection=lambda e: _agent_detection(job, spec, e),
