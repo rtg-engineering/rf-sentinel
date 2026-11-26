@@ -371,7 +371,7 @@ def strip_start(text: str, utc_offset_min: int | None = None) -> tuple[str, Star
         if at:
             rest = (text[: m.start()] + " " + text[m.end():]).strip(" ,.;")
             return rest, Start(at=at, utc_offset_min=offset), None
-    m = re.search(rf"(?:^|[,.;]?\s*)(?:(?:start(?:ing)?|begin(?:ning)?)\s+)?in\s+(?!the\b)(\d+(?:\.\d+)?)\s*({UNIT})[,.]?(?=\s*(?:,|\.|$|start|begin|sweep|watch|find|survey|scan|monitor|look|every|repeat))", lower)
+    m = re.search(rf"(?:^|[.;]\s+|\b(?:start(?:ing)?|begin(?:ning)?)\s+)in\s+(?!the\b)(\d+(?:\.\d+)?)\s*({UNIT})[,.]?(?=\s*(?:,|\.|$|start|begin|sweep|watch|find|survey|scan|monitor|look|every|repeat))", lower)
     if m:
         delay = _seconds_of(m.group(1), m.group(2))
         if delay > MAX_START_DELAY_S:

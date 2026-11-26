@@ -316,6 +316,8 @@ class RunTest(unittest.TestCase):
         self.assertEqual(plan_playbook_deterministic("tonight at 10, find ble devices for 1 minute", 0).start.at, "22:00")
         self.assertFalse(is_multistep("watch for trackers for 5 minutes and alert me if one is seen for at least 10 seconds"))
         self.assertFalse(is_multistep("watch for trackers in the next 3 minutes"))
+        self.assertFalse(is_multistep("watch for trackers and alert me if one appears in 2 minutes"))
+        self.assertEqual(plan_playbook_deterministic("survey cell towers for 2 minutes, starting in 20 minutes").start.in_s, 1200)
         with self.assertRaisesRegex(ValueError, "how often"):
             plan_playbook_deterministic("from 10pm to 6am sweep for trackers for 1 minute")
         with self.assertRaisesRegex(ValueError, "24 h"):
