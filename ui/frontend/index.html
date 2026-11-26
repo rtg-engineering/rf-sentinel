@@ -1900,6 +1900,14 @@
       @media (prefers-reduced-motion: reduce) { .wf *, .wf { animation: none !important; transition: none !important; } }
 
       /* ---- Workflow panel v2: modes, approvals, alert stack, sparkline, story, history ---- */
+      .wf-bell { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line);
+        background: var(--panel); color: var(--muted); cursor: pointer; }
+      .wf-bell[aria-pressed="true"] { color: #fff; border-color: transparent; background: linear-gradient(120deg, var(--wf-a), var(--wf-b)); }
+      .wf-saved:empty { display: none; }
+      .wf-saved button.preset { border-style: solid; color: var(--ink); background: color-mix(in srgb, var(--wf-b) 10%, var(--panel)); }
+      .wf-saved .preset-wrap { display: inline-flex; align-items: center; }
+      .wf-save { cursor: pointer; background: transparent; }
+      .wf-save:hover { color: var(--ink); border-color: var(--wf-b); }
       .wf-badges { display: inline-flex; gap: 6px; flex-wrap: wrap; }
       .wf-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
       .wf-seg-label { font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-right: 2px; }
@@ -2557,6 +2565,7 @@
               <button type="button" data-planner="model" title="Model planner (falls back to rules)">Model</button>
               <button type="button" data-planner="deterministic" title="Deterministic grammar">Rules</button>
             </div>
+            <button type="button" class="wf-bell" id="wfBell" title="Desktop notifications for alerts while this tab is in the background" aria-pressed="false"><span class="material-symbols-rounded">notifications_off</span></button>
             <span class="wf-seg-label">Act</span>
             <div class="wf-seg" id="wfModeSeg" role="radiogroup" aria-label="Operating mode">
               <button type="button" data-mode="passive-auto" title="Collect and act within bounds">Autonomous</button>
@@ -2567,7 +2576,7 @@
         <form id="wfForm" class="wf-prompt">
           <span class="material-symbols-rounded" aria-hidden="true">auto_awesome</span>
           <textarea id="wfText" rows="2" autocomplete="off" aria-label="Workflow request"
-            placeholder="Watch for bluetooth trackers for 5 minutes, only stronger than -60. If a tracker is seen for more than 2 minutes, alert me and record 5 seconds of IQ."></textarea>
+            placeholder="Describe the job, e.g. watch for trackers for 5 minutes; if one is seen for 2 minutes, send an urgent alert and record 5 seconds of IQ.  (Enter: plan · Ctrl+Enter: run)"></textarea>
           <div class="wf-prompt-actions">
             <button type="submit" id="wfPlanBtn" class="wf-btn ghost"><span class="material-symbols-rounded">account_tree</span>Plan</button>
             <button type="button" id="wfRunBtn" class="wf-btn primary"><span class="material-symbols-rounded">play_arrow</span>Run</button>
@@ -2582,6 +2591,7 @@
           <button type="button" data-ex="Watch for trackers and rogue cell towers for 3 minutes. If an AirTag is seen for more than 1 minute, send an urgent alert. Send an urgent alert if an unknown network appears or if a 2G cell shows up.">Trackers + rogue cells</button>
           <button type="button" data-ex="Survey cell towers for 3 minutes. Send an urgent alert if an unknown network appears or if a 2G cell shows up, and alert me when the serving cell changes.">Rogue cell watch</button>
         </div>
+        <div class="wf-examples wf-saved" id="wfSaved"></div>
         <div id="wfPlan" class="wf-plan" hidden></div>
         <div id="wfLive" class="wf-live" hidden></div>
         <details class="wf-history" id="wfHistory">
@@ -5864,11 +5874,37 @@
       wfSegment("#wfPlannerSeg button", "planner", wfPlanner, (v) => { wfPlanner = v; wfStore.set("wf.planner", v); wfPlanned = null; });
       wfSegment("#wfModeSeg button", "mode", wfMode, (v) => { wfMode = v; wfStore.set("wf.mode", v); });
 
+      // Desktop notifications (local Notification API only): opt-in, shown when the tab is in the background.
+      const wfBell = document.getElementById("wfBell");
+      function wfBellState() {
+        const on = "Notification" in window && Notification.permission === "granted" && wfStore.get("wf.notify", "0") === "1";
+        wfBell.setAttribute("aria-pressed", String(on));
+        wfBell.innerHTML = materialIcon(on ? "notifications_active" : "notifications_off");
+        wfBell.hidden = !("Notification" in window);
+        return on;
+      }
+      wfBell.addEventListener("click", async () => {
+        if (wfBellState()) { wfStore.set("wf.notify", "0"); wfBellState(); return; }
+        const permission = await Notification.requestPermission();
+        wfStore.set("wf.notify", permission === "granted" ? "1" : "0");
+        if (permission !== "granted") showToast("Desktop notifications are blocked for this site in the browser settings");
+        wfBellState();
+      });
+      wfBellState();
+      function wfNotify(alert) {
+        if (!document.hidden || !wfBellState()) return;
+        try {
+          new Notification(alert.severity === "critical" ? "RF Sentinel: critical alert" : "RF Sentinel alert",
+            { body: alert.message, tag: `${alert.t}|${alert.device?.key || ""}`, requireInteraction: alert.severity === "critical" });
+        } catch { /* some browsers only allow notifications from a service worker */ }
+      }
+
       document.querySelectorAll("#wfExamples button").forEach((btn) => btn.addEventListener("click", () => {
         wfText.value = btn.dataset.ex;
         wfForm.requestSubmit();
       }));
       wfText.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); wfRunBtn.click(); return; }
         if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); wfForm.requestSubmit(); }
       });
 
@@ -5908,7 +5944,8 @@
           <div class="wf-card"><h4>${materialIcon("radar")} Find</h4>${find}</div>
           <div class="wf-card"><h4>${materialIcon("filter_alt")} Keep</h4>${filters}</div>
           <div class="wf-card"><h4>${materialIcon("bolt")} When → Do</h4>${rules}</div>
-          <div class="wf-meta"><span class="wf-badges">${badge}${planned.edited ? `<span class="wf-badge">${materialIcon("edit")} edited</span>` : ""}</span>
+          <div class="wf-meta"><span class="wf-badges">${badge}${planned.edited ? `<span class="wf-badge">${materialIcon("edit")} edited</span>` : ""}
+            <button type="button" class="wf-badge wf-save" data-save="1" title="Save this plan as a one-click preset in this browser">${materialIcon("bookmark_add")} Save</button></span>
             <span class="wf-note">${(spec.notes || []).map(escapeHtml).join(" · ")}${planned.fallback_reason ? ` · model: ${escapeHtml(planned.fallback_reason)}` : ""}</span></div>`;
         wfPlanEl.hidden = false;
       }
@@ -5925,7 +5962,37 @@
         renderPlan(planned);
       }
 
+      const wfSaved = document.getElementById("wfSaved");
+      function wfPresets() { try { return JSON.parse(wfStore.get("wf.presets", "[]")) || []; } catch { return []; } }
+      function wfRenderPresets() {
+        wfSaved.innerHTML = wfPresets().map((p, i) => `<span class="preset-wrap">
+            <button type="button" class="preset" data-preset="${i}" title="${escapeHtml(p.text)}">${materialIcon("bookmark")} ${escapeHtml(p.name)}</button>
+            <button type="button" class="wf-x" data-unpreset="${i}" title="Remove preset" aria-label="Remove preset">${materialIcon("close")}</button></span>`).join("");
+      }
+      wfSaved.addEventListener("click", (event) => {
+        const run = event.target.closest("[data-preset]"), remove = event.target.closest("[data-unpreset]");
+        const presets = wfPresets();
+        if (remove) { presets.splice(Number(remove.dataset.unpreset), 1); wfStore.set("wf.presets", JSON.stringify(presets)); wfRenderPresets(); return; }
+        if (!run) return;
+        const preset = presets[Number(run.dataset.preset)];
+        wfText.value = preset.text;
+        wfPlanned = preset.planned;
+        wfPlannedText = preset.text;
+        renderPlan(wfPlanned);
+      });
+      wfRenderPresets();
+
       wfPlanEl.addEventListener("click", (event) => {
+        if (event.target.closest("[data-save]") && wfPlanned) {
+          const name = (prompt("Name this preset", wfPlanned.summary?.find || "My workflow") || "").trim();
+          if (!name) return;
+          const presets = wfPresets().filter((p) => p.name !== name);
+          presets.unshift({ name: name.slice(0, 40), text: wfText.value.trim(), planned: wfPlanned });
+          wfStore.set("wf.presets", JSON.stringify(presets.slice(0, 12)));
+          wfRenderPresets();
+          showToast(`Saved “${name}”`);
+          return;
+        }
         const btn = event.target.closest("button.wf-x");
         if (!btn) return;
         if (btn.dataset.removeFilter !== undefined) wfEditPlan((s) => s.filters.splice(Number(btn.dataset.removeFilter), 1));
@@ -6093,7 +6160,7 @@
           <details class="wf-steps"><summary>Agent steps (${(job.steps || []).length}) · receivers, gain, approvals, actions</summary>
             <ol>${(job.steps || []).map((s) => `<li><span class="small">${Number(s.t).toFixed(1)} s</span> ${escapeHtml(s.message)}</li>`).join("")}</ol></details>`;
         if (alerts.length > wfAlertsSeen) {
-          alerts.slice(wfAlertsSeen).forEach((a) => showToast(`${a.severity === "critical" ? "Critical alert" : "Alert"}: ${a.message}`));
+          alerts.slice(wfAlertsSeen).forEach((a) => { showToast(`${a.severity === "critical" ? "Critical alert" : "Alert"}: ${a.message}`); wfNotify(a); });
           wfAlertsSeen = alerts.length;
         }
       }

@@ -119,6 +119,7 @@ class WorkflowSpec(BaseModel):
     collect: list[Protocol] = Field(min_length=1)
     duration_s: int = 60
     device_id: str | None = None
+    channel: int | None = Field(default=None, ge=11, le=26)  # Zigbee / 802.15.4 channel
     filters: list[Condition] = Field(default_factory=list)
     triggers: list[Trigger] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
@@ -149,7 +150,8 @@ class WorkflowSpec(BaseModel):
         what = ("bluetooth devices" if protocols == {"ble", "classic"} else "ble devices" if protocols == {"ble"}
                 else "bluetooth classic devices" if protocols == {"classic"} else
                 "zigbee" if protocols == {"zigbee"} else "cell towers" if protocols == {"cellular"} else "tire sensors")
-        return f"find {what} for {self.duration_s} seconds" + (f" on {self.device_id}" if self.device_id else "")
+        return (f"find {what} for {self.duration_s} seconds" + (f" on {self.device_id}" if self.device_id else "")
+                + (f" on channel {self.channel}" if self.channel and "zigbee" in protocols else ""))
 
     def summary(self) -> dict[str, Any]:
         unit = (lambda text: text.replace(" dBFS", " dBm")) if self.collect == ["cellular"] else (lambda text: text)
@@ -374,7 +376,10 @@ def plan_deterministic(text: str) -> WorkflowSpec:
     if whole_duration and not re.search(rf"\b\d+(?:\.\d+)?\s*{UNIT_S}\b", main):
         main = f"{main} for {_seconds(whole_duration.group(1), whole_duration.group(2))} seconds"
     probe = main if re.search(r"\b(bluetooth|ble|btle|zigbee|802\.15\.4|thread|tpms|tire|tyre|classic|beacons?|airtags?|cell|cells|cellular|towers?|lte|5g|4g|base stations?|carriers?)\b", main) \
-        else main if re.search(r"\bwi-?fi\b", main) else "find bluetooth devices " + main  # Bluetooth by default
+        else main if re.search(r"\bwi-?fi\b", main) else (
+            # Vendors and device kinds are identified from BLE advertisements; Classic only yields LAPs.
+            "find ble devices " if re.search(rf"\b(?:{'|'.join(VENDORS)}|phones?|watches|headphones|earbuds|wearables?)\b", main)
+            else "find bluetooth devices ") + main
     try:
         task = parse(re.sub(rf"\b\d+(?:\.\d+)?\s*{UNIT_S}\s+of\s+(?:iq|samples)", "", probe))
     except IntentError as exc:
@@ -401,6 +406,7 @@ def plan_deterministic(text: str) -> WorkflowSpec:
     if len(triggers) < len(trigger_clauses):
         notes.append("Some 'if/when' clauses had no action I recognise and were left out.")
     return WorkflowSpec(goal=raw, collect=collect, duration_s=task.duration_s, device_id=task.device_id,
+                        channel=task.channel if task.profile.name == "zigbee" else None,
                         filters=filters, triggers=triggers, notes=notes)
 
 
