@@ -612,13 +612,29 @@ class WorkflowEngine:
     def _do_alert(self, action: Action, device: dict[str, Any]) -> str:
         self.agent.gateway.authorize("raise_alert", {"device": device["key"], "severity": action.severity})
         reason = " and ".join(c.describe() for c in self._trigger_conditions.get(device["key"], []))
-        message = action.message or (f"{device['label']}: {reason}" if reason else f"{device['label']} matched")
-        alert = {"t": round(time.time() - self._started, 1), "severity": action.severity, "message": message,
-                 "device": device}
+        unit = "dBm" if device.get("protocol") == "cellular" else "dBFS"
+        reason = reason.replace(" dBFS", f" {unit}")
+        now = round(time.time() - self._started, 1)
         with self._lock:
+            # Several rules matching the same device at once become one alert with every reason.
+            recent = next((a for a in reversed(self.alerts) if a["device"]["key"] == device["key"]
+                           and now - a["t"] <= 2.0 and not action.message and not a.get("custom")
+                           and reason and reason not in a["reasons"]), None)
+            if recent is not None:
+                if reason and reason not in recent["reasons"]:
+                    recent["reasons"].append(reason)
+                    recent["message"] = f"{device['label']}: " + "; ".join(recent["reasons"])
+                if action.severity == "critical":
+                    recent["severity"] = "critical"
+                self._emit("alert", severity=recent["severity"], message=recent["message"], device=device, merged=True)
+                return recent["message"]
+            message = action.message or (f"{device['label']}: {reason}" if reason else f"{device['label']} matched")
+            alert = {"t": now, "severity": action.severity, "message": message, "device": device,
+                     "reasons": [reason] if reason else [], "custom": bool(action.message)}
             self.alerts.append(alert)
         self._emit("alert", severity=action.severity, message=message, device=device)
-        self.step(f"ALERT ({action.severity}): {message} - {device['label']}, {device.get('rssi_dbfs')} dBFS")
+        rssi = device.get("rssi_dbfs")
+        self.step(f"ALERT ({action.severity}): {message}" + (f" ({rssi:.0f} {unit})" if isinstance(rssi, (int, float)) else ""))
         return message
 
     def _do_tag(self, action: Action, device: dict[str, Any]) -> str:

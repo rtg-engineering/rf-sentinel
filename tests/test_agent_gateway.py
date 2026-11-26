@@ -161,7 +161,15 @@ class BackendEndpointTest(unittest.TestCase):
         self.assertEqual(self.post("/api/agent/tools/shell", {})[0], 403)
         self.assertEqual(self.post("/api/agent/tools/start_scan", {"mode": "passive-auto"})[0], 409)
         self.assertEqual(self.post("/api/agent/tools/start_scan", {"mode": "superuser"})[0], 400)
-        self.assertEqual(self.post("/api/agent/run", {"command": "find bluetooth devices"})[0], 409)  # demo: no radios
+        # The demo has no radios: runs use simulated receivers and are labelled as such.
+        code, job = self.post("/api/agent/run", {"command": "find ble devices for 5 seconds"})
+        self.assertEqual((code, job["simulated"]), (200, True))
+        self.assertEqual(self.post(f"/api/agent/jobs/{job['job_id']}/stop", {})[0], 200)
+        import time
+        for _ in range(100):
+            if self.client.get(f"/api/agent/jobs/{job['job_id']}").get_json()["status"] not in ("running", "stopping"):
+                break
+            time.sleep(0.1)
         self.assertEqual(self.post("/api/agent/jobs/run-nope/stop", {})[0], 404)
         self.assertEqual(self.post("/api/agent/jobs/run-nope/approve", {"action_id": "A-x", "operator": "o"})[0], 404)
 

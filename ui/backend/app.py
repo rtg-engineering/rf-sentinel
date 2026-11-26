@@ -8793,6 +8793,10 @@ def agent_policy():
     return jsonify({"ceiling": server_ceiling(), "modes": list(MODES), "tools": TOOLS, "never": sorted(NEVER)})
 
 
+def agent_simulated(requested: bool) -> bool:
+    return requested or os.getenv("RF_SENTINEL_AGENT_SIMULATE", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 @app.post("/api/agent/plan")
 def agent_plan():
     """Plain language -> a validated workflow plan (find / filter / when->do). Nothing runs."""
@@ -8816,8 +8820,8 @@ def agent_run():
     from rf_platform.agent.workflow import WorkflowSpec, plan_deterministic, run_workflow
     body = request.get_json(silent=True) or {}
     command = str(body.get("command") or "").strip()
-    if RF_SENTINEL_DEMO_MODE:
-        return jsonify({"error": "The agent needs live receivers; this dashboard is running the synthetic demo."}), 409
+    # The synthetic demo has no radios: agent runs there use simulated receivers and say so everywhere.
+    simulate = bool(body.get("simulate")) or RF_SENTINEL_DEMO_MODE
     try:
         # A confirmed plan is re-validated here: a client (or model) cannot exceed the schema's bounds.
         spec = WorkflowSpec.model_validate(body["workflow"]) if body.get("workflow") else plan_deterministic(command)
@@ -8835,11 +8839,12 @@ def agent_run():
     job = {"job_id": job_id, "command": command, "profile": spec.collect[0], "mode": mode,
            "source": str(body.get("source") or "dashboard")[:20], "status": "running", "started_at": time.time(),
            "steps": [], "result": None, "error": None, "workflow": spec.model_dump(), "summary": spec.summary(),
-           "planner": planner_info, "events": [], "alerts": []}
+           "planner": planner_info, "events": [], "alerts": [], "simulated": agent_simulated(simulate)}
     gateway = AgentGateway(mode, job_id, _agent_approvals(),
                            on_pending=lambda p: job["steps"].append({"t": round(time.time() - job["started_at"], 1),
                                                                      "message": f"Approval needed for {p['tool']} {p['params']} (action {p['action_id']})"}))
-    agent = Agent(_gateway_base(), os.getenv("SDR_GATEWAY_API_TOKEN", ""), gateway=gateway, run_id=job_id)
+    agent = Agent(_gateway_base(), os.getenv("SDR_GATEWAY_API_TOKEN", ""), gateway=gateway, run_id=job_id,
+                  simulate=simulate or None)
     job["agent"] = agent
     with agent_jobs_lock:
         agent_jobs[job_id] = job
@@ -8849,7 +8854,11 @@ def agent_run():
             def on_event(event):
                 job["events"].append(event)
                 if event["kind"] == "alert":
-                    job["alerts"].append(event)
+                    key = (event.get("device") or {}).get("key")
+                    if event.get("merged") and job["alerts"] and (job["alerts"][-1].get("device") or {}).get("key") == key:
+                        job["alerts"][-1] = event  # several rules matched at once: one alert, every reason
+                    else:
+                        job["alerts"].append(event)
             job["result"] = run_workflow(
                 agent, spec, on_step=lambda m: job["steps"].append({"t": round(time.time() - job["started_at"], 1), "message": m}),
                 on_detection=lambda e: _agent_ingest(e.get("agent_profile") or spec.collect[0], e), on_event=on_event,

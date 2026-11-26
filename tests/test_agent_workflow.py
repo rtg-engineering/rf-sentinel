@@ -252,8 +252,38 @@ class PlanEndpointTest(unittest.TestCase):
         self.assertEqual(len(ok.get_json()["summary"]["triggers"]), 2)
         self.assertEqual(self.client.post("/api/agent/plan", json={"text": "jam it"}).status_code, 400)
         bad = {"collect": ["ble"], "duration_s": 99999}
-        self.assertEqual(self.client.post("/api/agent/run", json={"workflow": bad}).status_code, 409)  # demo mode first
+        self.assertEqual(self.client.post("/api/agent/run", json={"workflow": bad}).status_code, 400)  # re-validated
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SimulationTest(unittest.TestCase):
+    """Simulated receivers drive the real agent, workflow engine, gateway and reports, and say so."""
+
+    def test_simulated_tracker_and_rogue_cell_scenarios(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"RF_SENTINEL_AGENT_RUNS_DIR": temp}):
+            agent = core.Agent(simulate=True)
+            spec = plan_deterministic("find ble devices for 12 seconds. if an airtag is seen for more than 4 seconds, "
+                                      "send an urgent alert and tag it as follower")
+            result = run_workflow(agent, spec, on_step=lambda m: None)
+            self.assertTrue(result["simulated"])
+            self.assertEqual(result["receiver"], "sim:0")
+            alert = result["workflow"]["alerts"][0]
+            self.assertEqual((alert["severity"], alert["device"]["label"]), ("critical", "AirTag"))
+            from rf_platform.agent.report import _render
+            self.assertIn("SIMULATED RUN", _render(result))
+            cells = run_workflow(core.Agent(simulate=True), plan_deterministic(
+                "survey cell towers for 14 seconds. send an urgent alert if an unknown network appears or if a 2G cell shows up"),
+                on_step=lambda m: None)
+            alerts = cells["workflow"]["alerts"]
+            self.assertEqual(len(alerts), 1)  # one rogue cell, two matching rules: one merged alert
+            self.assertEqual(len(alerts[0]["reasons"]), 2)
+            self.assertEqual(alerts[0]["device"]["key"], "2G GSM:0F00001")
+
+    def test_companion_gets_the_second_simulated_receiver(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"RF_SENTINEL_AGENT_RUNS_DIR": temp}):
+            result = core.Agent(simulate=True).run("find bluetooth devices for 5 seconds", on_step=lambda m: None)
+        self.assertEqual((result["receiver"], result["companion"]["receiver"]), ("sim:0", "sim:1"))
+        self.assertEqual({d["protocol"] for d in result["devices"]}, {"ble", "classic"})

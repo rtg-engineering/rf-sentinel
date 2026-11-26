@@ -81,9 +81,9 @@ body{{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,sa
 h1{{font-size:24px;margin:4px 0}}.muted,.t{{color:var(--muted)}}table{{width:100%;border-collapse:collapse;font-size:14px}}
 th,td{{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}}code{{font:13px ui-monospace,monospace}}
 .card{{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin:12px 0;overflow-x:auto}}</style></head>
-<body><main><div class="muted">RF SENTINEL AGENT · RECEIVE-ONLY RUN</div><h1>{e(result['command'])}</h1>
+<body><main>{"<div class='card' style='border-color:#b77b17'><strong>SIMULATED RUN.</strong> No radio was used; receivers and detections came from a scripted scenario.</div>" if result.get("simulated") else ""}<div class="muted">RF SENTINEL AGENT · RECEIVE-ONLY RUN</div><h1>{e(result['command'])}</h1>
 <div class="muted">Run {e(result['run_id'])} · {e(result['started_at'])} · receiver {e(result['receiver'])} · {e(result['duration_s'])} s ·
-{e(('gain ' + ', '.join(f'{g:.0f}' for g in result['gains_db']) + f" dB ({result['adjustments']} automatic adjustment(s))") if result['gains_db'] else 'no gain stage (modem)')}</div>
+{e(('gain ' + ', '.join(f'{g:.0f}' for g in result['gains_db']) + f" dB ({result['adjustments']} automatic adjustment(s))") if result['gains_db'] else 'no gain stage')}</div>
 <div class="card"><strong>{len(result['devices'])} device(s), {sum(d['count'] for d in result['devices'])} detection(s)</strong>
 <table><tr><th>Device</th><th>Seen</th><th>Best RSSI (dBFS)</th><th>Details</th><th>Gain (dB)</th></tr>{rows}</table></div>
 {workflow_html}{decoder}<h2>What the agent did</h2><ol>{steps}</ol>

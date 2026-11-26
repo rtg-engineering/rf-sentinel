@@ -41,6 +41,13 @@ def plugin_path(name: str) -> str | None:
     return str(local) if local.exists() else shutil.which(name)
 
 
+def simulate_command(task: Task, device: dict[str, Any]) -> list[str]:
+    """The scripted-scenario stand-in for a receiver plugin (rf_platform.agent.simulate)."""
+    seed = abs(hash((task.profile.name, device["id"]))) % 1000
+    return [sys.executable, "-m", "rf_platform.agent.simulate", "--profile", task.profile.name,
+            "--duration", str(task.duration_s), "--seed", str(seed)]
+
+
 def plugin_command(task: Task, device: dict[str, Any], gain_db: float, base_url: str, token: str) -> list[str]:
     p, exe = task.profile, plugin_path(task.profile.plugin)
     if p.name == "cellular":  # modem survey adapter, not an SDR plugin: no gain
@@ -71,19 +78,34 @@ def plugin_command(task: Task, device: dict[str, Any], gain_db: float, base_url:
 
 class Agent:
     def __init__(self, base_url: str | None = None, token: str | None = None, gateway: AgentGateway | None = None,
-                 mode: str | None = None, run_id: str | None = None):
-        self.radio = Radio(base_url, token)
+                 mode: str | None = None, run_id: str | None = None, simulate: bool | None = None):
+        if simulate is None:
+            simulate = os.getenv("RF_SENTINEL_AGENT_SIMULATE", "").strip().lower() in ("1", "true", "yes", "on")
+        self.simulate = bool(simulate)
+        if self.simulate:
+            from .simulate import SimRadio
+            self.radio = SimRadio()
+        else:
+            self.radio = Radio(base_url, token)
         self._stop = threading.Event()
         self.gateway = gateway or AgentGateway(effective_mode(mode), run_id or "local", stop=self._stop)
         self.gateway.stop = self._stop
         self._deadline = float("inf")
         self.stop_reason: str | None = None
 
+    def _classic_capability(self, devices, exclude=()):
+        if self.simulate:
+            free = [d for d in devices if d["id"] not in exclude]
+            return ({"supported": True, "device": free[0], "decoder": "simulated", "reason": f"{free[0]['id']} (simulated)"}
+                    if free else {"supported": False, "reason": "no free simulated receiver"})
+        return classic_capability(devices, plugin_path(PROFILES["classic"].plugin), exclude=exclude)
+
     def child(self) -> "Agent":
         """Another agent on the same radio service, gateway (policy, approvals, audit), and stop control."""
         child = Agent.__new__(Agent)
         child.radio, child._stop, child.gateway = self.radio, self._stop, self.gateway
         child._deadline, child.stop_reason = float("inf"), None
+        child.simulate = self.simulate
         return child
 
     def stop(self, reason: str = "operator") -> None:
@@ -122,14 +144,14 @@ class Agent:
             self.gateway.authorize("list_receivers", {})
             devices = self.radio.devices()
             if task.profile.name == "classic":
-                cap = classic_capability(devices, plugin_path(PROFILES["classic"].plugin))
+                cap = self._classic_capability(devices)
                 capabilities["classic"] = {k: v for k, v in cap.items() if k != "device"}
                 if not cap["supported"]:
                     step(f"Bluetooth Classic is not available here: {cap['reason']}. Continuing with BLE.")
                     task = Task(PROFILES["ble"], task.duration_s, task.device_id, None, command)
             else:
                 ble_device = self.radio.choose(PROFILES["ble"].freqs_hz, PROFILES["ble"].sample_rate_sps, task.device_id)
-                cap = classic_capability(devices, plugin_path(PROFILES["classic"].plugin), exclude=(ble_device["id"],))
+                cap = self._classic_capability(devices, exclude=(ble_device["id"],))
                 capabilities["classic"] = {k: v for k, v in cap.items() if k != "device"}
                 if cap["supported"]:
                     companion = {"profile": "classic", "device": cap["device"]}
@@ -147,7 +169,7 @@ class Agent:
             task = Task(task.profile, task.duration_s, classic_device["id"], task.channel, command)
         profile = task.profile
         modem = profile.extra.get("source") == "modem"
-        exe = sys.executable if modem else plugin_path(profile.plugin)
+        exe = sys.executable if (modem or self.simulate) else plugin_path(profile.plugin)
         if not exe:
             raise RuntimeError(f"The {profile.title} receiver ({profile.plugin}) is not installed. "
                                f"Install it with: pip install -e rf_platform/plugins/<plugin>")
@@ -156,9 +178,15 @@ class Agent:
         if companion is not None:
             child_thread = self._start_companion(companion, task, step, on_detection, gain_db, child_result)
         gw = self.gateway
+        if self.simulate:
+            step("SIMULATION: no radio is used. Receivers and detections are synthetic (scripted scenario).")
         step(f"Task: {profile.title} for {task.duration_s} s (receive-only, {gw.mode} mode). {profile.notes}")
         self.gateway.authorize("list_receivers", {})
-        if modem:
+        if modem and self.simulate:
+            cap = {"supported": True, "url": "sim://", "reason": "simulated cellular modem"}
+            capabilities["cellular"] = cap
+            device = {"id": "sim:cellmodem", "label": "Simulated cellular modem", "driver": "sim"}
+        elif modem:
             from rf_platform.cellular.survey import cellular_capability
             cap = cellular_capability()
             capabilities["cellular"] = cap
@@ -172,7 +200,10 @@ class Agent:
         step(f"Receiver: {device['id']} ({device['label']})")
         if gw.mode == "approval-required":
             step("Waiting for operator approval before touching the receiver")
-        if modem:
+        if self.simulate:
+            gain = None
+            step("Simulated receiver: no gain stage")
+        elif modem:
             gain = None
             step(f"{cap['reason']}")
         elif gain_db is None:
@@ -193,7 +224,9 @@ class Agent:
         self._started_mono = time.monotonic()
         self._deadline = self._started_mono + task.duration_s
         while time.monotonic() < self._deadline and not self._stop.is_set():
-            proc = subprocess.Popen(plugin_command(task, device, gain, self.radio.base_url, self.radio.token),
+            command_line = (simulate_command(task, device) if self.simulate
+                            else plugin_command(task, device, gain, self.radio.base_url, self.radio.token))
+            proc = subprocess.Popen(command_line,
                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
             peaks: list[float] = []
             classic_metrics: dict[str, Any] | None = None
@@ -260,7 +293,7 @@ class Agent:
                      f"at this bandwidth); packets in the skipped portions were not examined")
         devices = sorted(detections.values(), key=lambda d: -d["count"])
         step(f"Done: {len(devices)} {profile.name} device(s), {sum(d['count'] for d in devices)} detections; "
-             + (f"gain {', '.join(f'{g:.0f}' for g in gains_used)} dB" if gains_used else "no gain stage (modem)"))
+             + (f"gain {', '.join(f'{g:.0f}' for g in gains_used)} dB" if gains_used else "no gain stage"))
         companion_summary = None
         if child_thread is not None:
             child_thread.join(timeout=90)
@@ -278,6 +311,7 @@ class Agent:
                          "adjustments": adjustments, "devices": devices, "steps": steps,
                          "elapsed_s": round(time.time() - started, 1), "receive_only": True,
                          "mode": gw.mode, "stopped": self._stop.is_set(), "stop_reason": self.stop_reason,
+                         "simulated": self.simulate,
                          "audit": gw.audit,
                          "decoder_stats": decoder}, started)
 

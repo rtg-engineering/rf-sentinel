@@ -120,7 +120,7 @@ def parse(command: str) -> Task:
         duration = int(value * (3600 if unit.startswith("h") else 60 if unit.startswith("m") else 1))
     if not 5 <= duration <= MAX_DURATION_S:
         raise IntentError(f"Duration must be between 5 and {MAX_DURATION_S} seconds.")
-    device = re.search(r"\b((?:bladerf|hackrf|rtlsdr|airspy|sdrplay|lime|uhd|plutosdr):\d+)\b", text)
+    device = re.search(r"\b((?:bladerf|hackrf|rtlsdr|airspy|sdrplay|lime|uhd|plutosdr|sim):\d+)\b", text)
     channel = re.search(r"\bchannel\s+(\d{1,2})\b", text)
     return Task(profile, duration, device.group(1) if device else None,
                 int(channel.group(1)) if channel else None, command, companions)
