@@ -263,7 +263,7 @@ def split_steps(text: str) -> list[str]:
             if re.match(VERB, piece.strip()):
                 steps.append(f"{pending_gate}, {piece.strip()}")
             else:
-                steps[-1] = f"{steps[-1]}{pending_gate}{sep}{piece}"
+                steps[-1] = f"{steps[-1]}{pending_sep}{pending_gate}{sep}{piece}"
             pending_gate = None
         elif kind is not None and not rest:
             pending_gate = piece.strip()  # "if you find any trackers" + ", then watch them ..."

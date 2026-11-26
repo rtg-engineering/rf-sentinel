@@ -101,6 +101,9 @@ class PlannerTest(unittest.TestCase):
         self.assertFalse(is_multistep("find ble devices for 60 seconds, only stronger than -60. When a device is seen "
                                       "5 times, alert me"))
         self.assertIn("spec", plan_any("find ble devices for 1 minute", "deterministic"))
+        # A dangling gate with no step after it stays in the request text, separators intact.
+        self.assertEqual(split_steps("watch for trackers for 1 minute. if you find any trackers. then alert me"),
+                         ["watch for trackers for 1 minute. if you find any trackers. then alert me"])
         self.assertIn("playbook", plan_any(OPERATION, "deterministic"))
 
     def test_bounds_and_refusals(self):
