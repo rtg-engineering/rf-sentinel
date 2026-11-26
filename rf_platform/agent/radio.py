@@ -67,8 +67,9 @@ class Radio:
         response.raise_for_status()
         return response.json()
 
-    def choose(self, freqs_hz: tuple[int, ...], rate_sps: int, wanted: str | None = None) -> dict[str, Any]:
-        devices = self.devices()
+    def choose(self, freqs_hz: tuple[int, ...], rate_sps: int, wanted: str | None = None,
+               exclude: tuple[str, ...] = ()) -> dict[str, Any]:
+        devices = [d for d in self.devices() if d["id"] not in exclude]
         if wanted:
             match = [d for d in devices if d["id"] == wanted]
             if not match:

@@ -102,7 +102,8 @@ class AgentModeTest(unittest.TestCase):
     def run_agent(self, gateway, command="find bluetooth devices for 5 seconds"):
         agent = core.Agent("http://iq.invalid", "", gateway=gateway, run_id=gateway.run_id)
         with patch.object(core, "plugin_path", return_value=str(self.plugin)), patch.object(core, "WINDOW_S", 1.0), \
-                patch.object(agent.radio, "choose", return_value=DEVICE):
+                patch.object(agent.radio, "choose", return_value=DEVICE), \
+                patch.object(agent.radio, "devices", return_value=[DEVICE]):
             return agent.run(command, on_step=lambda m: None, gain_db=40)
 
     def test_observe_never_starts_the_receiver(self):

@@ -24,8 +24,9 @@ import threading
 import time
 from typing import Any, Callable
 
+from .capabilities import classic_capability
 from .gateway import AgentGateway, PermissionDenied, effective_mode
-from .profiles import Profile, Task, parse
+from .profiles import PROFILES, Profile, Task, parse
 from .radio import Radio, auto_gain, split_gain
 
 WINDOW_S = 8.0
@@ -56,6 +57,13 @@ def plugin_command(task: Task, device: dict[str, Any], gain_db: float, base_url:
     if p.name == "tpms":
         return [exe, "--gateway", base_url, *auth, "listen", "--device-id", device["id"], "--protocol", "tpms",
                 "--auto-hop-known", "--sample-rate-sps", str(p.sample_rate_sps), *common_gain, "--json"]
+    if p.name == "classic":
+        # Receive-only "listen" from the IQ service; the plugin's transmitting page-stimulus mode is never built here.
+        log = Path(os.getenv("RF_SENTINEL_LOG_DIR") or ".demo/livelog") / "agent-classic-sniffer.log"
+        return [exe, "listen", "--source", "gateway", "--gateway-base-url", base_url,
+                *(["--gateway-token", token] if token else []), "--device-id", device["id"],
+                "--center-mhz", str(p.extra["center_mhz"]), "--bandwidth-mhz", str(p.extra["bandwidth_mhz"]),
+                *common_gain, "--log", str(log), "--json", "--metrics"]
     raise ValueError(f"No runner for {p.name}")
 
 
@@ -82,15 +90,49 @@ class Agent:
             on_step(message)
 
         task = parse(command)
+        capabilities: dict[str, Any] = {}
+        companion: dict[str, Any] | None = None
+        if task.profile.name == "classic" or "classic" in task.companions:
+            self.gateway.authorize("list_receivers", {})
+            devices = self.radio.devices()
+            if task.profile.name == "classic":
+                cap = classic_capability(devices, plugin_path(PROFILES["classic"].plugin))
+                capabilities["classic"] = {k: v for k, v in cap.items() if k != "device"}
+                if not cap["supported"]:
+                    step(f"Bluetooth Classic is not available here: {cap['reason']}. Continuing with BLE.")
+                    task = Task(PROFILES["ble"], task.duration_s, task.device_id, None, command)
+            else:
+                ble_device = self.radio.choose(PROFILES["ble"].freqs_hz, PROFILES["ble"].sample_rate_sps, task.device_id)
+                cap = classic_capability(devices, plugin_path(PROFILES["classic"].plugin), exclude=(ble_device["id"],))
+                capabilities["classic"] = {k: v for k, v in cap.items() if k != "device"}
+                if cap["supported"]:
+                    companion = {"profile": "classic", "device": cap["device"]}
+                    task = Task(task.profile, task.duration_s, ble_device["id"], task.channel, command)
+                else:
+                    step(f"Bluetooth Classic not run: {cap['reason']}. Running BLE only.")
+        if task.profile.name == "classic" and "ble" in task.companions:
+            classic_device = self.radio.choose(task.profile.freqs_hz, task.profile.sample_rate_sps, task.device_id)
+            try:
+                ble_device = self.radio.choose(PROFILES["ble"].freqs_hz, PROFILES["ble"].sample_rate_sps,
+                                               exclude=(classic_device["id"],))
+                companion = {"profile": "ble", "device": ble_device}
+            except RuntimeError as exc:
+                step(f"BLE not run alongside Classic: {exc}")
+            task = Task(task.profile, task.duration_s, classic_device["id"], task.channel, command)
         profile = task.profile
         exe = plugin_path(profile.plugin)
         if not exe:
             raise RuntimeError(f"The {profile.title} receiver ({profile.plugin}) is not installed. "
                                f"Install it with: pip install -e rf_platform/plugins/<plugin>")
+        child_result: dict[str, Any] = {}
+        child_thread = None
+        if companion is not None:
+            child_thread = self._start_companion(companion, task, step, on_detection, gain_db, child_result)
         gw = self.gateway
         step(f"Task: {profile.title} for {task.duration_s} s (receive-only, {gw.mode} mode). {profile.notes}")
         self.gateway.authorize("list_receivers", {})
-        device = self.radio.choose(profile.freqs_hz, profile.sample_rate_sps, task.device_id)
+        device = self.radio.choose(profile.freqs_hz, profile.sample_rate_sps, task.device_id,
+                                   exclude=(companion["device"]["id"],) if companion else ())
         step(f"Receiver: {device['id']} ({device['label']})")
         if gw.mode == "approval-required":
             step("Waiting for operator approval before touching the receiver")
@@ -114,6 +156,8 @@ class Agent:
             proc = subprocess.Popen(plugin_command(task, device, gain, self.radio.base_url, self.radio.token),
                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
             peaks: list[float] = []
+            classic_metrics: dict[str, Any] | None = None
+            proc_started = time.monotonic()
             window_end = time.monotonic() + WINDOW_S
             decided = None
             try:
@@ -126,6 +170,8 @@ class Agent:
                         self._record(detections, profile, event, gain, on_detection)
                     elif kind and kind.endswith("_decoder_stats"):
                         self._decoder_stats(decoder, event)
+                    elif event and event.get("type") == "metrics" and profile.name == "classic":
+                        classic_metrics = event  # cumulative for this plugin process
                     if time.monotonic() >= window_end:  # evaluated even when the plugin is quiet
                         decided = self._decide(peaks, gain, adjustments)
                         if decided is not None:
@@ -140,6 +186,13 @@ class Agent:
                     proc.wait(timeout=5)
                 if proc.stdout:
                     proc.stdout.close()
+                if classic_metrics:
+                    streamed_s = max(1e-3, time.monotonic() - proc_started)
+                    item = decoder.setdefault("classic", {})
+                    item["streamed_s"] = round(item.get("streamed_s", 0) + streamed_s, 1)
+                    self._decoder_stats(decoder, {**{k: v for k, v in classic_metrics.items()
+                                                     if k not in ("time_us", "bins", "active_laps")
+                                                     and not k.startswith("fhs_expected")}, "channel": "classic"})
             if decided is None or self._stop.is_set():
                 break
             new_gain, reason = decided
@@ -155,16 +208,57 @@ class Agent:
         if self._stop.is_set():
             step("Stopped by operator; receiver released")
 
+        classic = decoder.get("classic")
+        if classic and classic.get("streamed_s"):
+            # samples_processed counts 1 MS/s per channel bin, so it equals seconds of stream decoded x 1e6.
+            coverage = min(1.0, classic.get("samples_processed", 0) / 1e6 / classic["streamed_s"])
+            classic["realtime_coverage"] = round(coverage, 2)
+            if coverage < 0.95:
+                step(f"Classic decoder processed {coverage:.0%} of the stream (it runs slower than real time "
+                     f"at this bandwidth); packets in the skipped portions were not examined")
         devices = sorted(detections.values(), key=lambda d: -d["count"])
         step(f"Done: {len(devices)} {profile.name} device(s), {sum(d['count'] for d in devices)} detections; "
              f"gain {', '.join(f'{g:.0f}' for g in gains_used)} dB")
+        companion_summary = None
+        if child_thread is not None:
+            child_thread.join(timeout=90)
+            child = child_result.get("result")
+            companion_summary = {"profile": companion["profile"], "receiver": companion["device"]["id"],
+                                 "error": child_result.get("error")}
+            if child:
+                devices = devices + child["devices"]
+                decoder.update(child.get("decoder_stats") or {})
+                companion_summary.update({"devices": len(child["devices"]), "gains_db": child["gains_db"],
+                                          "detections": sum(d["count"] for d in child["devices"])})
         from .report import finalize
-        return finalize({"command": command, "profile": profile.name, "title": profile.title, "receiver": device["id"],
+        return finalize({"companion": companion_summary, "capabilities": capabilities,"command": command, "profile": profile.name, "title": profile.title, "receiver": device["id"],
                          "receiver_label": device.get("label"), "duration_s": task.duration_s, "gains_db": gains_used,
                          "adjustments": adjustments, "devices": devices, "steps": steps,
                          "elapsed_s": round(time.time() - started, 1), "receive_only": True,
                          "mode": gw.mode, "stopped": self._stop.is_set(), "audit": gw.audit,
                          "decoder_stats": decoder}, started)
+
+    def _start_companion(self, companion: dict[str, Any], task: Task, step: Callable[[str], None],
+                         on_detection, gain_db: float | None, out: dict[str, Any]) -> threading.Thread:
+        """Run a second protocol on its own receiver for the same duration, under the same gateway and stop."""
+        child = Agent.__new__(Agent)
+        child.radio, child._stop, child.gateway = self.radio, self._stop, self.gateway
+        name = companion["profile"]
+        label = "Classic" if name == "classic" else "BLE"
+        what = "bluetooth classic" if name == "classic" else "ble"
+        command = f"find {what} devices for {task.duration_s} seconds on {companion['device']['id']}"
+
+        def work():
+            try:
+                out["result"] = child.run(command, on_step=lambda m: step(f"[{label}] {m}"),
+                                          on_detection=on_detection, gain_db=gain_db)
+            except Exception as exc:  # reported in the merged result; the primary scan carries on
+                out["error"] = f"{type(exc).__name__}: {exc}"
+                step(f"[{label}] stopped: {exc}")
+        step(f"Also running {label} on {companion['device']['id']} for the same {task.duration_s} s")
+        thread = threading.Thread(target=work, name=f"agent-{name}", daemon=True)
+        thread.start()
+        return thread
 
     def _lines(self, proc: subprocess.Popen, deadline: float):
         """Plugin stdout lines until the deadline, without blocking past it."""

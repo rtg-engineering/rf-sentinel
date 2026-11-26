@@ -32,15 +32,30 @@ def _zigbee_key(event):
     return event.get("source_address") or event.get("src") or event.get("mac") or event.get("pan_id")
 
 
+def _classic_key(event):
+    # A full BD_ADDR (from a passive FHS) when available, else the LAP from the access code.
+    return event.get("address") or event.get("bdaddr") or (f"LAP {event['lap']}" if event.get("lap") else None)
+
+
 def _tpms_key(event):
     return event.get("sensor_id") or event.get("id") or event.get("device_id_hex")
 
 
 PROFILES = {
+    # Classic is listed first so "bluetooth classic" picks it; a plain "bluetooth" request matches BLE and
+    # adds Classic as a companion when the hardware supports it (see Task.companions).
+    "classic": Profile("classic", "Bluetooth Classic (BR/EDR) piconets",
+                       ("bluetooth classic", "classic bluetooth", "br/edr", "bredr", "bt classic"),
+                       "bluetooth_classic", (2_432_000_000, 2_442_000_000, 2_452_000_000), 20_000_000,
+                       ("classic_lap",), _classic_key,
+                       notes="Captures 20 of the 79 Classic channels (2432-2452 MHz). Classic hops across all 79, "
+                             "so every active piconet appears, at about a quarter of its packet rate. Devices are "
+                             "identified by LAP (lower address part); full addresses need a passive FHS.",
+                       extra={"center_mhz": 2442, "bandwidth_mhz": 20}),
     "ble": Profile("ble", "Bluetooth Low Energy advertisements", ("bluetooth", "ble", "btle", "beacon", "airtag", "find my"),
                    "ble_scanner", (2_402_000_000, 2_426_000_000, 2_480_000_000), 4_000_000,
                    ("ble_adv",), _ble_key, ("ble_burst",),
-                   notes="Hops advertising channels 37, 38, 39. Bluetooth Classic needs the native sniffer and is not run here."),
+                   notes="Hops advertising channels 37, 38, 39."),
     "zigbee": Profile("zigbee", "Zigbee / IEEE 802.15.4 frames", ("zigbee", "802.15.4", "thread", "smart home", "matter"),
                       "zigbee_802154", (2_425_000_000,), 4_000_000,
                       ("zigbee_frame", "802154_frame", "frame"), _zigbee_key, ("burst",),
@@ -61,6 +76,7 @@ class Task:
     device_id: str | None = None
     channel: int | None = None
     command: str = ""
+    companions: tuple[str, ...] = ()   # profiles to run alongside on another receiver, when supported
 
 
 class IntentError(ValueError):
@@ -81,6 +97,11 @@ def parse(command: str) -> Task:
     if not matches:
         raise IntentError("I can look for: " + "; ".join(f"{p.title} ('{p.keywords[0]}')" for p in PROFILES.values()) + ".")
     profile = matches[0]
+    companions: tuple[str, ...] = ()
+    if profile.name == "classic" and re.search(r"\b(ble|low energy|btle)\b", text):
+        companions = ("ble",)  # "bluetooth classic and ble"
+    elif profile.name == "ble" and not re.search(r"\b(ble|btle|low energy|beacons?|airtags?|find my)\b", text):
+        companions = ("classic",)  # a plain "bluetooth" request covers both kinds
     duration = DEFAULT_DURATION_S
     m = re.search(r"(\d+(?:\.\d+)?)\s*(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)\b", text)
     if m:
@@ -91,4 +112,4 @@ def parse(command: str) -> Task:
     device = re.search(r"\b((?:bladerf|hackrf|rtlsdr|airspy|sdrplay|lime|uhd|plutosdr):\d+)\b", text)
     channel = re.search(r"\bchannel\s+(\d{1,2})\b", text)
     return Task(profile, duration, device.group(1) if device else None,
-                int(channel.group(1)) if channel else None, command)
+                int(channel.group(1)) if channel else None, command, companions)

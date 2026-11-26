@@ -30,8 +30,22 @@ def _render(result: dict[str, Any]) -> str:
         f"<td>{e(d.get('gain_db'))}</td></tr>" for d in result["devices"])
     cols = (("aa_candidates", "Sync candidates"), ("crc_valid", "CRC-valid"), ("crc_failures", "CRC failures"),
             ("header_rejects", "Bad header"), ("length_rejects", "Bad length"), ("clipped_samples", "Clipped samples"))
-    stats = result.get("decoder_stats") or {}
-    decoder = "" if not stats else (
+    stats = {ch: v for ch, v in (result.get("decoder_stats") or {}).items() if ch != "classic"}
+    classic = (result.get("decoder_stats") or {}).get("classic")
+    ccols = (("samples_processed", "Samples per 1 MHz bin"), ("barker_hits", "Sync candidates"),
+             ("access_hits", "Access codes"), ("lap_events", "LAP events"), ("resolved_events", "UAP resolved"),
+             ("fhs_events", "Full addresses (FHS)"))
+    pct = lambda v: "" if v is None else f"{v:.0%}"  # noqa: E731
+    classic_html = "" if not classic else (
+        "<h2>Bluetooth Classic decoder</h2><div class='card'><table><tr>"
+        + "".join(f"<th>{label}</th>" for _, label in ccols) + "<th>Stream decoded</th></tr><tr>"
+        + "".join(f"<td>{e(int(classic.get(k, 0)))}</td>" for k, _ in ccols)
+        + f"<td>{e(pct(classic.get('realtime_coverage')))}</td></tr></table></div>")
+    caps = result.get("capabilities") or {}
+    caps_html = "" if not caps else ("<h2>Capabilities checked</h2><ul>" + "".join(
+        f"<li>{e(name)}: {'supported' if c.get('supported') else 'not available'} ({e(c.get('reason'))})</li>"
+        for name, c in caps.items()) + "</ul>")
+    decoder = classic_html + caps_html if not stats else classic_html + caps_html + (
         "<h2>Decoder yield</h2><div class='card'><table><tr><th>Channel</th>"
         + "".join(f"<th>{label}</th>" for _, label in cols) + "<th>Yield</th></tr>"
         + "".join(f"<tr><td>{e(ch)}</td>" + "".join(f"<td>{e(int(v.get(k, 0)))}</td>" for k, _ in cols)
