@@ -799,6 +799,7 @@ class WorkflowEngine:
                 pass
             return {"spec": self.spec.model_dump(), "summary": self.spec.summary(),
                     "matched": sorted(matched, key=lambda d: -(d["count"] or 0)),
+                    "all_devices": [self._public(r) for r in self.devices.values()],
                     "seen": len(self.devices), "alerts": self.alerts, "timeline": self.timeline,
                     "triggers_fired": sum(1 for e in self.timeline if e["kind"] == "trigger"),
                     "evidence": list(self.evidence),
@@ -814,6 +815,13 @@ def narrative(result: dict[str, Any]) -> list[str]:
     prefix = "Simulated run. " if result.get("simulated") else ""
     lines.append(f"{prefix}Collected {what} and saw {seen} device(s); {matched} matched the filters."
                  if (wf.get("spec") or {}).get("filters") else f"{prefix}Collected {what} and saw {seen} device(s).")
+    new = [d for d in wf.get("all_devices") or [] if d.get("new")]
+    if wf.get("all_devices") is not None:
+        if new:
+            names = list(dict.fromkeys(d.get("label") or d.get("key") for d in new))
+            lines.append(f"{len(new)} device(s) not seen in any earlier run: {', '.join(names[:5])}{'…' if len(names) > 5 else ''}.")
+        elif seen:
+            lines.append("Every device had been seen in an earlier run.")
     by_rule: dict[str, list[str]] = {}
     for event in wf.get("timeline") or []:
         if event["kind"] == "trigger":
