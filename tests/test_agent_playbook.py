@@ -97,6 +97,7 @@ class PlannerTest(unittest.TestCase):
     def test_single_requests_stay_single(self):
         for case in CORPUS:
             self.assertEqual(len(split_steps(case["text"])), 1, case["text"])
+            self.assertFalse(is_multistep(case["text"]), case["text"])  # no steps, schedule or repeat read into it
         self.assertFalse(is_multistep("If an AirTag appears, then scan bluetooth classic for 60 seconds"))
         self.assertFalse(is_multistep("find ble devices for 60 seconds, only stronger than -60. When a device is seen "
                                       "5 times, alert me"))
