@@ -39,9 +39,26 @@ Plan (deterministic)
   WHEN    when identity contains "AirTag" → scan Bluetooth Classic for 60 s
 ```
 
-In the dashboard, the **Agent workflows** panel does the same, in two steps:
-- **Plan** shows *Find / Keep / When → Do* cards and says which planner produced them.
-- **Run** shows live progress, the matching devices with their signal and tags, a timeline of matches, triggers and actions, and alerts.
+In the dashboard, the **Agent workflows** panel does the same:
+- **Plan** shows *Find / Keep / When → Do* cards and says which planner produced them. You can remove a filter or rule (×) and change the duration (− / +). The server re-validates every edit.
+- **Act** chooses **Autonomous** (act within bounds) or **Approve**. In Approve mode, each hardware action (starting a scan, recording IQ, extending the run) appears as an approval card. You approve or deny it under your name, and the decision goes into the audit.
+- **Run** shows live progress, a detections-per-second sparkline, per-protocol counts, an alert stack (critical alerts in red), the matching devices (alerted and tagged ones first), and a timeline of matches, rules and actions. When the run ends, a **What happened** summary appears. It is built only from the run's own records, and is also printed by the CLI and included in the report.
+- **Recent runs** lists earlier runs with *Report*, *View* and *Run again*. Reloading the page resumes a run in progress.
+
+**SDR + modem in one workflow.** A workflow can combine one SDR protocol group (BLE with Bluetooth Classic, or Zigbee, or TPMS) with the cellular modem, for example:
+
+> "Watch for trackers and rogue cell towers for 3 minutes. If an AirTag is seen for more than 1 minute, send an urgent alert. Send an urgent alert if an unknown network appears or if a 2G cell shows up."
+
+Filters are scoped per source. Cell fields (operator, RAT, generation, role) filter cells, and the other filters (tracker kind, dBFS signal, …) filter SDR devices. When several rules match the same device at the same moment, the result is one alert that lists every reason.
+
+**Simulation.** `rf-sentinel agent run "…" --simulate` (or `RF_SENTINEL_AGENT_SIMULATE=1`) replaces the receivers with two simulated ones. A scripted scenario plays out:
+- a crowd of phones and accessories;
+- a separated AirTag that appears and lingers;
+- a strong newcomer;
+- serving-cell changes;
+- a 2G cell on the test network PLMN 001-01.
+
+The gateway, approvals, workflow engine, evidence and reports are the real ones. Runs, reports and the UI are labelled **SIMULATED**. The dashboard's synthetic demo uses simulation for agent runs.
 
 **Planning.** A request becomes a typed `WorkflowSpec` (`rf_platform/agent/workflow.py`), made of three parts:
 

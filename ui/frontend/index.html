@@ -5967,11 +5967,12 @@
       function wfUnit(d) { return d?.protocol === "cellular" ? "dBm" : "dBFS"; }
 
       function wfDevice(d) {
-        const tags = [d.new ? `<span class="wf-tag new">new</span>` : "", ...(d.tags || []).map((t) => `<span class="wf-tag flag">${escapeHtml(t)}</span>`)].join("");
+        const tags = [d.alerted ? `<span class="wf-tag flag">alert</span>` : "", d.new ? `<span class="wf-tag new">new</span>` : "",
+          ...(d.tags || []).map((t) => `<span class="wf-tag flag">${escapeHtml(t)}</span>`)].join("");
         const rssi = d.best_rssi_dbfs ?? d.rssi_dbfs;
         const cell = d.protocol === "cellular";
         const width = rssi == null ? 0 : Math.max(4, Math.min(100, cell ? (Number(rssi) + 130) * 1.25 : (Number(rssi) + 90) * 1.4));
-        return `<div class="wf-dev ${(d.tags || []).length ? "flagged" : ""}" data-key="${escapeHtml(d.key)}">
+        return `<div class="wf-dev ${(d.tags || []).length || d.alerted ? "flagged" : ""}" data-key="${escapeHtml(d.key)}">
             <span class="proto ${escapeHtml(d.protocol || "ble")}"></span>
             <div style="min-width:0"><div class="name">${escapeHtml(d.label || d.key)}${tags}</div>
               <div class="sub">${escapeHtml([WF_PROTO[d.protocol] || d.protocol, d.manufacturer, d.device_type, d.device_class, d.role && cell ? d.role : "", `${d.count}× seen`, d.dwell_s ? `${Math.round(d.dwell_s)} s` : ""].filter(Boolean).join(" · "))}</div></div>
@@ -5981,6 +5982,7 @@
 
       function wfTimelineItem(e) {
         const d = e.device || {};
+        if (e.kind === "action" && e.status === "done" && ["alert", "tag"].includes(e.action)) return "";  // the alert/tag itself is shown
         const text = {
           match: () => `${materialIcon("my_location")} Matched <strong>${escapeHtml(d.label || d.key)}</strong>`,
           trigger: () => `${materialIcon("bolt")} Rule fired on <strong>${escapeHtml(d.label || d.key)}</strong><div class="small">${escapeHtml(e.rule)}</div>`,
@@ -6043,8 +6045,11 @@
         const matchedMap = new Map();
         events.forEach((e) => { if (e.device?.key) matchedMap.set(e.device.key, { ...(matchedMap.get(e.device.key) || {}), ...e.device }); });
         (workflow.matched || []).forEach((d) => matchedMap.set(d.key, d));
-        const matched = [...matchedMap.values()].sort((a, b) => (b.count || 0) - (a.count || 0));
         const alerts = job.alerts || [];
+        const alerted = new Set(alerts.map((a) => a.device?.key));
+        const rank = (d) => (alerted.has(d.key) ? 2 : 0) + ((d.tags || []).length ? 1 : 0);
+        const matched = [...matchedMap.values()].map((d) => ({ ...d, alerted: alerted.has(d.key) }))
+          .sort((a, b) => rank(b) - rank(a) || (b.count || 0) - (a.count || 0));
         const triggers = events.filter((e) => e.kind === "trigger").length;
         const spec = job.workflow || {};
         const elapsed = ((job.finished_at || Date.now() / 1000) - job.started_at);
