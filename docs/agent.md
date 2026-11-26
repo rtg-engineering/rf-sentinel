@@ -202,6 +202,8 @@ The probes are read-only: no receiver is opened. Run them before leaving a watch
 
 **Ask about a run.** When a run has finished, including runs loaded from **Recent runs**, an *Ask* bar takes questions such as "what alerted?", "which trackers came back every cycle?", "what was strongest?" or "why was step 2 skipped?" (`POST /api/agent/jobs/<id>/ask`).
 - **With a model:** the model answers, and it can read the run only through tools (overview, devices, alerts). Its answer is then checked by code: every device it cites must be one the run recorded, and every number must appear in what the tools returned.
+- **Limit of the check:** it rejects invented devices and readings, but it cannot prove a small count the model worked out itself. "8 devices appeared in every cycle" passes if 8 occurs anywhere in the records. For exact counts, ask the code path (planner *Rules*).
+- **Live, on a simulated standing watch:** 6 of 6 `gpt-6-astra` answers passed the check. Where the records lacked the information, the model said so instead of guessing.
 - **Without a model, or if the check fails:** code answers the common questions from the run's records, and the answer states the reason.
 
 **Saved plans.** **Save** under a plan stores it by name on the server, so the dashboard and the CLI share it. Typing "run tonight's watch" (or clicking the saved plan) loads that plan, re-validated, without planning again; `rf-sentinel agent library` lists saved plans. Saved plans live in `<log dir>/agent-runs/library.json`.

@@ -177,7 +177,9 @@ def answer_model(result: dict[str, Any], question: str, model: Any) -> tuple[Ans
                  and (not alerted_only or d["alerted"]) and len(d["steps"]) >= min_steps and len(d["cycles"]) >= min_cycles]
         if sort == "signal":
             items = sorted([d for d in items if d["best_signal"] is not None], key=lambda d: -d["best_signal"])
-        return record({"total": len(items), "devices": items[:max(1, min(limit, 50))]})
+        drop = ({"cycles"} if not result.get("cycles") else set()) | ({"steps"} if result.get("kind") != "playbook" else set())
+        return record({"total": len(items), "devices": [{k: v for k, v in d.items() if k not in drop}
+                                                        for d in items[:max(1, min(limit, 50))]]})
 
     @agent.tool_plain
     def list_alerts() -> str:
