@@ -35,6 +35,11 @@ TOOLS: dict[str, str] = {
     "start_scan": "collect",        # bounded receive-only decoder run
     "adjust_gain": "collect",       # change gain of an owned scan
     "stop_scan": "control",         # stop a scan the run owns; always permitted
+    # Workflow actions (rf_platform.agent.workflow)
+    "raise_alert": "control",       # put an alert on the operator's screen
+    "tag_device": "control",        # label a detected device in this run's results
+    "record_iq": "collect",         # bounded receive-only IQ evidence capture on a free receiver
+    "extend_scan": "collect",       # lengthen the run's own collection, within the duration limit
 }
 # Named explicitly so a request for them gets a clear refusal rather than "unknown tool".
 NEVER = {"transmit", "page_stimulus", "replay", "jam", "spoof", "raw_driver", "shell", "write_register"}

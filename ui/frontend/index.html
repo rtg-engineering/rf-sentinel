@@ -1786,37 +1786,116 @@
         padding: 12px;
       }
 
-      .agent-bar {
-        margin: 0 0 12px;
+      .wf {
+        --wf-a: var(--teal);
+        --wf-b: var(--ble-blue);
+        --wf-c: var(--zigbee-purple);
+        position: relative;
+        margin: 0 0 14px;
+        padding: 14px;
+        border-radius: 16px;
+        background:
+          radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--wf-a) 14%, transparent), transparent 55%),
+          radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--wf-c) 12%, transparent), transparent 55%),
+          var(--panel);
+        border: 1px solid color-mix(in srgb, var(--line) 80%, var(--wf-b));
+        box-shadow: var(--shadow);
       }
-
-      .agent-form {
-        display: flex;
-        gap: 8px;
-        align-items: center;
+      .wf-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+      .wf-title { display: flex; gap: 10px; align-items: center; }
+      .wf-title strong { display: block; font-size: 1.02rem; letter-spacing: 0.01em; }
+      .wf-orb {
+        width: 26px; height: 26px; border-radius: 50%; flex: none;
+        background: conic-gradient(from 0deg, var(--wf-a), var(--wf-b), var(--wf-c), var(--wf-a));
+        box-shadow: 0 0 18px color-mix(in srgb, var(--wf-b) 55%, transparent);
+        animation: wf-spin 6s linear infinite;
       }
-
-      .agent-form input {
-        flex: 1;
-        min-width: 0;
+      .wf.running .wf-orb { animation-duration: 1.6s; }
+      @keyframes wf-spin { to { transform: rotate(360deg); } }
+      .wf-seg { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--chip); }
+      .wf-seg button { border: 0; background: transparent; color: var(--muted); padding: 5px 12px; border-radius: 999px; cursor: pointer; font-size: 0.85rem; }
+      .wf-seg button.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12); }
+      .wf-prompt {
+        position: relative; display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 14px;
+        background: var(--panel); border: 1px solid transparent;
+        background-image: linear-gradient(var(--panel), var(--panel)), linear-gradient(120deg, var(--wf-a), var(--wf-b), var(--wf-c));
+        background-origin: border-box; background-clip: padding-box, border-box;
       }
-
-      .agent-panel {
-        margin-top: 8px;
-        padding: 10px 12px;
-        border: 1px solid rgba(127, 127, 127, 0.35);
-        border-radius: 8px;
-        font-size: 0.9rem;
-      }
-
-      .agent-steps {
-        margin: 0 0 6px;
-        padding-left: 20px;
-      }
-
-      .agent-steps li.gain {
-        font-weight: 600;
-      }
+      .wf-prompt:focus-within { box-shadow: 0 0 0 4px color-mix(in srgb, var(--wf-b) 18%, transparent); }
+      .wf-prompt > .material-symbols-rounded { color: var(--wf-b); margin-top: 6px; }
+      .wf-prompt textarea { flex: 1; min-width: 0; border: 0; outline: 0; resize: vertical; background: transparent; color: var(--ink); line-height: 1.45; padding: 4px 0; }
+      .wf-prompt-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+      .wf-btn { display: inline-flex; align-items: center; gap: 4px; border-radius: 10px; padding: 7px 12px; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-weight: 600; }
+      .wf-btn .material-symbols-rounded { font-size: 18px; }
+      .wf-btn.primary { border: 0; color: #fff; background: linear-gradient(120deg, var(--wf-a), var(--wf-b)); box-shadow: 0 6px 18px color-mix(in srgb, var(--wf-b) 35%, transparent); }
+      .wf-btn.danger { border: 0; color: #fff; background: var(--red); }
+      .wf-btn:disabled { opacity: 0.55; cursor: default; }
+      .wf-btn[hidden] { display: none; }
+      .wf-examples { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+      .wf-examples button { border: 1px dashed var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 4px 10px; cursor: pointer; font-size: 0.82rem; }
+      .wf-examples button:hover { color: var(--ink); border-style: solid; }
+      .wf-plan { margin-top: 12px; display: grid; gap: 10px; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1.6fr); animation: wf-in 0.35s ease; }
+      @media (max-width: 900px) { .wf-plan { grid-template-columns: 1fr; } }
+      @keyframes wf-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+      .wf-card { border-radius: 12px; padding: 10px 12px; background: color-mix(in srgb, var(--panel) 85%, var(--chip)); border: 1px solid var(--line); min-width: 0; }
+      .wf-card h4 { margin: 0 0 8px; font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+      .wf-card h4 .material-symbols-rounded { font-size: 16px; }
+      .wf-chip { display: inline-flex; align-items: center; gap: 5px; margin: 0 6px 6px 0; padding: 4px 10px; border-radius: 999px; background: var(--chip); font-size: 0.86rem; }
+      .wf-chip.ble { background: color-mix(in srgb, var(--ble-blue) 18%, var(--panel)); color: var(--ble-blue); font-weight: 600; }
+      .wf-chip.classic { background: color-mix(in srgb, var(--btc-blue) 22%, var(--panel)); font-weight: 600; }
+      .wf-chip.zigbee { background: color-mix(in srgb, var(--zigbee-purple) 18%, var(--panel)); color: var(--zigbee-purple); font-weight: 600; }
+      .wf-chip.tpms { background: color-mix(in srgb, var(--gold) 20%, var(--panel)); font-weight: 600; }
+      .wf-rule { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center; padding: 8px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); margin-bottom: 6px; }
+      .wf-rule .arrow { color: var(--wf-b); }
+      .wf-rule .act { font-weight: 600; }
+      .wf-meta { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+      .wf-badge { display: inline-flex; gap: 5px; align-items: center; font-size: 0.8rem; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+      .wf-badge.model { border-color: transparent; color: #fff; background: linear-gradient(120deg, var(--wf-c), var(--wf-b)); }
+      .wf-note { font-size: 0.8rem; color: var(--muted); }
+      .wf-live { margin-top: 12px; display: grid; gap: 10px; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); animation: wf-in 0.35s ease; }
+      @media (max-width: 900px) { .wf-live { grid-template-columns: 1fr; } }
+      .wf-status { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+      .wf-pulse { width: 10px; height: 10px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 60%, transparent); animation: wf-pulse 1.6s infinite; }
+      .wf-pulse.idle { animation: none; background: var(--muted); }
+      @keyframes wf-pulse { 70% { box-shadow: 0 0 0 10px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+      .wf-progress { flex: 1; min-width: 160px; height: 6px; border-radius: 99px; background: var(--chip); overflow: hidden; }
+      .wf-progress > span { display: block; height: 100%; width: 0; border-radius: 99px; background: linear-gradient(90deg, var(--wf-a), var(--wf-b), var(--wf-c)); transition: width 0.8s ease; }
+      .wf-stats { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+      .wf-stat { padding: 8px 10px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
+      .wf-stat span { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+      .wf-stat strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+      .wf-stat.hot strong { color: var(--red); }
+      .wf-list { max-height: 330px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+      .wf-dev { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 9px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); animation: wf-in 0.3s ease; }
+      .wf-dev.flagged { border-color: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 14%, transparent); }
+      .wf-dev .proto { width: 8px; height: 30px; border-radius: 4px; background: var(--ble-blue); }
+      .wf-dev .proto.classic { background: var(--btc-blue); }
+      .wf-dev .proto.zigbee { background: var(--zigbee-purple); }
+      .wf-dev .proto.tpms { background: var(--gold); }
+      .wf-dev .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .wf-dev .sub { font-size: 0.78rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .wf-tag { font-size: 0.72rem; padding: 1px 7px; border-radius: 99px; background: var(--chip); margin-left: 4px; font-weight: 600; }
+      .wf-tag.new { background: color-mix(in srgb, var(--green) 22%, var(--panel)); color: var(--green); }
+      .wf-tag.flag { background: color-mix(in srgb, var(--red) 18%, var(--panel)); color: var(--red); }
+      .wf-rssi { width: 70px; text-align: right; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+      .wf-rssi i { display: block; height: 4px; border-radius: 99px; margin-top: 3px; background: linear-gradient(90deg, var(--gold), var(--green)); }
+      .wf-timeline { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--line); max-height: 330px; overflow: auto; }
+      .wf-timeline li { position: relative; padding: 4px 0 8px 10px; font-size: 0.86rem; animation: wf-in 0.3s ease; }
+      .wf-timeline li::before { content: ""; position: absolute; left: -21px; top: 8px; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); border: 2px solid var(--panel); }
+      .wf-timeline li.match::before { background: var(--teal); }
+      .wf-timeline li.trigger::before { background: var(--wf-c); box-shadow: 0 0 0 5px color-mix(in srgb, var(--wf-c) 25%, transparent); }
+      .wf-timeline li.action::before { background: var(--wf-b); }
+      .wf-timeline li.action.denied::before, .wf-timeline li.action.failed::before { background: var(--gold); }
+      .wf-timeline li.alert::before { background: var(--red); box-shadow: 0 0 0 6px color-mix(in srgb, var(--red) 25%, transparent); }
+      .wf-timeline li.alert { color: var(--red); font-weight: 600; }
+      .wf-timeline .t { color: var(--muted); font-size: 0.75rem; margin-right: 6px; font-variant-numeric: tabular-nums; }
+      .wf-steps { grid-column: 1 / -1; }
+      .wf-steps summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
+      .wf-steps ol { margin: 6px 0 0; padding-left: 20px; font-size: 0.85rem; max-height: 220px; overflow: auto; }
+      .wf-empty { color: var(--muted); font-size: 0.86rem; padding: 10px; text-align: center; }
+      .wf-alert-banner { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 12px; color: #fff; background: linear-gradient(120deg, var(--red), color-mix(in srgb, var(--red) 60%, var(--wf-c))); animation: wf-in 0.3s ease, wf-glow 2s ease-in-out infinite; }
+      @keyframes wf-glow { 50% { box-shadow: 0 0 22px color-mix(in srgb, var(--red) 55%, transparent); } }
+      @media (prefers-reduced-motion: reduce) { .wf *, .wf { animation: none !important; transition: none !important; } }
 
       .analyst-actions {
         display: flex;
@@ -2305,17 +2384,39 @@
         })();
       </script>
 
-      <section class="agent-bar" aria-label="Ask RF Sentinel">
-        <form id="agentForm" class="agent-form">
-          <span class="material-symbols-rounded">smart_toy</span>
-          <input id="agentCommand" type="text" autocomplete="off" placeholder='Ask RF Sentinel, e.g. "find bluetooth devices for 1 minute"' aria-label="Agent command">
-          <button type="submit" id="agentRunBtn">Run</button>
-          <button type="button" class="secondary" id="agentStopBtn" hidden>Stop</button>
-        </form>
-        <div id="agentPanel" class="agent-panel" hidden>
-          <ol id="agentSteps" class="agent-steps"></ol>
-          <div id="agentResult"></div>
+      <section class="wf" id="wf" aria-label="Agent workflows">
+        <div class="wf-head">
+          <div class="wf-title">
+            <span class="wf-orb" aria-hidden="true"></span>
+            <div>
+              <strong>Agent workflows</strong>
+              <span class="small">Say what to find, what to keep, and what to do when it shows up. Receive-only.</span>
+            </div>
+          </div>
+          <div class="wf-seg" role="radiogroup" aria-label="Planner">
+            <button type="button" data-planner="auto" class="on" title="Model when configured, rules otherwise">Auto</button>
+            <button type="button" data-planner="model" title="Model planner (falls back to rules)">Model</button>
+            <button type="button" data-planner="deterministic" title="Deterministic grammar">Rules</button>
+          </div>
         </div>
+        <form id="wfForm" class="wf-prompt">
+          <span class="material-symbols-rounded" aria-hidden="true">auto_awesome</span>
+          <textarea id="wfText" rows="2" autocomplete="off" aria-label="Workflow request"
+            placeholder="Watch for bluetooth trackers for 5 minutes, only stronger than -60. If a tracker is seen for more than 2 minutes, alert me and record 5 seconds of IQ."></textarea>
+          <div class="wf-prompt-actions">
+            <button type="submit" id="wfPlanBtn" class="wf-btn ghost"><span class="material-symbols-rounded">account_tree</span>Plan</button>
+            <button type="button" id="wfRunBtn" class="wf-btn primary"><span class="material-symbols-rounded">play_arrow</span>Run</button>
+            <button type="button" id="wfStopBtn" class="wf-btn danger" hidden><span class="material-symbols-rounded">stop</span>Stop</button>
+          </div>
+        </form>
+        <div class="wf-examples" id="wfExamples">
+          <button type="button" data-ex="Watch for bluetooth trackers for 5 minutes, only stronger than -60. If a tracker is seen for more than 2 minutes, send an urgent alert and record 5 seconds of IQ.">Tracker following me</button>
+          <button type="button" data-ex="Find bluetooth devices for 3 minutes. When a new device stronger than -45 appears, alert me 'new device close by' and tag it as close.">New device nearby</button>
+          <button type="button" data-ex="Look for apple devices for 2 minutes. If an AirTag appears, alert me and scan bluetooth classic for 60 seconds.">AirTag → Classic sweep</button>
+          <button type="button" data-ex="Monitor zigbee for 5 minutes and stop when anything shows up.">Zigbee tripwire</button>
+        </div>
+        <div id="wfPlan" class="wf-plan" hidden></div>
+        <div id="wfLive" class="wf-live" hidden></div>
       </section>
       <form class="toolbar" id="scanForm">
         <select id="btcDeviceSelect" hidden></select>
@@ -5546,32 +5647,163 @@
       patternAnalyticsBtn.addEventListener("click", () => openPatternAnalytics(applyLastSeenFilter(latestStatus?.discovery_table || [])));
 
       // Operator agent: plain-language, receive-only scans with automatic gain.
-      const agentForm = document.getElementById("agentForm");
-      const agentCommand = document.getElementById("agentCommand");
-      const agentRunBtn = document.getElementById("agentRunBtn");
-      const agentStopBtn = document.getElementById("agentStopBtn");
-      const agentPanel = document.getElementById("agentPanel");
-      const agentSteps = document.getElementById("agentSteps");
-      const agentResult = document.getElementById("agentResult");
+      // Agent workflows: plain language -> plan (find / filter / when -> do) -> live run with triggers.
+      const wf = document.getElementById("wf");
+      const wfForm = document.getElementById("wfForm");
+      const wfText = document.getElementById("wfText");
+      const wfPlanBtn = document.getElementById("wfPlanBtn");
+      const wfRunBtn = document.getElementById("wfRunBtn");
+      const wfStopBtn = document.getElementById("wfStopBtn");
+      const wfPlanEl = document.getElementById("wfPlan");
+      const wfLive = document.getElementById("wfLive");
+      const WF_PROTO = { ble: "BLE", classic: "Bluetooth Classic", zigbee: "Zigbee", tpms: "TPMS" };
+      const WF_ICON = { alert: "notifications_active", tag: "sell", record_iq: "radio_button_checked", start_scan: "travel_explore",
+        extend: "more_time", stop: "stop_circle" };
+      let wfPlanner = "auto";
+      let wfPlanned = null;
+      let wfPlannedText = "";
       let agentJobId = null;
       let agentTimer = null;
+      let wfAlertsSeen = 0;
+
+      document.querySelectorAll(".wf-seg button").forEach((btn) => btn.addEventListener("click", () => {
+        wfPlanner = btn.dataset.planner;
+        document.querySelectorAll(".wf-seg button").forEach((b) => b.classList.toggle("on", b === btn));
+        wfPlanned = null;
+      }));
+      document.querySelectorAll("#wfExamples button").forEach((btn) => btn.addEventListener("click", () => {
+        wfText.value = btn.dataset.ex;
+        wfForm.requestSubmit();
+      }));
+      wfText.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); wfForm.requestSubmit(); }
+      });
+
+      function wfDescribeAction(a) {
+        return { alert: `Alert${a.severity === "critical" ? " (critical)" : ""}${a.message ? `: “${a.message}”` : ""}`,
+          tag: `Tag “${a.label}”`, record_iq: `Record ${a.seconds} s of IQ`, start_scan: `Scan ${WF_PROTO[a.protocol]} for ${a.seconds} s`,
+          extend: `Keep watching +${a.seconds} s`, stop: "Stop collection" }[a.kind];
+      }
+
+      function renderPlan(planned) {
+        const spec = planned.spec, summary = planned.summary;
+        const find = spec.collect.map((p) => `<span class="wf-chip ${p}">${escapeHtml(WF_PROTO[p])}</span>`).join("")
+          + `<span class="wf-chip">${materialIcon("timer")} ${spec.duration_s >= 120 ? `${(spec.duration_s / 60).toFixed(spec.duration_s % 60 ? 1 : 0)} min` : `${spec.duration_s} s`}</span>`
+          + (spec.device_id ? `<span class="wf-chip">${materialIcon("settings_input_antenna")} ${escapeHtml(spec.device_id)}</span>` : "");
+        const filters = summary.filters.length ? summary.filters.map((f) => `<span class="wf-chip">${materialIcon("filter_alt")} ${escapeHtml(f)}</span>`).join("")
+          : `<span class="wf-note">Everything decoded</span>`;
+        const rules = spec.triggers.length ? spec.triggers.map((t, i) => `
+            <div class="wf-rule">
+              <div>${summary.triggers[i].split(" → ")[0].replace(/^when /, "").split(" and ").map((c) => `<span class="wf-chip">${escapeHtml(c)}</span>`).join("")}</div>
+              <span class="material-symbols-rounded arrow">arrow_forward</span>
+              <div>${t.do.map((a) => `<span class="wf-chip act">${materialIcon(WF_ICON[a.kind])} ${escapeHtml(wfDescribeAction(a))}</span>`).join("")}
+                ${t.repeat ? `<span class="wf-note">every time</span>` : `<span class="wf-note">once per device</span>`}</div>
+            </div>`).join("") : `<span class="wf-note">No triggers: collect and report.</span>`;
+        const badge = planned.planner === "model"
+          ? `<span class="wf-badge model">${materialIcon("neurology")} Planned by ${escapeHtml(planned.model || "model")}</span>`
+          : `<span class="wf-badge">${materialIcon("rule")} Planned by rules${planned.fallback_reason ? " (model unavailable)" : ""}</span>`;
+        wfPlanEl.innerHTML = `
+          <div class="wf-card"><h4>${materialIcon("radar")} Find</h4>${find}</div>
+          <div class="wf-card"><h4>${materialIcon("filter_alt")} Keep</h4>${filters}</div>
+          <div class="wf-card"><h4>${materialIcon("bolt")} When → Do</h4>${rules}</div>
+          <div class="wf-meta">${badge}
+            <span class="wf-note">${(spec.notes || []).map(escapeHtml).join(" · ")}${planned.fallback_reason ? ` · model: ${escapeHtml(planned.fallback_reason)}` : ""}</span></div>`;
+        wfPlanEl.hidden = false;
+      }
+
+      async function wfPlan() {
+        const text = wfText.value.trim();
+        if (!text) return null;
+        wfPlanBtn.disabled = true;
+        wfPlanBtn.innerHTML = `${materialIcon("progress_activity")}Planning…`;
+        try {
+          const response = await fetch("/api/agent/plan", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text, planner: wfPlanner }) });
+          const planned = await response.json();
+          if (!response.ok) throw new Error(planned.error || `Planning failed (${response.status})`);
+          wfPlanned = planned;
+          wfPlannedText = text;
+          renderPlan(planned);
+          return planned;
+        } catch (err) {
+          wfPlanEl.hidden = false;
+          wfPlanEl.innerHTML = `<div class="wf-card" style="grid-column:1/-1"><strong>${escapeHtml(err.message)}</strong></div>`;
+          return null;
+        } finally {
+          wfPlanBtn.disabled = false;
+          wfPlanBtn.innerHTML = `${materialIcon("account_tree")}Plan`;
+        }
+      }
+
+      function wfDevice(d) {
+        const tags = [d.new ? `<span class="wf-tag new">new</span>` : "", ...(d.tags || []).map((t) => `<span class="wf-tag flag">${escapeHtml(t)}</span>`)].join("");
+        const rssi = d.best_rssi_dbfs ?? d.rssi_dbfs;
+        const width = rssi == null ? 0 : Math.max(4, Math.min(100, (Number(rssi) + 90) * 1.4));
+        return `<div class="wf-dev ${(d.tags || []).length ? "flagged" : ""}">
+            <span class="proto ${escapeHtml(d.protocol || "ble")}"></span>
+            <div style="min-width:0"><div class="name">${escapeHtml(d.label || d.key)}${tags}</div>
+              <div class="sub">${escapeHtml([WF_PROTO[d.protocol] || d.protocol, d.manufacturer, d.device_type, d.device_class, `${d.count}× seen`, d.dwell_s ? `${Math.round(d.dwell_s)} s` : ""].filter(Boolean).join(" · "))}</div></div>
+            <div class="wf-rssi">${rssi == null ? "" : `${Number(rssi).toFixed(0)} dBFS`}<i style="width:${width}%"></i></div>
+          </div>`;
+      }
+
+      function wfTimelineItem(e) {
+        const d = e.device || {};
+        const text = {
+          match: () => `${materialIcon("my_location")} Matched <strong>${escapeHtml(d.label || d.key)}</strong>`,
+          trigger: () => `${materialIcon("bolt")} Trigger fired on <strong>${escapeHtml(d.label || d.key)}</strong>: ${escapeHtml(e.rule)}`,
+          action: () => `${materialIcon(WF_ICON[e.action] || "task_alt")} ${escapeHtml(e.action.replace("_", " "))} ${escapeHtml(e.status)}${e.detail ? `: ${escapeHtml(String(e.detail).split("/").pop())}` : ""}`,
+          alert: () => `${materialIcon("notifications_active")} ${escapeHtml(e.message)} · ${escapeHtml(d.label || "")}`,
+        }[e.kind];
+        return text ? `<li class="${e.kind} ${e.status || ""}"><span class="t">${Number(e.t).toFixed(1)}s</span>${text()}</li>` : "";
+      }
 
       function renderAgent(job) {
-        agentPanel.hidden = false;
-        agentSteps.innerHTML = (job.steps || []).map((s) => `<li class="${/gain .* -> /.test(s.message) ? "gain" : ""}"><span class="small">${Number(s.t).toFixed(1)} s</span> ${escapeHtml(s.message)}</li>`).join("");
-        const running = job.status === "running";
-        agentRunBtn.disabled = running;
-        agentStopBtn.hidden = !running;
-        if (job.error) {
-          agentResult.innerHTML = `<p><strong>Error:</strong> ${escapeHtml(job.error)}</p>`;
-        } else if (job.result) {
-          const devices = job.result.devices || [];
-          agentResult.innerHTML = devices.length
-            ? `<table class="identity-table"><thead><tr><th>Device</th><th>Seen</th><th>Best RSSI</th><th>Details</th></tr></thead><tbody>${devices.map((d) => `<tr><td>${escapeHtml(d.key)}</td><td>${Number(d.count)}</td><td>${d.best_rssi_dbfs != null ? Number(d.best_rssi_dbfs).toFixed(1) : ""}</td><td>${escapeHtml([...new Set([d.identity, d.name, d.manufacturer, d.device_type_detail, d.pdu_type].filter(Boolean))].join(" · "))}</td></tr>`).join("")}</tbody></table>`
-            : `<p>No devices decoded in this window.</p>`;
-          if (job.report_dir) agentResult.innerHTML += `<p class="small">Run ${escapeHtml(job.result.run_id)} · <a href="/api/agent/jobs/${encodeURIComponent(job.job_id)}/report" target="_blank" rel="noopener">verifiable report</a></p>`;
-        } else {
-          agentResult.innerHTML = running ? `<p class="small">Working… detections also appear in the table below as they are decoded.</p>` : "";
+        const running = ["running", "awaiting_approval", "stopping"].includes(job.status);
+        wf.classList.toggle("running", running);
+        wfRunBtn.disabled = running;
+        wfStopBtn.hidden = !running;
+        const events = job.events || [];
+        const result = job.result || {};
+        const workflow = result.workflow || {};
+        const matchedMap = new Map();
+        events.forEach((e) => { if (e.device?.key) matchedMap.set(e.device.key, { ...(matchedMap.get(e.device.key) || {}), ...e.device }); });
+        (workflow.matched || []).forEach((d) => matchedMap.set(d.key, d));
+        const matched = [...matchedMap.values()].sort((a, b) => (b.count || 0) - (a.count || 0));
+        const alerts = job.alerts || [];
+        const triggers = events.filter((e) => e.kind === "trigger").length;
+        const spec = job.workflow || {};
+        const elapsed = ((job.finished_at || Date.now() / 1000) - job.started_at);
+        const extended = (job.steps || []).reduce((sum, s) => { const m = /Extended collection by (\d+)/.exec(s.message); return sum + (m ? Number(m[1]) : 0); }, 0);
+        const total = (spec.duration_s || 60) + extended + 10;
+        const pct = running ? Math.min(98, (elapsed / total) * 100) : 100;
+        const latestAlert = alerts[alerts.length - 1];
+        const statusText = { running: "Running", awaiting_approval: "Waiting for operator approval", stopping: "Stopping…", done: "Complete",
+          stopped: "Stopped", denied: "Denied", error: "Error" }[job.status] || job.status;
+        wfLive.hidden = false;
+        wfLive.innerHTML = `
+          <div class="wf-status"><span class="wf-pulse ${running ? "" : "idle"}"></span><strong>${escapeHtml(statusText)}</strong>
+            <span class="small">${escapeHtml(job.summary?.find || "")} · ${Math.round(elapsed)} s · ${escapeHtml(job.mode)} mode</span>
+            <div class="wf-progress"><span style="width:${pct}%"></span></div>
+            ${job.report_dir ? `<a class="wf-badge" href="/api/agent/jobs/${encodeURIComponent(job.job_id)}/report" target="_blank" rel="noopener">${materialIcon("verified")} Verifiable report</a>` : ""}</div>
+          ${latestAlert ? `<div class="wf-alert-banner">${materialIcon("notifications_active")}<div><strong>${escapeHtml(latestAlert.message)}</strong>
+            <div class="small" style="color:inherit;opacity:.9">${escapeHtml(latestAlert.device?.label || "")} · ${latestAlert.device?.rssi_dbfs != null ? `${Number(latestAlert.device.rssi_dbfs).toFixed(0)} dBFS · ` : ""}${Number(latestAlert.t).toFixed(1)} s</div></div></div>` : ""}
+          <div class="wf-stats">
+            <div class="wf-stat"><span>Devices seen</span><strong>${workflow.seen ?? new Set(events.map((e) => e.device?.key).filter(Boolean)).size}</strong></div>
+            <div class="wf-stat"><span>Matched</span><strong>${matched.length}</strong></div>
+            <div class="wf-stat"><span>Triggers</span><strong>${triggers}</strong></div>
+            <div class="wf-stat ${alerts.length ? "hot" : ""}"><span>Alerts</span><strong>${alerts.length}</strong></div>
+          </div>
+          <div class="wf-card"><h4>${materialIcon("devices")} Matching devices</h4>
+            <div class="wf-list">${matched.length ? matched.map(wfDevice).join("") : `<div class="wf-empty">${running ? "Listening…" : "No device matched the filters."}</div>`}</div></div>
+          <div class="wf-card"><h4>${materialIcon("timeline")} Live timeline</h4>
+            ${events.length ? `<ul class="wf-timeline">${events.slice(-80).reverse().map(wfTimelineItem).join("")}</ul>` : `<div class="wf-empty">${running ? "Waiting for the first match…" : "Nothing matched."}</div>`}</div>
+          ${job.error ? `<div class="wf-card" style="grid-column:1/-1"><strong>${escapeHtml(job.error)}</strong></div>` : ""}
+          <details class="wf-steps" ${running && !events.length ? "open" : ""}><summary>Agent steps (${(job.steps || []).length}) · gain, receivers, approvals, actions</summary>
+            <ol>${(job.steps || []).map((s) => `<li><span class="small">${Number(s.t).toFixed(1)} s</span> ${escapeHtml(s.message)}</li>`).join("")}</ol></details>`;
+        if (alerts.length > wfAlertsSeen) {
+          alerts.slice(wfAlertsSeen).forEach((a) => showToast(`Alert: ${a.message}${a.device?.label ? ` (${a.device.label})` : ""}`));
+          wfAlertsSeen = alerts.length;
         }
       }
 
@@ -5581,7 +5813,7 @@
           const response = await fetch(`/api/agent/jobs/${agentJobId}`);
           const job = await response.json();
           renderAgent(job);
-          if (job.status !== "running") {
+          if (!["running", "awaiting_approval", "stopping"].includes(job.status)) {
             clearInterval(agentTimer);
             agentTimer = null;
             pollStatus();
@@ -5591,27 +5823,33 @@
         }
       }
 
-      agentForm.addEventListener("submit", async (event) => {
+      wfForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        const command = agentCommand.value.trim();
-        if (!command) return;
+        await wfPlan();
+      });
+
+      wfRunBtn.addEventListener("click", async () => {
+        const text = wfText.value.trim();
+        if (!text) return;
+        const planned = (wfPlanned && wfPlannedText === text) ? wfPlanned : await wfPlan();
+        if (!planned) return;
         try {
           const response = await fetch("/api/agent/run", { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ command }) });
+            body: JSON.stringify({ command: text, workflow: planned.spec,
+              planner: { planner: planned.planner, model: planned.model, fallback_reason: planned.fallback_reason } }) });
           const job = await response.json();
           if (!response.ok) throw new Error(job.error || `Request failed (${response.status})`);
           agentJobId = job.job_id;
+          wfAlertsSeen = 0;
           renderAgent(job);
           clearInterval(agentTimer);
           agentTimer = setInterval(pollAgent, 1000);
         } catch (err) {
-          agentPanel.hidden = false;
-          agentSteps.innerHTML = "";
-          agentResult.innerHTML = `<p><strong>${escapeHtml(err.message)}</strong></p>`;
+          showToast(err.message);
         }
       });
 
-      agentStopBtn.addEventListener("click", async () => {
+      wfStopBtn.addEventListener("click", async () => {
         if (agentJobId) await fetch(`/api/agent/jobs/${agentJobId}/stop`, { method: "POST" });
       });
 

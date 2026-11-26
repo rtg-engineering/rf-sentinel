@@ -8780,7 +8780,7 @@ def analyst_report():
 # path as scanner output, so they appear in the normal detections table.
 agent_jobs: dict[str, dict[str, Any]] = {}
 agent_jobs_lock = threading.Lock()
-AGENT_PROTOCOL_TAG = {"ble": "ble", "zigbee": "ieee802154", "tpms": "tpms"}
+AGENT_PROTOCOL_TAG = {"ble": "ble", "zigbee": "ieee802154", "tpms": "tpms", "classic": "btc"}
 _agent_broker = None
 
 
@@ -8827,29 +8827,49 @@ def agent_policy():
     return jsonify({"ceiling": server_ceiling(), "modes": list(MODES), "tools": TOOLS, "never": sorted(NEVER)})
 
 
+@app.post("/api/agent/plan")
+def agent_plan():
+    """Plain language -> a validated workflow plan (find / filter / when->do). Nothing runs."""
+    from rf_platform.agent.workflow import plan
+    body = request.get_json(silent=True) or {}
+    text = str(body.get("text") or body.get("command") or "").strip()
+    planner = str(body.get("planner") or "auto")
+    if planner not in ("auto", "model", "deterministic"):
+        return jsonify({"error": "planner must be auto, model, or deterministic"}), 400
+    try:
+        return jsonify(plan(text, planner))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
 @app.post("/api/agent/run")
 def agent_run():
+    from pydantic import ValidationError
     from rf_platform.agent.core import Agent
     from rf_platform.agent.gateway import AgentGateway, PermissionDenied, decide, effective_mode
-    from rf_platform.agent.profiles import IntentError, parse
+    from rf_platform.agent.workflow import WorkflowSpec, plan_deterministic, run_workflow
     body = request.get_json(silent=True) or {}
     command = str(body.get("command") or "").strip()
     if RF_SENTINEL_DEMO_MODE:
         return jsonify({"error": "The agent needs live receivers; this dashboard is running the synthetic demo."}), 409
     try:
-        task = parse(command)
+        # A confirmed plan is re-validated here: a client (or model) cannot exceed the schema's bounds.
+        spec = WorkflowSpec.model_validate(body["workflow"]) if body.get("workflow") else plan_deterministic(command)
         mode = effective_mode(body.get("mode"))
-    except (IntentError, PermissionDenied) as exc:
-        return jsonify({"error": str(exc)}), 400
+    except (ValueError, ValidationError, PermissionDenied) as exc:
+        return jsonify({"error": str(exc)[:500]}), 400
+    command = command or spec.goal or spec.command()
+    planner_info = body.get("planner") if isinstance(body.get("planner"), dict) else {"planner": "deterministic"}
     if decide("start_scan", mode) == "deny":
         return jsonify({"error": f"{mode} mode is read-only: it cannot start collection.", "mode": mode}), 403
     if _agent_running():
         return jsonify({"error": "An agent run is already active; stop it first."}), 409
     job_id = f"run-{uuid.uuid4().hex[:10]}"
     gain = body.get("gain_db")
-    job = {"job_id": job_id, "command": command, "profile": task.profile.name, "mode": mode,
+    job = {"job_id": job_id, "command": command, "profile": spec.collect[0], "mode": mode,
            "source": str(body.get("source") or "dashboard")[:20], "status": "running", "started_at": time.time(),
-           "steps": [], "result": None, "error": None}
+           "steps": [], "result": None, "error": None, "workflow": spec.model_dump(), "summary": spec.summary(),
+           "planner": planner_info, "events": [], "alerts": []}
     gateway = AgentGateway(mode, job_id, _agent_approvals(),
                            on_pending=lambda p: job["steps"].append({"t": round(time.time() - job["started_at"], 1),
                                                                      "message": f"Approval needed for {p['tool']} {p['params']} (action {p['action_id']})"}))
@@ -8860,10 +8880,15 @@ def agent_run():
 
     def work():
         try:
-            job["result"] = agent.run(
-                command, on_step=lambda m: job["steps"].append({"t": round(time.time() - job["started_at"], 1), "message": m}),
-                on_detection=lambda e: _agent_ingest(task.profile.name, e),
-                gain_db=float(gain) if gain is not None else None)
+            def on_event(event):
+                job["events"].append(event)
+                if event["kind"] == "alert":
+                    job["alerts"].append(event)
+            job["result"] = run_workflow(
+                agent, spec, on_step=lambda m: job["steps"].append({"t": round(time.time() - job["started_at"], 1), "message": m}),
+                on_detection=lambda e: _agent_ingest(e.get("agent_profile") or spec.collect[0], e), on_event=on_event,
+                gain_db=float(gain) if gain is not None else None, planner=planner_info,
+                base_dir=RF_SENTINEL_LOG_DIR / "agent-runs")
             from rf_platform.agent.report import save
             job["report_dir"] = str(save(job["result"], RF_SENTINEL_LOG_DIR / "agent-runs"))
             job["run_id"] = job["result"]["run_id"]

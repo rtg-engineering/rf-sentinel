@@ -119,6 +119,51 @@ class Radio:
         return iq_levels(bytes(data), gain_db)
 
 
+def capture_iq(radio: "Radio", device: dict[str, Any], freq_hz: int, rate_sps: int, gain_db: float,
+               seconds: float, attempts: int = 2) -> bytes:
+    """Receive `seconds` of CS8 IQ from one receiver (receive-only), then release the stream.
+
+    A transport error (e.g. a malformed websocket frame) retries once on a fresh stream; a partial capture
+    is never returned as if it were complete.
+    """
+    import websocket
+    for attempt in range(attempts):
+        try:
+            data = _capture_once(radio, device, freq_hz, rate_sps, gain_db, seconds)
+        except (websocket.WebSocketException, OSError):
+            if attempt + 1 == attempts:
+                raise
+            continue
+        if len(data) >= int(rate_sps * seconds) * 2 or attempt + 1 == attempts:
+            if len(data) < int(rate_sps * seconds) * 2:
+                raise RuntimeError(f"capture incomplete: {len(data) // 2} of {int(rate_sps * seconds)} samples")
+            return data
+    raise RuntimeError("capture failed")
+
+
+def _capture_once(radio: "Radio", device: dict[str, Any], freq_hz: int, rate_sps: int, gain_db: float,
+                  seconds: float) -> bytes:
+    import websocket
+    lna, vga = split_gain(device["driver"], gain_db)
+    body = {"device_id": device["id"], "center_freq_hz": int(freq_hz), "sample_rate_sps": int(rate_sps),
+            "lna_gain_db": lna, "vga_gain_db": vga, "baseband_filter_hz": int(rate_sps // 2)}
+    response = requests.post(f"{radio.base_url}/streams/start", headers=radio.headers, json=body, timeout=30)
+    response.raise_for_status()
+    stream_id = response.json()["stream_id"]
+    query = f"?keep=1{'&token=' + radio.token if radio.token else ''}"
+    wanted = int(rate_sps * seconds) * 2
+    data = bytearray()
+    try:
+        ws = websocket.create_connection(f"ws://{radio.base_url.split('://', 1)[1]}/ws/iq/{stream_id}{query}", timeout=15)
+        deadline = time.monotonic() + seconds + 15
+        while len(data) < wanted and time.monotonic() < deadline:
+            data.extend(ws.recv())
+        ws.close()
+    finally:
+        requests.post(f"{radio.base_url}/streams/{stream_id}/stop", headers=radio.headers, timeout=10)
+    return bytes(data[:wanted])
+
+
 def auto_gain(radio: Radio, device: dict[str, Any], freqs_hz: tuple[int, ...], rate_sps: int,
               start_db: float = 40.0, max_db: float = 60.0, min_db: float = 0.0, steps: int = 6, log=print,
               should_stop=lambda: False) -> float:

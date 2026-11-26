@@ -23,6 +23,62 @@ Runs are managed by the dashboard's run service, which is the single source of t
 
 In the dashboard, type the same request into the **Ask RF Sentinel** bar. Its steps (including every gain change) appear as they happen. Decoded devices appear in the normal detections table, and a link opens the verifiable report. The dashboard and CLI use the same agent code and the same IQ service.
 
+## Workflows: find, keep, when → do
+
+Describe the whole job in one sentence. The agent plans it, shows you the plan, then runs it and reacts to what it sees:
+
+```bash
+rf-sentinel agent plan "Watch for bluetooth trackers for 5 minutes, only stronger than -60. If a tracker is seen \
+  for more than 2 minutes, send an urgent alert and record 5 seconds of IQ. If an AirTag appears, scan bluetooth \
+  classic for 60 seconds."
+Plan (deterministic)
+  FIND    BLE for 300 s
+  FILTER  signal ≥ -60 dBFS
+  FILTER  kind is "tracker"
+  WHEN    when kind is "tracker" and seen for ≥ 120 s → alert (critical), record 5 s of IQ evidence
+  WHEN    when identity contains "AirTag" → scan Bluetooth Classic for 60 s
+```
+
+In the dashboard, the **Agent workflows** panel does the same, in two steps:
+- **Plan** shows *Find / Keep / When → Do* cards and says which planner produced them.
+- **Run** shows live progress, the matching devices with their signal and tags, a timeline of matches, triggers and actions, and alerts.
+
+**Planning.** A request becomes a typed `WorkflowSpec` (`rf_platform/agent/workflow.py`), made of three parts:
+
+| Part | Contents |
+|---|---|
+| Collect | Protocols and duration. |
+| Filters | Conditions on signal, vendor, device kind (tracker, beacon, phone, …), identity, name, how long or how often a device has been seen, and whether it is **new** (never seen in earlier runs). |
+| Triggers | `when <conditions> → <actions>`, firing once per device, or every time (with a cooldown) for "whenever". |
+
+Two planners produce the same spec:
+- **Rules** (deterministic, always available): a fixed grammar for phrases like "only stronger than -60", "from apple", "if a tracker is seen for more than 2 minutes", "whenever a phone is seen 5 times", "stop when anything shows up", "in the next 3 minutes".
+- **Model** (optional; Pydantic AI). It uses `RF_SENTINEL_PLANNER_MODEL`, else Claude when `ANTHROPIC_API_KEY` is set, else a local Codex login. If the model is unavailable or returns something invalid, planning falls back to the rules and says why. **Auto** (the default) tries the model first.
+
+**What a model can and cannot do.** It only proposes a spec. The spec is validated against the schema and its bounds:
+- duration ≤ 600 s;
+- IQ capture ≤ 10 s;
+- follow-up scans ≤ 300 s;
+- one protocol per run, except BLE + Classic.
+
+The server validates it again when the run starts. Every action is authorized by the run's tool gateway, so mode, approvals and audit apply exactly as for any other operation. Gain, receivers, permissions and evidence stay in deterministic code. Transmit-like requests are refused before planning.
+
+| Action | Gateway tool | Notes |
+|---|---|---|
+| `alert` | `raise_alert` (control) | Banner and toast in the dashboard, `ALERT` step in the CLI, listed in the report. |
+| `tag` | `tag_device` (control) | Label on the device in results. |
+| `record_iq` | `record_iq` (collect) | Up to 10 s on a **free** receiver, on the device's channel. Captures queue for a receiver. Written with a `.json` sidecar including sha256, and listed in the report. |
+| `start_scan` | `start_scan` (collect) | A follow-up scan on a free receiver (e.g. Classic when an AirTag appears). |
+| `extend` | `extend_scan` (collect) | Lengthens this run, never past 600 s in total. |
+| `stop` | `stop_scan` (control) | Ends collection early and reports normally. |
+
+In `observe` mode, collect actions are denied; alerts and tags still work. In `approval-required` mode, each collect action waits for a named operator.
+
+**Measured live** (two bladeRF 2.0 micro):
+- "Find ble devices for 60 seconds, only stronger than -60. When a device is seen 5 times, alert me and tag it as persistent. If an Apple device appears, record 2 seconds of IQ."
+- 5 devices matched (Microsoft, Apple ×2, Tile, Bose), 5 alerts and tags.
+- 2 s of IQ was captured on the second receiver when an Apple device appeared, with a hashed evidence file.
+
 ## What it does
 
 1. **Understands the request.** Supported: Bluetooth Low Energy ("BLE", "beacons", "AirTag"), Bluetooth Classic ("bluetooth classic", "BR/EDR"), Zigbee / 802.15.4, and TPMS tire sensors. A plain "bluetooth" request covers both kinds of Bluetooth (see [Bluetooth Classic](#bluetooth-classic)). It understands durations ("for 2 minutes", up to 600 s), a receiver ("on bladerf:1"), and a Zigbee channel. Requests to transmit, jam, spoof, or replay are refused. WiFi needs a monitor-mode adapter, not an SDR, so the agent says so.
