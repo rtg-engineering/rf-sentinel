@@ -238,7 +238,8 @@ def _conditions(text: str) -> list[Condition]:
         found.append(Condition(field="name", op="contains", value=m.group(1).strip()))
     if re.search(r"\b(?:new|unfamiliar|never seen)\b(?! (?:than|scan|serving))|\bunknown\b(?! (?:operator|network|carrier|plmn))|\banything new\b", text):
         found.append(Condition(field="new", op="eq", value=True))
-    m = re.search(rf"\b(?:seen|around|present|following|stays?|persists?|lingers?)\b[^.]*?\bfor (?:more than |over |at least )?(\d+(?:\.\d+)?)\s*({UNIT_S})", text)
+    m = (re.search(rf"\b(?:seen|around|present|following|stays?|persists?|lingers?)\b[^.]*?\bfor (?:more than |over |at least )?(\d+(?:\.\d+)?)\s*({UNIT_S})", text)
+         or re.search(rf"\bstill (?:there|around|here|present|seen|nearby|visible)\b (?:after|for|past) (?:more than |over |at least )?(\d+(?:\.\d+)?)\s*({UNIT_S})", text))
     if m:
         found.append(Condition(field="dwell_s", op="ge", value=_seconds(m.group(1), m.group(2))))
     carriers = {"at&t": "AT&T", "att": "AT&T", "firstnet": "FirstNet", "verizon": "Verizon", "t-mobile": "T-Mobile",
@@ -307,8 +308,11 @@ def _parse_triggers(clause: str) -> list[Trigger]:
     return [Trigger(when=when, do=do, repeat=repeat)]
 
 
-def plan_deterministic(text: str) -> WorkflowSpec:
-    """Plain-language request → WorkflowSpec with a fixed grammar. Raises ValueError when unsure."""
+def plan_deterministic(text: str, standing_actions: bool = False) -> WorkflowSpec:
+    """Plain-language request → WorkflowSpec with a fixed grammar. Raises ValueError when unsure.
+
+    standing_actions: actions with no condition ("... and tag them as suspect") apply to every device in scope
+    (used by playbook steps that focus on devices an earlier step found)."""
     from .profiles import IntentError, parse
     raw = " ".join(str(text).split())
     lower = raw.lower()
@@ -359,10 +363,30 @@ def plan_deterministic(text: str) -> WorkflowSpec:
             conditions = _conditions(clause)
             if follow and conditions:
                 trigger = Trigger(when=conditions, do=follow.do, repeat=follow.repeat)
+        if trigger is not None and index == 0 and not isinstance(trigger, _OrTriggers):
+            # "send an urgent alert if X, and record 5 s of IQ": the action before "if" belongs to this rule too.
+            segments = re.split(r"[.;,]|\band\b|\bthen\b", main)
+            tail = segments[-1]
+            lead_rules = [] if re.search(r"\b(?:find|watch|monitor|survey|scan|look|listen|search|track|sweep)\b", tail) \
+                else _parse_triggers("x " + tail)
+            lead = [a for a in lead_rules[0].do if a.kind in ("alert", "tag", "record_iq")] if lead_rules else []
+            if lead:
+                trigger = Trigger(when=trigger.when, do=lead + [a for a in trigger.do if a.kind not in {x.kind for x in lead}],
+                                  repeat=trigger.repeat)
+                main = main[: len(main) - len(tail)].rstrip(" ,.;").removesuffix(" and").removesuffix(" then")
         if isinstance(trigger, _OrTriggers):
             triggers.extend(trigger)
         elif trigger is not None:
             triggers.append(trigger)
+    if standing_actions:
+        segments = [seg for seg in re.split(r"[.;,]|\band\b|\bthen\b", main)[1:] if seg.strip()]
+        standing = [a for seg in segments for t in _parse_triggers("x " + seg) for a in t.do
+                    if a.kind in ("alert", "tag", "record_iq")]
+        if standing:
+            triggers.append(Trigger(when=[Condition(field="count", op="ge", value=1)], do=standing))
+            for seg in segments:
+                if _parse_triggers("x " + seg):
+                    main = main.replace(seg, " ")
     trackers = bool(re.search(r"\b(?:trackers?|airtags?|tiles?|find my|smarttags?)\b", main))
     cellular_words = r"\b(?:cell|cells|cellular|towers?|lte|5g|4g|2g|3g|gsm|base stations?|carriers?|plmn|(?:unknown|unrecognized) (?:network|operator|carrier))\b"
     implies_cellular = bool(re.search(cellular_words, main)) or (
@@ -564,8 +588,12 @@ class WorkflowEngine:
 
     def __init__(self, spec: WorkflowSpec, agent, step: Callable[[str], None],
                  on_event: Callable[[dict[str, Any]], None] | None = None, evidence_dir: Path | None = None,
-                 base_dir: Path | None = None):
+                 base_dir: Path | None = None, focus: set[str] | None = None,
+                 carried_tags: dict[str, list[str]] | None = None):
         self.spec, self.agent, self.step = spec, agent, step
+        # A playbook step can focus on devices an earlier step found: anything else is ignored by this engine.
+        self.focus = set(focus) if focus is not None else None
+        self.carried_tags = carried_tags or {}
         self.on_event = on_event or (lambda e: None)
         self.base_dir = base_dir or runs_dir()
         self.evidence_dir = evidence_dir or self.base_dir / "evidence"
@@ -596,7 +624,7 @@ class WorkflowEngine:
 
     def observe(self, event: dict[str, Any]) -> None:
         key = event.get("agent_key")
-        if not key:
+        if not key or (self.focus is not None and key not in self.focus):
             return
         now = time.time()
         with self._lock:
@@ -609,7 +637,7 @@ class WorkflowEngine:
                     "name": event.get("name") or "", "address": event.get("address") or event.get("lap") or "",
                     "manufacturer": (manufacturer or {}).get("company_name", "") if isinstance(manufacturer, dict) else str(manufacturer or ""),
                     "device_type": event.get("device_type_detail") or event.get("device_type") or "",
-                    "new": key not in self.known, "tags": [], "best_rssi_dbfs": None}
+                    "new": key not in self.known, "tags": list(self.carried_tags.get(key, [])), "best_rssi_dbfs": None}
                 for field in ("operator", "rat", "generation", "role"):
                     record[field] = event.get(field) or ""
                 if record["protocol"] == "cellular":
@@ -862,9 +890,10 @@ def run_workflow(agent, spec: WorkflowSpec, on_step: Callable[[str], None] = pri
                  on_detection: Callable[[dict[str, Any]], None] | None = None,
                  on_event: Callable[[dict[str, Any]], None] | None = None,
                  gain_db: float | None = None, planner: dict[str, Any] | None = None,
-                 base_dir: Path | None = None) -> dict[str, Any]:
+                 base_dir: Path | None = None, focus: set[str] | None = None,
+                 carried_tags: dict[str, list[str]] | None = None) -> dict[str, Any]:
     """Run a validated spec: deterministic collection by the agent, filters and triggers by the engine."""
-    engine = WorkflowEngine(spec, agent, on_step, on_event, base_dir=base_dir)
+    engine = WorkflowEngine(spec, agent, on_step, on_event, base_dir=base_dir, focus=focus, carried_tags=carried_tags)
     on_step(f"Workflow: {spec.summary()['find']}"
             + (f"; keep {' and '.join(spec.summary()['filters'])}" if spec.filters else "")
             + (f"; {len(spec.triggers)} trigger(s)" if spec.triggers else ""))
@@ -901,8 +930,12 @@ def run_workflow(agent, spec: WorkflowSpec, on_step: Callable[[str], None] = pri
         if cell:
             result["devices"] = result["devices"] + cell["devices"]
             result["audit"] = result["audit"]  # shared gateway: the audit already holds both
+    if focus is not None:
+        result["devices"] = [d for d in result["devices"] if d["key"] in engine.focus]
     result["workflow"] = engine.finish()
     result["workflow"]["planner"] = planner or {"planner": "deterministic"}
+    if focus is not None:
+        result["workflow"]["focus"] = sorted(engine.focus)
     for follow in engine.follow_ups:
         result["devices"] = result["devices"] + follow["result_devices"]
     result["workflow"]["narrative"] = narrative(result)

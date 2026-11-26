@@ -1834,6 +1834,7 @@
       .wf-examples { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
       .wf-examples button { border: 1px dashed var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 4px 10px; cursor: pointer; font-size: 0.82rem; }
       .wf-examples button:hover { color: var(--ink); border-style: solid; }
+      .wf-examples button.wf-ex-book { border-style: solid; border-color: color-mix(in srgb, var(--wf-c) 45%, var(--line)); color: var(--wf-c); }
       .wf-plan { margin-top: 12px; display: grid; gap: 10px; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1.6fr); animation: wf-in 0.35s ease; }
       @media (max-width: 900px) { .wf-plan { grid-template-columns: 1fr; } }
       @keyframes wf-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -1919,6 +1920,51 @@
       .wf-x .material-symbols-rounded { font-size: 15px; }
       .wf-dur .wf-x:hover { background: color-mix(in srgb, var(--wf-b) 18%, transparent); color: var(--wf-b); }
       .wf-rule { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; }
+      /* Playbooks: ordered steps, each a find / keep / when -> do, gated on and focused by earlier steps */
+      .wf-book { grid-column: 1 / -1; display: grid; gap: 0; counter-reset: wfstep; }
+      .wf-bstep { position: relative; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; padding-bottom: 12px; animation: wf-in 0.35s ease both; }
+      .wf-bstep:not(:last-child)::before { content: ""; position: absolute; left: 16px; top: 34px; bottom: 0; width: 2px;
+        background: linear-gradient(var(--wf-b), color-mix(in srgb, var(--wf-c) 60%, transparent)); opacity: 0.55; }
+      .wf-bnum { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; color: #fff;
+        background: linear-gradient(135deg, var(--wf-a), var(--wf-b)); box-shadow: 0 4px 14px color-mix(in srgb, var(--wf-b) 35%, transparent); }
+      .wf-bbody { border-radius: 12px; padding: 10px 12px; background: color-mix(in srgb, var(--panel) 85%, var(--chip)); border: 1px solid var(--line); min-width: 0; }
+      .wf-bhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+      .wf-bhead strong { font-size: 0.98rem; }
+      .wf-bhead .wf-x { margin-left: auto; }
+      .wf-cond { display: inline-flex; align-items: center; gap: 4px; font-size: 0.78rem; font-weight: 700; padding: 2px 9px; border-radius: 999px;
+        color: var(--wf-c); background: color-mix(in srgb, var(--wf-c) 14%, var(--panel)); }
+      .wf-cond.focus { color: var(--teal); background: color-mix(in srgb, var(--teal) 14%, var(--panel)); }
+      .wf-cond .material-symbols-rounded { font-size: 15px; }
+      .wf-brow { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin: 2px 0; }
+      .wf-brow > b { font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); min-width: 64px; }
+      .wf-brule { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 4px 8px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); margin: 0 6px 6px 0; font-size: 0.86rem; }
+      .wf-brule .arrow { color: var(--wf-b); font-size: 18px; }
+      .wf-bstep.running .wf-bnum { animation: wf-glowstep 1.4s ease-in-out infinite; }
+      @keyframes wf-glowstep { 50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--wf-b) 22%, transparent); } }
+      .wf-bstep.running .wf-bbody { border-color: var(--wf-b); box-shadow: 0 0 0 3px color-mix(in srgb, var(--wf-b) 14%, transparent); }
+      .wf-bstep.done .wf-bnum { background: linear-gradient(135deg, var(--green), var(--teal)); }
+      .wf-bstep.skipped .wf-bnum, .wf-bstep.not_run .wf-bnum, .wf-bstep.pending .wf-bnum { background: var(--muted); box-shadow: none; }
+      .wf-bstep.skipped .wf-bbody, .wf-bstep.not_run .wf-bbody { opacity: 0.6; border-style: dashed; }
+      .wf-bstep.error .wf-bnum { background: var(--red); }
+      .wf-bstate { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+      .wf-bstep.running .wf-bstate { color: var(--wf-b); }
+      .wf-bstep.done .wf-bstate { color: var(--green); }
+      /* live stepper: compact horizontal track */
+      .wf-track { grid-column: 1 / -1; display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+      .wf-tstep { flex: 1 1 0; min-width: 150px; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 8px; align-items: center;
+        padding: 8px 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); }
+      .wf-tstep .wf-bnum { width: 26px; height: 26px; font-size: 0.8rem; }
+      .wf-tstep .name { font-weight: 700; font-size: 0.86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .wf-tstep .sub { font-size: 0.74rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .wf-tstep.running { border-color: var(--wf-b); box-shadow: 0 0 0 3px color-mix(in srgb, var(--wf-b) 14%, transparent); }
+      .wf-tstep.running .wf-bnum { animation: wf-glowstep 1.4s ease-in-out infinite; }
+      .wf-tstep.done .wf-bnum { background: linear-gradient(135deg, var(--green), var(--teal)); }
+      .wf-tstep.skipped, .wf-tstep.not_run { opacity: 0.6; border-style: dashed; }
+      .wf-tstep.skipped .wf-bnum, .wf-tstep.not_run .wf-bnum, .wf-tstep.pending .wf-bnum { background: var(--muted); box-shadow: none; }
+      .wf-tstep.error .wf-bnum { background: var(--red); }
+      .wf-stepno { font-size: 0.68rem; font-weight: 800; padding: 0 6px; border-radius: 99px; background: var(--chip); color: var(--muted); margin-left: 4px; }
+      .wf-persist { display: flex; flex-direction: column; gap: 6px; }
+      @media (prefers-reduced-motion: reduce) { .wf-bstep, .wf-bstep.running .wf-bnum, .wf-tstep.running .wf-bnum { animation: none; } }
       @media (max-width: 700px) {
         .wf-prompt { flex-wrap: wrap; }
         .wf-prompt textarea { flex-basis: calc(100% - 34px); min-height: 72px; }
@@ -2592,7 +2638,7 @@
         <form id="wfForm" class="wf-prompt">
           <span class="material-symbols-rounded" aria-hidden="true">auto_awesome</span>
           <textarea id="wfText" rows="2" autocomplete="off" aria-label="Workflow request"
-            placeholder="Describe the job, e.g. watch for trackers for 5 minutes; if one is seen for 2 minutes, send an urgent alert and record 5 seconds of IQ.  (Enter: plan · Ctrl+Enter: run)"></textarea>
+            placeholder="Describe the job, e.g. watch for trackers for 5 minutes; if one is seen for 2 minutes, send an urgent alert and record 5 seconds of IQ. Chain steps with “then” (“…, then watch them for 3 minutes”).  (Enter: plan · Ctrl+Enter: run)"></textarea>
           <div class="wf-prompt-actions">
             <button type="submit" id="wfPlanBtn" class="wf-btn ghost"><span class="material-symbols-rounded">account_tree</span>Plan</button>
             <button type="button" id="wfRunBtn" class="wf-btn primary"><span class="material-symbols-rounded">play_arrow</span>Run</button>
@@ -2606,6 +2652,8 @@
           <button type="button" data-ex="Monitor zigbee for 5 minutes and stop when anything shows up.">Zigbee tripwire</button>
           <button type="button" data-ex="Watch for trackers and rogue cell towers for 3 minutes. If an AirTag is seen for more than 1 minute, send an urgent alert. Send an urgent alert if an unknown network appears or if a 2G cell shows up.">Trackers + rogue cells</button>
           <button type="button" data-ex="Survey cell towers for 3 minutes. Send an urgent alert if an unknown network appears or if a 2G cell shows up, and alert me when the serving cell changes.">Rogue cell watch</button>
+          <button type="button" class="wf-ex-book" data-ex="Sweep for bluetooth trackers for 2 minutes. If you find any, watch them for 5 minutes and send an urgent alert if one is still there after 3 minutes, and record 5 seconds of IQ. Then survey cell towers for 1 minute and alert me if a 2G cell shows up.">Playbook: tracker hunt + cell check</button>
+          <button type="button" class="wf-ex-book" data-ex="Find ble devices for 1 minute and tag them as baseline. Then watch for new devices for 3 minutes and alert me when one stronger than -50 appears. Finally, watch the flagged ones for 2 minutes and record 3 seconds of IQ.">Playbook: baseline → newcomers → evidence</button>
         </div>
         <div class="wf-examples wf-saved" id="wfSaved"></div>
         <div id="wfPlan" class="wf-plan" hidden></div>
@@ -5934,7 +5982,51 @@
         return seconds >= 120 ? `${(seconds / 60).toFixed(seconds % 60 ? 1 : 0)} min` : `${seconds} s`;
       }
 
+      function wfPlannerBadge(planned) {
+        return planned.planner === "model"
+          ? `<span class="wf-badge model">${materialIcon("neurology")} Planned by ${escapeHtml(planned.model || "model")}</span>`
+          : `<span class="wf-badge">${materialIcon("rule")} Planned by rules${planned.fallback_reason ? " (model unavailable)" : ""}</span>`;
+      }
+
+      // One playbook step: gate and focus chips, then find / keep / rules as compact rows.
+      function wfBookStep(step, item, index, options = {}) {
+        const spec = step.workflow;
+        const state = options.state || "";
+        const x = (attr, title, icon = "close") => `<button type="button" class="wf-x" data-${attr}="${index}" title="${title}" aria-label="${title}">${materialIcon(icon)}</button>`;
+        const find = spec.collect.map((p) => `<span class="wf-chip ${p}">${escapeHtml(WF_PROTO[p])}</span>`).join("")
+          + `<span class="wf-chip wf-dur">${options.edit ? x("step-shorter", "Shorter", "remove") : ""}${materialIcon("timer")} ${wfDuration(spec.duration_s)}${options.edit ? x("step-longer", "Longer", "add") : ""}</span>`;
+        const keep = (item.filters || []).length ? item.filters.map((f) => `<span class="wf-chip">${materialIcon("filter_alt")} ${escapeHtml(f)}</span>`).join("") : "";
+        const rules = spec.triggers.map((t, i) => `<span class="wf-brule">${(item.triggers[i] || "").split(" → ")[0].replace(/^when /, "")
+            .split(" and ").map((c) => `<span>${escapeHtml(c)}</span>`).join(" · ")}<span class="material-symbols-rounded arrow">arrow_forward</span>
+            ${t.do.map((a) => `<span class="act">${materialIcon(WF_ICON[a.kind])} ${escapeHtml(wfDescribeAction(a))}</span>`).join(" ")}</span>`).join("");
+        const chips = [item.gate ? `<span class="wf-cond">${materialIcon("call_split")} ${escapeHtml(item.gate)}</span>` : "",
+          item.focus ? `<span class="wf-cond focus">${materialIcon("center_focus_strong")} ${escapeHtml(item.focus)}${options.focusCount != null ? ` (${options.focusCount})` : ""}</span>` : ""].join("");
+        return `<div class="wf-bstep ${escapeHtml(state)}" data-key="step-${index}" style="animation-delay:${index * 60}ms">
+            <span class="wf-bnum">${state === "done" ? materialIcon("check") : state === "skipped" ? materialIcon("redo") : index + 1}</span>
+            <div class="wf-bbody">
+              <div class="wf-bhead"><strong>${escapeHtml(step.title || item.title || `Step ${index + 1}`)}</strong>${chips}
+                ${state ? `<span class="wf-bstate">${escapeHtml({ running: "running", done: "done", skipped: "skipped", not_run: "not run", error: "failed", pending: "waiting" }[state] || state)}</span>` : ""}
+                ${options.edit && options.last && index > 0 ? x("remove-step", "Remove this step") : ""}</div>
+              <div class="wf-brow"><b>Find</b><span>${find}</span></div>
+              ${keep ? `<div class="wf-brow"><b>Keep</b><span>${keep}</span></div>` : ""}
+              ${rules ? `<div class="wf-brow"><b>When → Do</b><span>${rules}</span></div>` : ""}
+              ${options.reason ? `<div class="wf-note">${escapeHtml(options.reason)}</div>` : ""}
+            </div></div>`;
+      }
+
+      function renderPlaybookPlan(planned) {
+        const book = planned.playbook, summary = planned.summary;
+        wfPlanEl.innerHTML = `
+          <div class="wf-book">${book.steps.map((step, i) => wfBookStep(step, summary.steps[i], i, { edit: true, last: i === book.steps.length - 1 })).join("")}</div>
+          <div class="wf-meta"><span class="wf-badges"><span class="wf-badge">${materialIcon("format_list_numbered")} Playbook · ${book.steps.length} steps · up to ${wfDuration(summary.total_s)}</span>
+            ${wfPlannerBadge(planned)}${planned.edited ? `<span class="wf-badge">${materialIcon("edit")} edited</span>` : ""}
+            <button type="button" class="wf-badge wf-save" data-save="1" title="Save this plan as a one-click preset in this browser">${materialIcon("bookmark_add")} Save</button></span>
+            <span class="wf-note">Steps run in order on the same receivers, policy and audit. ${(book.notes || []).map(escapeHtml).join(" · ")}${planned.fallback_reason ? ` · model: ${escapeHtml(planned.fallback_reason)}` : ""}</span></div>`;
+        wfPlanEl.hidden = false;
+      }
+
       function renderPlan(planned) {
+        if (planned.playbook) return renderPlaybookPlan(planned);
         const spec = planned.spec, summary = planned.summary;
         const x = (attr, i, title) => `<button type="button" class="wf-x" data-${attr}="${i}" title="${title}" aria-label="${title}">${materialIcon("close")}</button>`;
         const find = spec.collect.map((p) => `<span class="wf-chip ${p}">${escapeHtml(WF_PROTO[p])}</span>`).join("")
@@ -5953,9 +6045,7 @@
                 <span class="wf-note">${t.repeat ? "every time" : "once per device"}</span></div>
               ${x("remove-trigger", i, "Remove rule")}
             </div>`).join("") : `<span class="wf-note">No rules: collect and report.</span>`;
-        const badge = planned.planner === "model"
-          ? `<span class="wf-badge model">${materialIcon("neurology")} Planned by ${escapeHtml(planned.model || "model")}</span>`
-          : `<span class="wf-badge">${materialIcon("rule")} Planned by rules${planned.fallback_reason ? " (model unavailable)" : ""}</span>`;
+        const badge = wfPlannerBadge(planned);
         wfPlanEl.innerHTML = `
           <div class="wf-card"><h4>${materialIcon("radar")} Find</h4>${find}</div>
           <div class="wf-card"><h4>${materialIcon("filter_alt")} Keep</h4>${filters}</div>
@@ -5968,10 +6058,11 @@
 
       async function wfEditPlan(mutate) {
         if (!wfPlanned) return;
-        const spec = JSON.parse(JSON.stringify(wfPlanned.spec));
+        const key = wfPlanned.playbook ? "playbook" : "spec";
+        const spec = JSON.parse(JSON.stringify(wfPlanned[key]));
         mutate(spec);
         const response = await fetch("/api/agent/plan", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ spec, planner: { planner: wfPlanned.planner, model: wfPlanned.model, fallback_reason: wfPlanned.fallback_reason } }) });
+          body: JSON.stringify({ [key]: spec, planner: { planner: wfPlanned.planner, model: wfPlanned.model, fallback_reason: wfPlanned.fallback_reason } }) });
         const planned = await response.json();
         if (!response.ok) { showToast(planned.error || "That change is not allowed"); return; }
         wfPlanned = planned;
@@ -6000,7 +6091,7 @@
 
       wfPlanEl.addEventListener("click", (event) => {
         if (event.target.closest("[data-save]") && wfPlanned) {
-          const name = (prompt("Name this preset", wfPlanned.summary?.find || "My workflow") || "").trim();
+          const name = (prompt("Name this preset", wfPlanned.summary?.find || (wfPlanned.playbook ? `Playbook (${wfPlanned.playbook.steps.length} steps)` : "My workflow")) || "").trim();
           if (!name) return;
           const presets = wfPresets().filter((p) => p.name !== name);
           presets.unshift({ name: name.slice(0, 40), text: wfText.value.trim(), planned: wfPlanned });
@@ -6011,6 +6102,15 @@
         }
         const btn = event.target.closest("button.wf-x");
         if (!btn) return;
+        const ladder = [15, 30, 60, 120, 180, 300, 420, 600];
+        const nudge = (value, dir) => {
+          const at = ladder.findIndex((v) => v >= value);
+          const index = Math.max(0, Math.min(ladder.length - 1, (at < 0 ? ladder.length - 1 : at) + dir));
+          return ladder[index] === value && dir > 0 ? ladder[Math.min(index + 1, ladder.length - 1)] : ladder[index];
+        };
+        if (btn.dataset.stepShorter !== undefined) { wfEditPlan((b) => { const w = b.steps[Number(btn.dataset.stepShorter)].workflow; w.duration_s = nudge(w.duration_s, -1); }); return; }
+        if (btn.dataset.stepLonger !== undefined) { wfEditPlan((b) => { const w = b.steps[Number(btn.dataset.stepLonger)].workflow; w.duration_s = nudge(w.duration_s, 1); }); return; }
+        if (btn.dataset.removeStep !== undefined) { wfEditPlan((b) => b.steps.splice(Number(btn.dataset.removeStep), 1)); return; }
         if (btn.dataset.removeFilter !== undefined) wfEditPlan((s) => s.filters.splice(Number(btn.dataset.removeFilter), 1));
         if (btn.dataset.removeTrigger !== undefined) wfEditPlan((s) => s.triggers.splice(Number(btn.dataset.removeTrigger), 1));
         if (btn.dataset.duration !== undefined) {
@@ -6058,7 +6158,7 @@
         return `<div class="wf-dev ${(d.tags || []).length || d.alerted ? "flagged" : ""}" data-key="${escapeHtml(d.key)}">
             <span class="proto ${escapeHtml(d.protocol || "ble")}"></span>
             <div style="min-width:0"><div class="name">${escapeHtml(d.label || d.key)}${tags}</div>
-              <div class="sub">${escapeHtml([WF_PROTO[d.protocol] || d.protocol, d.manufacturer, d.device_type, d.device_class, d.role && cell ? d.role : "", `${d.count}× seen`, d.dwell_s ? `${Math.round(d.dwell_s)} s` : ""].filter(Boolean).join(" · "))}</div></div>
+              <div class="sub">${escapeHtml([WF_PROTO[d.protocol] || d.protocol, d.manufacturer, d.device_type, d.device_class, d.role && cell ? d.role : "", `${d.count}× seen`, d.dwell_s ? `${Math.round(d.dwell_s)} s` : "", d.steps?.length ? `step ${d.steps.join(", ")}` : ""].filter(Boolean).join(" · "))}</div></div>
             <div class="wf-rssi">${rssi == null ? "" : `${Number(rssi).toFixed(0)} ${wfUnit(d)}`}<i style="width:${width}%"></i></div>
           </div>`;
       }
@@ -6071,9 +6171,13 @@
           trigger: () => `${materialIcon("bolt")} Rule fired on <strong>${escapeHtml(d.label || d.key)}</strong><div class="small">${escapeHtml(e.rule)}</div>`,
           action: () => `${materialIcon(WF_ICON[e.action] || "task_alt")} ${escapeHtml(e.action.replace("_", " "))} ${escapeHtml(e.status)}${e.detail ? `<div class="small">${escapeHtml(String(e.detail).split("/").pop())}</div>` : ""}`,
           alert: () => `${materialIcon("notifications_active")} ${escapeHtml(e.message)}`,
+          step: () => `${materialIcon(e.status === "running" ? "play_circle" : e.status === "done" ? "check_circle" : e.status === "skipped" ? "redo" : "cancel")}
+            <strong>Step ${e.step + 1} ${escapeHtml({ running: "started", done: "finished", skipped: "skipped", not_run: "not run", error: "failed" }[e.status] || e.status)}</strong>
+            ${escapeHtml(e.title || "")}${e.reason ? `<div class="small">${escapeHtml(e.reason)}</div>` : ""}`,
         }[e.kind];
-        const key = [e.t, e.kind, e.action || "", d.key || e.device_key || "", e.merged ? "m" : ""].join("|");
-        return text ? `<li class="${e.kind} ${e.status || ""} ${e.severity || ""}" data-key="${escapeHtml(key)}"><span class="t">${Number(e.t).toFixed(1)}s</span>${text()}</li>` : "";
+        const key = [e.t, e.kind, e.action || "", d.key || e.device_key || "", e.merged ? "m" : "", e.step ?? "", e.status || ""].join("|");
+        const stepNo = e.step != null && e.kind !== "step" ? `<span class="wf-stepno">${e.step + 1}</span>` : "";
+        return text ? `<li class="${e.kind} ${e.status || ""} ${e.severity || ""}" data-key="${escapeHtml(key)}"><span class="t">${Number(e.t).toFixed(1)}s${stepNo}</span>${text()}</li>` : "";
       }
 
       function wfSparkline(activity, seconds) {
@@ -6108,7 +6212,8 @@
         if (sim) {
           const job = await (await fetch(`/api/agent/jobs/${encodeURIComponent(sim.dataset.simulate)}`)).json();
           const response = await fetch("/api/agent/run", { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ command: job.command, workflow: job.workflow, mode: job.mode, simulate: true, planner: job.planner }) });
+            body: JSON.stringify({ command: job.command, ...(job.playbook ? { playbook: job.playbook } : { workflow: job.workflow }),
+              mode: job.mode, simulate: true, planner: job.planner }) });
           const started = await response.json();
           if (!response.ok) { showToast(started.error || "Could not start the simulation"); return; }
           agentJobId = started.job_id; wfAlertsSeen = 0; renderAgent(started);
@@ -6129,6 +6234,20 @@
         pollAgent();
       });
 
+      function wfTrack(job) {
+        const book = job.playbook;
+        if (!book) return "";
+        return `<div class="wf-track">${book.steps.map((step, i) => {
+          const st = (job.step_status || [])[i] || { status: "pending" };
+          const sub = st.status === "running" ? (st.focus != null ? `focused on ${st.focus} device(s)` : (st.reason || "collecting"))
+            : st.status === "pending" ? (job.summary?.steps?.[i]?.gate || "waiting")
+            : st.status === "done" ? (st.summary || "done") : (st.reason || st.status);
+          return `<div class="wf-tstep ${escapeHtml(st.status)}" data-key="track-${i}">
+              <span class="wf-bnum">${st.status === "done" ? materialIcon("check") : st.status === "skipped" ? materialIcon("redo") : i + 1}</span>
+              <div style="min-width:0"><div class="name">${escapeHtml(step.title)}</div><div class="sub" title="${escapeHtml(sub)}">${escapeHtml(sub)}</div></div></div>`;
+        }).join("")}</div>`;
+      }
+
       function renderAgent(job) {
         const running = WF_ACTIVE.includes(job.status);
         wf.classList.toggle("running", running);
@@ -6136,9 +6255,16 @@
         wfStopBtn.hidden = !running;
         const events = job.events || [];
         const result = job.result || {};
+        const book = job.kind === "playbook" ? job.playbook : null;
         const workflow = result.workflow || {};
         const matchedMap = new Map();
-        events.forEach((e) => { if (e.device?.key) matchedMap.set(e.device.key, { ...(matchedMap.get(e.device.key) || {}), ...e.device }); });
+        events.forEach((e) => {
+          if (!e.device?.key) return;
+          const prev = matchedMap.get(e.device.key) || {};
+          const steps = new Set(prev.steps || []);
+          if (e.step != null) steps.add(e.step + 1);
+          matchedMap.set(e.device.key, { ...prev, ...e.device, steps: [...steps].sort() });
+        });
         (workflow.matched || []).forEach((d) => matchedMap.set(d.key, d));
         const alerts = job.alerts || [];
         const alerted = new Set(alerts.map((a) => a.device?.key));
@@ -6149,7 +6275,8 @@
         const spec = job.workflow || {};
         const elapsed = ((job.finished_at || Date.now() / 1000) - job.started_at);
         const extended = (job.steps || []).reduce((sum, s) => { const m = /Extended collection by (\d+)/.exec(s.message); return sum + (m ? Number(m[1]) : 0); }, 0);
-        const total = (spec.duration_s || 60) + extended + 10;
+        const skippedS = book ? book.steps.reduce((sum, st, i) => sum + (["skipped", "not_run"].includes(job.step_status?.[i]?.status) ? st.workflow.duration_s : 0), 0) : 0;
+        const total = book ? (job.summary?.total_s || 60) - skippedS + extended + 6 * book.steps.length : (spec.duration_s || 60) + extended + 10;
         const pct = running ? Math.min(98, (elapsed / total) * 100) : 100;
         const byProtocol = matched.reduce((acc, d) => { acc[d.protocol] = (acc[d.protocol] || 0) + 1; return acc; }, {});
         const statusText = { running: "Running", awaiting_approval: "Waiting for operator approval", stopping: "Stopping…", done: "Complete",
@@ -6161,25 +6288,33 @@
                 <div class="small">${escapeHtml(a.device?.label || "")}${a.device?.rssi_dbfs != null ? ` · ${Number(a.device.rssi_dbfs).toFixed(0)} ${wfUnit(a.device)}` : ""} · ${Number(a.t).toFixed(1)} s</div></div>
               <span class="wf-sev">${escapeHtml(a.severity)}</span>
             </div>`).join("");
-        const story = (workflow.narrative || []).map((line) => `<li>${escapeHtml(line)}</li>`).join("");
+        const story = ((book ? result.narrative : workflow.narrative) || []).map((line) => `<li>${escapeHtml(line)}</li>`).join("");
+        const current = book && job.current_step != null ? `Step ${job.current_step + 1} of ${book.steps.length} · ${book.steps[job.current_step].title}` : "";
+        const persist = (result.persistence || []).map((p) => `<div class="wf-dev flagged" data-key="persist-${escapeHtml(p.key)}">
+            <span class="proto ${escapeHtml(p.protocol || "ble")}"></span>
+            <div style="min-width:0"><div class="name">${escapeHtml(p.label)}${(p.tags || []).map((t) => `<span class="wf-tag flag">${escapeHtml(t)}</span>`).join("")}</div>
+              <div class="sub">${escapeHtml(`steps ${p.steps.join(", ")}${p.span_s ? ` · over ${(p.span_s / 60).toFixed(1)} min` : ""}${p.every_step ? " · every step" : ""}`)}</div></div>
+            <div class="wf-rssi">${materialIcon("history")}</div></div>`).join("");
         wfLive.hidden = false;
         wfLive.morphHtml = `
           <div class="wf-status"><span class="wf-pulse ${running ? "" : "idle"}"></span><strong>${escapeHtml(statusText)}</strong>
             ${job.simulated ? `<span class="wf-sim">${materialIcon("science")} SIMULATED</span>` : ""}
-            <span class="small">${escapeHtml(job.summary?.find || "")} · ${Math.round(elapsed)} s · ${escapeHtml(WF_MODE_LABEL[job.mode] || job.mode)}</span>
+            <span class="small">${escapeHtml(book ? (current || `Playbook · ${book.steps.length} steps`) : (job.summary?.find || ""))} · ${Math.round(elapsed)} s · ${escapeHtml(WF_MODE_LABEL[job.mode] || job.mode)}</span>
             <div class="wf-progress"><span style="width:${pct}%"></span></div>
             ${job.report_dir ? `<a class="wf-badge" href="/api/agent/jobs/${encodeURIComponent(job.job_id)}/report" target="_blank" rel="noopener">${materialIcon("verified")} Verifiable report</a>` : ""}</div>
+          ${wfTrack(job)}
           ${wfApprovals(job)}
           ${alertStack ? `<div class="wf-alerts">${alertStack}</div>` : ""}
           <div class="wf-stats">
-            <div class="wf-stat"><span>Devices seen</span><strong>${workflow.seen ?? new Set(events.map((e) => e.device?.key).filter(Boolean)).size}</strong></div>
+            <div class="wf-stat"><span>Devices seen</span><strong>${book && result.devices ? result.devices.length : workflow.seen ?? new Set(events.map((e) => e.device?.key).filter(Boolean)).size}</strong></div>
             <div class="wf-stat"><span>Matched</span><strong>${matched.length}</strong>
               <div class="wf-mini">${Object.entries(byProtocol).map(([p, n]) => `<span class="wf-chip ${escapeHtml(p)}">${escapeHtml(WF_PROTO[p] || p)} ${n}</span>`).join("")}</div></div>
-            <div class="wf-stat"><span>Rules fired</span><strong>${triggers}</strong></div>
+            <div class="wf-stat"><span>${book ? "Steps run" : "Rules fired"}</span><strong>${book ? `${(job.step_status || []).filter((x) => x.status === "done").length}/${book.steps.length}` : triggers}</strong></div>
             <div class="wf-stat ${alerts.length ? "hot" : ""}"><span>Alerts</span><strong>${alerts.length}</strong></div>
-            <div class="wf-stat wide"><span>Detections / s</span>${wfSparkline(job.activity, spec.duration_s || 60)}</div>
+            <div class="wf-stat wide"><span>Detections / s</span>${wfSparkline(job.activity, book ? (job.summary?.total_s || 60) : (spec.duration_s || 60))}</div>
           </div>
           ${story ? `<div class="wf-card wf-story"><h4>${materialIcon("summarize")} What happened</h4><ul>${story}</ul></div>` : ""}
+          ${persist ? `<div class="wf-card" style="grid-column:1/-1"><h4>${materialIcon("history")} Persistent across steps</h4><div class="wf-persist">${persist}</div></div>` : ""}
           <div class="wf-card"><h4>${materialIcon("devices")} Matching devices</h4>
             <div class="wf-list">${matched.length ? matched.map(wfDevice).join("") : `<div class="wf-empty">${running ? "Listening…" : "No device matched the filters."}</div>`}</div></div>
           <div class="wf-card"><h4>${materialIcon("timeline")} Live timeline</h4>
@@ -6209,7 +6344,7 @@
             return `<div class="wf-run" data-key="${escapeHtml(j.job_id)}">
                 <span class="wf-dot ${escapeHtml(j.status)}"></span>
                 <div style="min-width:0"><div class="name">${escapeHtml(j.command)}</div>
-                  <div class="sub">${escapeHtml([j.summary?.find, WF_MODE_LABEL[j.mode] || j.mode, `${devices} device(s)`, `${(j.alerts || []).length} alert(s)`, wfAgo(j.started_at)].filter(Boolean).join(" · "))}
+                  <div class="sub">${escapeHtml([j.summary?.find || (j.playbook ? `playbook · ${j.playbook.steps.length} steps` : ""), WF_MODE_LABEL[j.mode] || j.mode, `${devices} device(s)`, `${(j.alerts || []).length} alert(s)`, wfAgo(j.started_at)].filter(Boolean).join(" · "))}
                     ${j.simulated ? `<span class="wf-tag">simulated</span>` : ""}</div></div>
                 ${j.report_dir ? `<a class="wf-btn ghost" href="/api/agent/jobs/${encodeURIComponent(j.job_id)}/report" target="_blank" rel="noopener">${materialIcon("description")}Report</a>` : ""}
                 <button type="button" class="wf-btn ghost" data-view="${escapeHtml(j.job_id)}">${materialIcon("visibility")}View</button>
@@ -6232,8 +6367,8 @@
           return;
         }
         wfText.value = job.command;
-        wfPlanned = { spec: job.workflow, summary: job.summary, planner: job.planner?.planner || "deterministic",
-          model: job.planner?.model, fallback_reason: job.planner?.fallback_reason };
+        wfPlanned = { ...(job.playbook ? { playbook: job.playbook } : { spec: job.workflow }), summary: job.summary,
+          planner: job.planner?.planner || "deterministic", model: job.planner?.model, fallback_reason: job.planner?.fallback_reason };
         wfPlannedText = job.command;
         renderPlan(wfPlanned);
         wf.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -6268,7 +6403,7 @@
         if (!planned) return;
         try {
           const response = await fetch("/api/agent/run", { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ command: text, workflow: planned.spec, mode: wfMode,
+            body: JSON.stringify({ command: text, ...(planned.playbook ? { playbook: planned.playbook } : { workflow: planned.spec }), mode: wfMode,
               planner: { planner: planned.planner, model: planned.model, fallback_reason: planned.fallback_reason } }) });
           const job = await response.json();
           if (!response.ok) throw new Error(job.error || `Request failed (${response.status})`);

@@ -1,0 +1,208 @@
+"""Playbooks: one request -> ordered workflow steps that gate on and focus on what earlier steps found."""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import tempfile
+import threading
+import time
+import unittest
+from unittest.mock import patch
+
+from rf_platform.agent import core
+from rf_platform.agent.playbook import (PlaybookSpec, is_multistep, plan_any, plan_playbook_deterministic, render,
+                                        run_playbook, split_steps)
+
+OPERATION = ("Sweep for bluetooth trackers for 2 minutes. If you find any, watch them for 5 minutes and send an urgent "
+             "alert if one is still there after 3 minutes, and record 5 seconds of IQ. Then survey cell towers for "
+             "1 minute and alert me if a 2G cell shows up.")
+CORPUS = json.loads((Path(__file__).parent / "fixtures" / "workflow_phrases.json").read_text())["cases"]
+
+
+def shape(book: PlaybookSpec):
+    return [(s.workflow.collect, s.workflow.duration_s, s.focus, s.focus_step, s.gate.when,
+             [(c.field, c.value) for c in s.gate.conditions]) for s in book.steps]
+
+
+class PlannerTest(unittest.TestCase):
+    def test_operation(self):
+        book = plan_playbook_deterministic(OPERATION)
+        self.assertEqual(shape(book), [(["ble"], 120, "all", None, "always", []),
+                                       (["ble"], 300, "found", None, "found", []),
+                                       (["cellular"], 60, "all", None, "always", [])])
+        follow = book.steps[1].workflow
+        self.assertEqual(follow.triggers[0].when[0].field, "dwell_s")
+        self.assertEqual(follow.triggers[0].when[0].value, 180)
+        self.assertEqual([(a.kind, a.severity if a.kind == "alert" else a.seconds) for a in follow.triggers[0].do],
+                         [("alert", "critical"), ("record_iq", 5)])
+        self.assertEqual(book.steps[2].workflow.triggers[0].when[0].value, "2G")
+        summary = book.summary()
+        self.assertEqual(summary["total_s"], 480)
+        self.assertEqual(summary["steps"][1]["gate"], "only if step 1 found something")
+        self.assertEqual(summary["steps"][1]["focus"], "devices from step 1")
+
+    def test_gates_focus_and_inheritance(self):
+        book = plan_playbook_deterministic(
+            "watch for trackers for 1 minute. if nothing turns up, survey cell towers for 1 minute. otherwise, focus on "
+            "them for 3 minutes and alert me when one is seen for more than 2 minutes")
+        self.assertEqual(shape(book), [(["ble"], 60, "all", None, "always", []),
+                                       (["cellular"], 60, "all", None, "none_found", []),
+                                       (["ble"], 180, "found", 0, "found", [])])  # inherits BLE from step 1, not step 2
+        self.assertEqual(book.steps[2].gate.step, 0)
+        book = plan_playbook_deterministic("find ble devices for 60 seconds, then watch the apple devices you found for 2 minutes")
+        self.assertEqual(book.steps[1].focus, "found")
+        self.assertEqual([(c.field, c.value) for c in book.steps[1].workflow.filters], [("manufacturer", "Apple")])
+        book = plan_playbook_deterministic("find bluetooth devices for 1 minute. if you find any trackers, then watch "
+                                           "them for 2 minutes and tag them as suspect")
+        self.assertEqual(book.steps[1].gate.conditions[0].value, "tracker")
+        self.assertEqual(book.steps[1].workflow.triggers[0].do[0].label, "suspect")  # standing action: every focused device
+
+    def test_numbered_list_and_flagged(self):
+        book = plan_playbook_deterministic("1. survey cell towers for 2 minutes and alert me if an unknown network appears "
+                                           "2. watch for trackers for 3 minutes 3. watch the flagged ones for 2 minutes")
+        self.assertEqual([s.workflow.collect for s in book.steps], [["cellular"], ["ble"], ["cellular"]])
+        self.assertEqual((book.steps[2].focus, book.steps[2].focus_step), ("alerted", 0))  # the step that could alert
+
+    def test_single_requests_stay_single(self):
+        for case in CORPUS:
+            self.assertEqual(len(split_steps(case["text"])), 1, case["text"])
+        self.assertFalse(is_multistep("If an AirTag appears, then scan bluetooth classic for 60 seconds"))
+        self.assertFalse(is_multistep("find ble devices for 60 seconds, only stronger than -60. When a device is seen "
+                                      "5 times, alert me"))
+        self.assertIn("spec", plan_any("find ble devices for 1 minute", "deterministic"))
+        self.assertIn("playbook", plan_any(OPERATION, "deterministic"))
+
+    def test_bounds_and_refusals(self):
+        with self.assertRaisesRegex(ValueError, "at most 1800 s"):
+            plan_playbook_deterministic("find ble devices for 10 minutes. then survey cell towers for 10 minutes. then "
+                                        "find ble devices for 10 minutes. then survey cell towers for 5 minutes")
+        with self.assertRaisesRegex(ValueError, "only receives"):
+            plan_any("watch for trackers for 1 minute. then jam them", "deterministic")
+        step = {"workflow": {"collect": ["ble"], "duration_s": 30}}
+        with self.assertRaisesRegex(ValueError, "earlier step"):
+            PlaybookSpec.model_validate({"steps": [step, {**step, "focus": "found", "focus_step": 1}]})
+        with self.assertRaisesRegex(ValueError, "first step"):
+            PlaybookSpec.model_validate({"steps": [{**step, "gate": {"when": "found"}}]})
+
+    def test_model_planner_is_validated_and_falls_back(self):
+        from pydantic_ai.messages import ModelResponse, ToolCallPart
+        from pydantic_ai.models.function import FunctionModel
+
+        def good(messages, info):
+            book = {"goal": "op", "steps": [
+                {"title": "Sweep", "workflow": {"collect": ["ble"], "duration_s": 60}},
+                {"title": "Follow", "focus": "found", "gate": {"when": "found"},
+                 "workflow": {"collect": ["ble"], "duration_s": 999}}]}
+            return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, book)])
+        planned = plan_any(OPERATION, "model", model=FunctionModel(good))
+        # 999 s is out of bounds: the model is asked again, then the rules planner takes over with the reason.
+        self.assertEqual(planned["planner"], "deterministic")
+        self.assertTrue(planned["fallback_reason"])
+
+        def fine(messages, info):
+            book = {"goal": "op", "steps": [
+                {"title": "Sweep", "workflow": {"collect": ["ble"], "duration_s": 60}},
+                {"title": "Follow", "focus": "found", "gate": {"when": "found"},
+                 "workflow": {"collect": ["ble"], "duration_s": 120}}]}
+            return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, book)])
+        planned = plan_any(OPERATION, "model", model=FunctionModel(fine))
+        self.assertEqual((planned["planner"], len(planned["playbook"]["steps"])), ("model", 2))
+        with self.assertRaisesRegex(ValueError, "only receives"):
+            plan_any("watch for trackers for 1 minute. then jam them", "model", model=FunctionModel(fine))
+
+
+class RunTest(unittest.TestCase):
+    """Simulated receivers drive the real agent, engine, gateway and report."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.env = patch.dict(os.environ, {"RF_SENTINEL_AGENT_RUNS_DIR": self.temp.name})
+        self.env.start()
+
+    def tearDown(self):
+        self.env.stop()
+        self.temp.cleanup()
+
+    def test_gate_focus_tags_and_persistence(self):
+        book = plan_playbook_deterministic(
+            "watch for trackers for 6 seconds and tag them as seen-early. if you find any, watch them for 5 seconds and "
+            "send an urgent alert if one is seen 2 times. then survey cell towers for 5 seconds")
+        events: list[dict] = []
+        result = run_playbook(core.Agent(simulate=True), book, on_step=lambda m: None, on_event=events.append)
+        records = result["steps_run"]
+        self.assertEqual([r["status"] for r in records], ["done", "done", "done"])
+        found = {d["key"] for d in records[0]["result"]["workflow"]["matched"]}
+        self.assertTrue(found)
+        self.assertEqual(set(records[1]["focus"]), found)
+        self.assertTrue({d["key"] for d in records[1]["result"]["devices"]} <= found)  # focus holds
+        self.assertTrue(all(a["step"] == 1 and a["severity"] == "critical" for a in result["alerts"]))
+        self.assertTrue(result["alerts"])
+        # Tags from step 1 travel with the device into step 2.
+        self.assertTrue(all("seen-early" in d["tags"] for d in records[1]["result"]["workflow"]["all_devices"]))
+        self.assertTrue(result["persistence"])
+        self.assertTrue(all(p["steps"] == [1, 2] and p["every_step"] for p in result["persistence"]))
+        self.assertEqual([e["status"] for e in events if e["kind"] == "step"], ["running", "done"] * 3)
+        self.assertTrue(all("step" in e for e in events))
+        page = render(result)
+        self.assertIn("SIMULATED PLAYBOOK", page)
+        self.assertIn("Persistent devices", page)
+
+    def test_skips_and_otherwise(self):
+        book = plan_playbook_deterministic(
+            "find ble devices named nobodyhome for 5 seconds. if you find any, watch them for 5 seconds. "
+            "otherwise, survey cell towers for 5 seconds")
+        result = run_playbook(core.Agent(simulate=True), book, on_step=lambda m: None)
+        self.assertEqual([r["status"] for r in result["steps_run"]], ["done", "skipped", "done"])
+        self.assertIn("found no device", result["steps_run"][1]["reason"])
+        self.assertIn("skipped", " ".join(result["narrative"]))
+
+    def test_stop_ends_the_playbook(self):
+        book = plan_playbook_deterministic("find ble devices for 30 seconds. then survey cell towers for 30 seconds")
+        agent = core.Agent(simulate=True)
+        threading.Timer(2.0, agent.stop).start()
+        started = time.monotonic()
+        result = run_playbook(agent, book, on_step=lambda m: None)
+        self.assertLess(time.monotonic() - started, 20)
+        self.assertTrue(result["stopped"])
+        self.assertEqual(result["steps_run"][1]["status"], "not_run")
+
+
+class EndpointTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from tests.test_validation_harness import BackendValidationTest
+        BackendValidationTest.setUpClass()
+        cls.harness, cls.backend, cls.client = BackendValidationTest, BackendValidationTest.backend, BackendValidationTest.client
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.harness.tearDownClass()
+
+    def test_plan_edit_run_and_history(self):
+        planned = self.client.post("/api/agent/plan", json={"text": OPERATION, "planner": "deterministic"}).get_json()
+        self.assertEqual(len(planned["summary"]["steps"]), 3)
+        book = planned["playbook"]
+        book["steps"][1]["workflow"]["duration_s"] = 99999
+        self.assertEqual(self.client.post("/api/agent/plan", json={"playbook": book}).status_code, 400)
+        small = plan_playbook_deterministic("find ble devices for 5 seconds. then survey cell towers for 5 seconds")
+        started = self.client.post("/api/agent/run", json={"playbook": small.model_dump(), "simulate": True,
+                                                           "mode": "passive-auto"}).get_json()
+        self.assertEqual(started["kind"], "playbook")
+        deadline = time.time() + 60
+        job = started
+        while time.time() < deadline and job["status"] not in ("done", "error", "stopped"):
+            time.sleep(0.5)
+            job = self.client.get(f"/api/agent/jobs/{started['job_id']}").get_json()
+        self.assertEqual(job["status"], "done", job.get("error"))
+        self.assertEqual([s["status"] for s in job["step_status"]], ["done", "done"])
+        report = self.client.get(f"/api/agent/jobs/{job['job_id']}/report").get_data(as_text=True)
+        self.assertIn("RECEIVE-ONLY PLAYBOOK", report)
+        with self.backend.agent_jobs_lock:
+            self.backend.agent_jobs.clear()
+        saved = next(j for j in self.client.get("/api/agent/jobs").get_json() if j.get("run_id") == job["run_id"])
+        self.assertEqual((saved["kind"], len(saved["step_status"])), ("playbook", 2))
+
+
+if __name__ == "__main__":
+    unittest.main()
