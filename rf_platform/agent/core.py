@@ -45,7 +45,8 @@ def simulate_command(task: Task, device: dict[str, Any], clock: tuple[float, flo
     """The scripted-scenario stand-in for a receiver plugin (rf_platform.agent.simulate).
 
     clock = (scenario start, scenario length): a playbook runs one scenario across all its steps."""
-    seed = abs(hash((task.profile.name, device["id"]))) % 1000
+    import zlib
+    seed = zlib.crc32(f"{task.profile.name}|{device['id']}".encode()) % 1000  # reproducible, unlike hash()
     duration, offset = (task.duration_s, 0.0) if clock is None else (clock[1], max(0.0, time.time() - clock[0]))
     tag = int(clock[0]) if clock is not None else int(time.time())
     return [sys.executable, "-m", "rf_platform.agent.simulate", "--profile", task.profile.name,

@@ -209,6 +209,58 @@ class RunTest(unittest.TestCase):
         self.assertFalse((base / "known_devices.json").exists())  # synthetic devices never become "known" for real runs
 
 
+    def test_standing_watch_repeats_and_finds_recurring_devices(self):
+        from rf_platform.agent import playbook
+        with patch.object(playbook, "MIN_REPEAT_S", 5):
+            book = plan_playbook_deterministic("watch for trackers for 5 seconds and alert me when a new one appears. "
+                                               "repeat every 8 seconds, 3 times")
+            self.assertEqual((book.repeat.every_s, book.repeat.times), (8, 3))
+            events: list[dict] = []
+            started = time.monotonic()
+            result = run_playbook(core.Agent(simulate=True), book, on_step=lambda m: None, on_event=events.append)
+        self.assertGreaterEqual(time.monotonic() - started, 16)  # cycles start every 8 s, not back to back
+        self.assertEqual(result["cycles"], {"planned": 3, "run": 3, "every_s": 8})
+        self.assertEqual([r["cycle"] for r in result["steps_run"]], [0, 1, 2])
+        self.assertTrue(result["recurring"])
+        self.assertTrue(all(r["of"] == 3 and len(r["cycles"]) >= 2 for r in result["recurring"]))
+        self.assertEqual([e["status"] for e in events if e["kind"] == "cycle"], ["running", "waiting", "running", "waiting", "running"])
+        # "new" means not seen in an earlier cycle either: the trackers alert in cycle 1 only.
+        self.assertTrue(result["alerts"])
+        self.assertEqual({a["cycle"] for a in result["alerts"]}, {0})
+        self.assertIn("Standing watch: 3 of 3 cycle(s) ran", result["narrative"][0])
+        page = render(result)
+        self.assertIn("Recurring across cycles", page)
+        self.assertIn("<h2>Cycles</h2>", page)
+
+    def test_standing_watch_stops_while_waiting(self):
+        from rf_platform.agent import playbook
+        with patch.object(playbook, "MIN_REPEAT_S", 5):
+            book = plan_playbook_deterministic("find ble devices for 5 seconds every 60 seconds, 3 times")
+        agent = core.Agent(simulate=True)
+        threading.Timer(9.0, agent.stop).start()
+        started = time.monotonic()
+        result = run_playbook(agent, book, on_step=lambda m: None)
+        self.assertLess(time.monotonic() - started, 20)
+        self.assertEqual((result["cycles"]["run"], result["stopped"]), (1, True))
+
+    def test_repeat_phrasing_and_bounds(self):
+        book = plan_playbook_deterministic("every 10 minutes for the next hour, sweep for trackers for 1 minute and "
+                                           "alert me when a new one appears")
+        self.assertEqual((book.repeat.every_s, book.repeat.times, len(book.steps)), (600, 6, 1))
+        book = plan_playbook_deterministic("find ble devices for 30 seconds. then watch them for 1 minute. repeat 4 "
+                                           "times, every 5 minutes")
+        self.assertEqual((book.repeat.every_s, book.repeat.times, len(book.steps)), (300, 4, 2))
+        book = plan_playbook_deterministic("survey cell towers for 1 minute, every hour until I stop it")
+        self.assertEqual(book.repeat.times, 12)
+        self.assertIn("unless stopped", book.notes[0])
+        with self.assertRaisesRegex(ValueError, "repeats every 60 s"):
+            plan_playbook_deterministic("watch for trackers for 1 minute every 30 seconds for 5 minutes")
+        with self.assertRaisesRegex(ValueError, "at most 48 cycles"):
+            plan_playbook_deterministic("watch for trackers for 2 minutes every 10 minutes for 13 hours")
+        with self.assertRaisesRegex(ValueError, "shorter than one cycle"):
+            plan_playbook_deterministic("watch for trackers for 5 minutes every 2 minutes for 1 hour")
+
+
 class CliTest(unittest.TestCase):
     def test_plan_prints_steps_without_a_service(self):
         import contextlib

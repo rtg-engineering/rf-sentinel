@@ -1964,6 +1964,20 @@
       .wf-tstep.error .wf-bnum { background: var(--red); }
       .wf-stepno { font-size: 0.68rem; font-weight: 800; padding: 0 6px; border-radius: 99px; background: var(--chip); color: var(--muted); margin-left: 4px; }
       .wf-persist { display: flex; flex-direction: column; gap: 6px; }
+      .wf-watch { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 12px;
+        border: 1px solid color-mix(in srgb, var(--wf-c) 40%, var(--line)); background: color-mix(in srgb, var(--wf-c) 8%, var(--panel)); }
+      .wf-watch > .material-symbols-rounded { color: var(--wf-c); }
+      .wf-watch strong { font-size: 0.95rem; }
+      .wf-cycles { grid-column: 1 / -1; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+      .wf-cycles .lbl { font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-right: 4px; }
+      .wf-cyc { position: relative; width: 22px; height: 22px; border-radius: 7px; background: var(--chip); display: grid; place-items: center;
+        font-size: 0.68rem; font-weight: 800; color: var(--muted); }
+      .wf-cyc.done { background: linear-gradient(135deg, var(--green), var(--teal)); color: #fff; }
+      .wf-cyc.running { background: linear-gradient(135deg, var(--wf-a), var(--wf-b)); color: #fff; animation: wf-glowstep 1.4s ease-in-out infinite; }
+      .wf-cyc.hot::after { content: ""; position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--red);
+        box-shadow: 0 0 0 2px var(--panel); }
+      .wf-countdown { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--wf-c); }
+      @media (prefers-reduced-motion: reduce) { .wf-cyc.running { animation: none; } }
       @media (prefers-reduced-motion: reduce) { .wf-bstep, .wf-bstep.running .wf-bnum, .wf-tstep.running .wf-bnum { animation: none; } }
       @media (max-width: 700px) {
         .wf-prompt { flex-wrap: wrap; }
@@ -2653,6 +2667,7 @@
           <button type="button" data-ex="Watch for trackers and rogue cell towers for 3 minutes. If an AirTag is seen for more than 1 minute, send an urgent alert. Send an urgent alert if an unknown network appears or if a 2G cell shows up.">Trackers + rogue cells</button>
           <button type="button" data-ex="Survey cell towers for 3 minutes. Send an urgent alert if an unknown network appears or if a 2G cell shows up, and alert me when the serving cell changes.">Rogue cell watch</button>
           <button type="button" class="wf-ex-book" data-ex="Sweep for bluetooth trackers for 2 minutes. If you find any, watch them for 5 minutes and send an urgent alert if one is still there after 3 minutes, and record 5 seconds of IQ. Then survey cell towers for 1 minute and alert me if a 2G cell shows up.">Playbook: tracker hunt + cell check</button>
+          <button type="button" class="wf-ex-book" data-ex="Every 10 minutes for the next 2 hours, sweep for bluetooth trackers for 1 minute and send an urgent alert when a new one appears.">Standing watch: new trackers</button>
           <button type="button" class="wf-ex-book" data-ex="Find ble devices for 1 minute and tag them as baseline. Then watch for new devices for 3 minutes and alert me when one stronger than -50 appears. Finally, watch the flagged ones for 2 minutes and record 3 seconds of IQ.">Playbook: baseline → newcomers → evidence</button>
         </div>
         <div class="wf-examples wf-saved" id="wfSaved"></div>
@@ -6016,9 +6031,14 @@
 
       function renderPlaybookPlan(planned) {
         const book = planned.playbook, summary = planned.summary;
-        wfPlanEl.innerHTML = `
+        const watch = book.repeat ? `<div class="wf-watch">${materialIcon("autorenew")}
+            <div><strong>Standing watch</strong> <span class="wf-note">${escapeHtml(summary.repeat || "")}</span></div>
+            <span class="wf-chip wf-dur"><button type="button" class="wf-x" data-cycles="-1" title="Fewer cycles" aria-label="Fewer cycles">${materialIcon("remove")}</button>
+              ${materialIcon("autorenew")} ${book.repeat.times} cycles
+              <button type="button" class="wf-x" data-cycles="1" title="More cycles" aria-label="More cycles">${materialIcon("add")}</button></span></div>` : "";
+        wfPlanEl.innerHTML = `${watch}
           <div class="wf-book">${book.steps.map((step, i) => wfBookStep(step, summary.steps[i], i, { edit: true, last: i === book.steps.length - 1 })).join("")}</div>
-          <div class="wf-meta"><span class="wf-badges"><span class="wf-badge">${materialIcon("format_list_numbered")} Playbook · ${book.steps.length} steps · up to ${wfDuration(summary.total_s)}</span>
+          <div class="wf-meta"><span class="wf-badges"><span class="wf-badge">${materialIcon("format_list_numbered")} Playbook · ${book.steps.length} step${book.steps.length > 1 ? "s" : ""} · up to ${wfDuration(summary.total_s)}${book.repeat ? " per cycle" : ""}</span>
             ${wfPlannerBadge(planned)}${planned.edited ? `<span class="wf-badge">${materialIcon("edit")} edited</span>` : ""}
             <button type="button" class="wf-badge wf-save" data-save="1" title="Save this plan as a one-click preset in this browser">${materialIcon("bookmark_add")} Save</button></span>
             <span class="wf-note">Steps run in order on the same receivers, policy and audit. ${(book.notes || []).map(escapeHtml).join(" · ")}${planned.fallback_reason ? ` · model: ${escapeHtml(planned.fallback_reason)}` : ""}</span></div>`;
@@ -6111,6 +6131,7 @@
         if (btn.dataset.stepShorter !== undefined) { wfEditPlan((b) => { const w = b.steps[Number(btn.dataset.stepShorter)].workflow; w.duration_s = nudge(w.duration_s, -1); }); return; }
         if (btn.dataset.stepLonger !== undefined) { wfEditPlan((b) => { const w = b.steps[Number(btn.dataset.stepLonger)].workflow; w.duration_s = nudge(w.duration_s, 1); }); return; }
         if (btn.dataset.removeStep !== undefined) { wfEditPlan((b) => b.steps.splice(Number(btn.dataset.removeStep), 1)); return; }
+        if (btn.dataset.cycles !== undefined) { wfEditPlan((b) => { b.repeat.times = Math.max(2, b.repeat.times + Number(btn.dataset.cycles)); }); return; }
         if (btn.dataset.removeFilter !== undefined) wfEditPlan((s) => s.filters.splice(Number(btn.dataset.removeFilter), 1));
         if (btn.dataset.removeTrigger !== undefined) wfEditPlan((s) => s.triggers.splice(Number(btn.dataset.removeTrigger), 1));
         if (btn.dataset.duration !== undefined) {
@@ -6234,6 +6255,21 @@
         pollAgent();
       });
 
+      function wfCycles(job) {
+        const c = job.cycle;
+        if (!c || !job.playbook?.repeat) return "";
+        const hot = new Set((job.alerts || []).map((a) => a.cycle));
+        const finished = !WF_ACTIVE.includes(job.status);
+        const cells = Array.from({ length: c.total }, (_, i) => {
+          const state = i < c.index || (i === c.index && (finished || c.status === "done")) ? "done"
+            : i === c.index && c.status === "running" ? "running" : "";
+          return `<span class="wf-cyc ${state} ${hot.has(i) ? "hot" : ""}" title="Cycle ${i + 1}${hot.has(i) ? " · alerts" : ""}">${i + 1}</span>`;
+        }).join("");
+        const wait = c.status === "waiting" && c.next_at && !finished ? Math.max(0, Math.round(c.next_at - Date.now() / 1000)) : null;
+        return `<div class="wf-cycles"><span class="lbl">${materialIcon("autorenew")} Cycles</span>${cells}
+            ${wait != null ? `<span class="wf-note">next cycle in <span class="wf-countdown">${Math.floor(wait / 60)}:${String(wait % 60).padStart(2, "0")}</span></span>` : ""}</div>`;
+      }
+
       function wfTrack(job) {
         const book = job.playbook;
         if (!book) return "";
@@ -6276,7 +6312,8 @@
         const elapsed = ((job.finished_at || Date.now() / 1000) - job.started_at);
         const extended = (job.steps || []).reduce((sum, s) => { const m = /Extended collection by (\d+)/.exec(s.message); return sum + (m ? Number(m[1]) : 0); }, 0);
         const skippedS = book ? book.steps.reduce((sum, st, i) => sum + (["skipped", "not_run"].includes(job.step_status?.[i]?.status) ? st.workflow.duration_s : 0), 0) : 0;
-        const total = book ? (job.summary?.total_s || 60) - skippedS + extended + 6 * book.steps.length : (spec.duration_s || 60) + extended + 10;
+        const total = book?.repeat ? (job.summary?.window_s || 600) + 6 * book.steps.length
+          : book ? (job.summary?.total_s || 60) - skippedS + extended + 6 * book.steps.length : (spec.duration_s || 60) + extended + 10;
         const pct = running ? Math.min(98, (elapsed / total) * 100) : 100;
         const byProtocol = matched.reduce((acc, d) => { acc[d.protocol] = (acc[d.protocol] || 0) + 1; return acc; }, {});
         const statusText = { running: "Running", awaiting_approval: "Waiting for operator approval", stopping: "Stopping…", done: "Complete",
@@ -6289,8 +6326,19 @@
               <span class="wf-sev">${escapeHtml(a.severity)}</span>
             </div>`).join("");
         const story = ((book ? result.narrative : workflow.narrative) || []).map((line) => `<li>${escapeHtml(line)}</li>`).join("");
-        const current = book && job.current_step != null ? `Step ${job.current_step + 1} of ${book.steps.length} · ${book.steps[job.current_step].title}` : "";
-        const persist = (result.persistence || []).map((p) => `<div class="wf-dev flagged" data-key="persist-${escapeHtml(p.key)}">
+        const cyc = book?.repeat && job.cycle ? `Cycle ${job.cycle.index + 1} of ${job.cycle.total} · ` : "";
+        const current = book && job.cycle?.status === "waiting" && running ? `${cyc}waiting for the next cycle`
+          : book && job.current_step != null ? `${cyc}Step ${job.current_step + 1} of ${book.steps.length} · ${book.steps[job.current_step].title}` : cyc.replace(/ · $/, "");
+        const alertedKeys = new Set((job.alerts || []).map((a) => a.device?.key));
+        const recurList = [...(result.recurring || [])].sort((a, b) => (alertedKeys.has(b.key) - alertedKeys.has(a.key))
+          || ((b.tags || []).length > 0) - ((a.tags || []).length > 0) || b.cycles.length - a.cycles.length);
+        const recurMore = Math.max(0, recurList.length - 6);
+        const recurring = recurList.slice(0, 6).map((p) => `<div class="wf-dev flagged" data-key="recur-${escapeHtml(p.key)}">
+            <span class="proto ${escapeHtml(p.protocol || "ble")}"></span>
+            <div style="min-width:0"><div class="name">${escapeHtml(p.label)}${(p.tags || []).map((t) => `<span class="wf-tag flag">${escapeHtml(t)}</span>`).join("")}</div>
+              <div class="sub">${escapeHtml(`${p.cycles.length} of ${p.of} cycles (${p.cycles.join(", ")})${p.span_s ? ` · over ${(p.span_s / 60).toFixed(1)} min` : ""}`)}</div></div>
+            <div class="wf-rssi">${materialIcon("autorenew")}</div></div>`).join("");
+        const persist = (result.recurring?.length ? [] : (result.persistence || [])).slice(0, 6).map((p) => `<div class="wf-dev flagged" data-key="persist-${escapeHtml(p.key)}">
             <span class="proto ${escapeHtml(p.protocol || "ble")}"></span>
             <div style="min-width:0"><div class="name">${escapeHtml(p.label)}${(p.tags || []).map((t) => `<span class="wf-tag flag">${escapeHtml(t)}</span>`).join("")}</div>
               <div class="sub">${escapeHtml(`steps ${p.steps.join(", ")}${p.span_s ? ` · over ${(p.span_s / 60).toFixed(1)} min` : ""}${p.every_step ? " · every step" : ""}`)}</div></div>
@@ -6302,6 +6350,7 @@
             <span class="small">${escapeHtml(book ? (current || `Playbook · ${book.steps.length} steps`) : (job.summary?.find || ""))} · ${Math.round(elapsed)} s · ${escapeHtml(WF_MODE_LABEL[job.mode] || job.mode)}</span>
             <div class="wf-progress"><span style="width:${pct}%"></span></div>
             ${job.report_dir ? `<a class="wf-badge" href="/api/agent/jobs/${encodeURIComponent(job.job_id)}/report" target="_blank" rel="noopener">${materialIcon("verified")} Verifiable report</a>` : ""}</div>
+          ${wfCycles(job)}
           ${wfTrack(job)}
           ${wfApprovals(job)}
           ${alertStack ? `<div class="wf-alerts">${alertStack}</div>` : ""}
@@ -6315,6 +6364,8 @@
           </div>
           ${story ? `<div class="wf-card wf-story"><h4>${materialIcon("summarize")} What happened</h4><ul>${story}</ul></div>` : ""}
           ${persist ? `<div class="wf-card" style="grid-column:1/-1"><h4>${materialIcon("history")} Persistent across steps</h4><div class="wf-persist">${persist}</div></div>` : ""}
+          ${recurring ? `<div class="wf-card" style="grid-column:1/-1"><h4>${materialIcon("autorenew")} Recurring across cycles (${recurList.length})</h4><div class="wf-persist">${recurring}</div>
+            ${recurMore ? `<div class="wf-note">${recurMore} more in the report. Alerted and tagged devices are listed first.</div>` : ""}</div>` : ""}
           <div class="wf-card"><h4>${materialIcon("devices")} Matching devices</h4>
             <div class="wf-list">${matched.length ? matched.map(wfDevice).join("") : `<div class="wf-empty">${running ? "Listening…" : "No device matched the filters."}</div>`}</div></div>
           <div class="wf-card"><h4>${materialIcon("timeline")} Live timeline</h4>

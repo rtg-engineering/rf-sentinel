@@ -8883,7 +8883,8 @@ def agent_run():
            "activity": []}
     if book is not None:
         job.update(kind="playbook", playbook=book.model_dump(), summary=book.summary(), workflow=None,
-                   step_status=[{"status": "pending", "reason": ""} for _ in book.steps], current_step=None)
+                   step_status=[{"status": "pending", "reason": ""} for _ in book.steps], current_step=None,
+                   cycle={"index": 0, "total": book.repeat.times, "status": "running", "next_at": None} if book.repeat else None)
     gateway = AgentGateway(mode, job_id, _agent_approvals(),
                            on_pending=lambda p: job["steps"].append({"t": round(time.time() - job["started_at"], 1),
                                                                      "message": f"Approval needed for {p['tool']} {p['params']} (action {p['action_id']})"}))
@@ -8896,6 +8897,11 @@ def agent_run():
     def work():
         try:
             def on_event(event):
+                if event["kind"] == "cycle" and book is not None:
+                    job["cycle"] = {"index": event["cycle"], "total": book.repeat.times if book.repeat else 1,
+                                    "status": event["status"], "next_at": event.get("next_at")}
+                    if event["status"] == "running":
+                        job["step_status"] = [{"status": "pending", "reason": ""} for _ in book.steps]
                 if event["kind"] == "step" and book is not None:
                     previous = job["step_status"][event["step"]]
                     job["step_status"][event["step"]] = {"status": event["status"], "reason": event.get("reason") or "",
@@ -8973,8 +8979,10 @@ def _saved_agent_runs(limit: int = 20, exclude: set[str] | None = None) -> list[
         if result.get("kind") == "playbook":
             from rf_platform.agent.playbook import step_summary
             records = result.get("steps_run") or []
-            events = [{**e, "step": i} for i, r in enumerate(records)
+            events = [{**e, "step": r.get("index", 0), "cycle": r.get("cycle", 0)} for r in records
                       for e in ((r.get("result") or {}).get("workflow") or {}).get("timeline") or []]
+            last_cycle = max((r.get("cycle", 0) for r in records), default=0)
+            cycles = result.get("cycles")
             out.append({"job_id": f"saved-{result.get('run_id')}", "run_id": result.get("run_id"), "saved": True,
                         "kind": "playbook", "command": result.get("command"), "profile": result.get("profile"),
                         "mode": result.get("mode"), "source": "saved", "status": "stopped" if result.get("stopped") else "done",
@@ -8985,8 +8993,10 @@ def _saved_agent_runs(limit: int = 20, exclude: set[str] | None = None) -> list[
                         "activity": [], "report_dir": str(path.parent), "pending_approvals": [],
                         "step_status": [{"status": r.get("status"), "reason": r.get("reason") or "",
                                          "focus": len(r["focus"]) if r.get("focus") is not None else None,
-                                         "summary": step_summary(r) if r.get("status") == "done" else ""} for r in records],
-                        "current_step": None})
+                                         "summary": step_summary(r) if r.get("status") == "done" else ""}
+                                        for r in records if r.get("cycle", 0) == last_cycle],
+                        "current_step": None,
+                        "cycle": {"index": last_cycle, "total": cycles["planned"], "status": "done", "next_at": None} if cycles else None})
             continue
         out.append({"job_id": f"saved-{result.get('run_id')}", "run_id": result.get("run_id"), "saved": True,
                     "command": (workflow.get("spec") or {}).get("goal") or result.get("command"),
