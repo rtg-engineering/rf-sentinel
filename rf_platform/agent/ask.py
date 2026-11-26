@@ -80,7 +80,9 @@ def answer_rules(result: dict[str, Any], question: str) -> dict[str, Any] | None
         if not alerts:
             return {"answer": "No alerts were raised.", "devices": []}
         return {"answer": f"{len(alerts)} alert(s):\n" + "\n".join(
-            f"• {a['severity']}: {a['message']}" + (f" (step {a['step'] + 1})" if "step" in a else "") for a in alerts[:10]),
+            f"• {a['severity']}: {a['message']}"
+            + (f" (cycle {a.get('cycle', 0) + 1}, step {a['step'] + 1})" if result.get("cycles") and "step" in a
+               else f" (step {a['step'] + 1})" if "step" in a else "") for a in alerts[:10]),
                 "devices": list(dict.fromkeys((a.get("device") or {}).get("key") for a in alerts[:10] if a.get("device")))}
     if re.search(r"\b(?:recurr|came back|keep coming|every cycle|more than one cycle|each cycle)", q):
         items = sorted([d for d in devices if len(d["cycles"]) > 1], key=lambda d: -len(d["cycles"]))
