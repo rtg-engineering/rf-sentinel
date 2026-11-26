@@ -289,6 +289,33 @@ class RunTest(unittest.TestCase):
         self.assertTrue(all(r["status"] == "error" and "observe" in r["reason"].lower() for r in observed["steps_run"]))
 
 
+    def test_scheduled_start(self):
+        from rf_platform.agent.playbook import Start
+        book = plan_playbook_deterministic("From 10pm to 6am, every 30 minutes, sweep for trackers for 1 minute and send "
+                                           "an urgent alert when a new one appears.", utc_offset_min=-300)
+        self.assertEqual((book.start.at, book.start.utc_offset_min, book.repeat.every_s, book.repeat.times), ("22:00", -300, 1800, 16))
+        # 22:00 at UTC-5 is 03:00 UTC: from 01:00 UTC the start is 2 h away, from 04:00 UTC it is the next day.
+        day = 1_800_000_000 - 1_800_000_000 % 86400
+        self.assertEqual(Start(at="22:00", utc_offset_min=-300).resolve(day + 3600) - day, 3 * 3600)
+        self.assertEqual(Start(at="22:00", utc_offset_min=-300).resolve(day + 4 * 3600) - day, 27 * 3600)
+        self.assertEqual(plan_playbook_deterministic("In 20 minutes, survey cell towers for 2 minutes").start.in_s, 1200)
+        self.assertEqual(plan_playbook_deterministic("tonight at 10, find ble devices for 1 minute", 0).start.at, "22:00")
+        self.assertFalse(is_multistep("watch for trackers for 5 minutes and alert me if one is seen for at least 10 seconds"))
+        self.assertFalse(is_multistep("watch for trackers in the next 3 minutes"))
+        with self.assertRaisesRegex(ValueError, "how often"):
+            plan_playbook_deterministic("from 10pm to 6am sweep for trackers for 1 minute")
+        with self.assertRaisesRegex(ValueError, "24 h"):
+            plan_playbook_deterministic("in 30 hours find ble devices for 1 minute")
+        # Waiting for the start is interruptible, and nothing is collected before it.
+        agent = core.Agent(simulate=True)
+        threading.Timer(1.5, agent.stop).start()
+        events: list[dict] = []
+        result = run_playbook(agent, plan_playbook_deterministic("in 10 minutes, find ble devices for 5 seconds"),
+                              on_step=lambda m: None, on_event=events.append)
+        self.assertEqual(result["steps_run"], [])
+        self.assertTrue(events[0]["scheduled"] and events[0]["status"] == "waiting")
+
+
 class CliTest(unittest.TestCase):
     def test_plan_prints_steps_without_a_service(self):
         import contextlib

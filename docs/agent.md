@@ -158,6 +158,13 @@ Other phrasings it understands:
 - "…, repeat 4 times, every 15 minutes"
 - "…, every hour until I stop it" (with no end given, the watch runs as many cycles as fit within the limits)
 
+**Scheduled starts.** A playbook or watch can begin later:
+- "In 20 minutes, …" waits 20 minutes after **Run**.
+- "At 10pm, …", "tonight at 10, …" or "at 22:30, …" waits for the next time that clock time comes round.
+- "From 10pm to 6am, every 30 minutes, …" sets both the start and the window, so this example runs 16 cycles.
+
+Clock times use the operator's time zone: the dashboard sends the browser's, and the CLI uses the machine's. The plan shows the resolved zone. A bare "at 10" is not taken as a time; give am/pm or hh:mm. A start can be at most 24 h ahead. While a run waits, it shows a countdown and can be stopped.
+
 Cycles start on the schedule (start to start), and **Stop** ends the watch even while it is waiting. If the first cycle cannot run any step, for example because there is no receiver, the watch ends at once instead of waiting through the remaining cycles.
 
 Results:

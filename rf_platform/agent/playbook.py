@@ -75,6 +75,45 @@ class Repeat(BaseModel):
                 f"(ends after about {_span(self.every_s * (self.times - 1) + cycle_s)})")
 
 
+MAX_START_DELAY_S = 24 * 3600
+
+
+class Start(BaseModel):
+    """When the playbook begins: after a delay ("in 20 minutes") or at a clock time ("at 10pm", in the operator's
+    time zone, given as minutes east of UTC when planned)."""
+    in_s: int | None = Field(default=None, ge=0, le=MAX_START_DELAY_S)
+    at: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    utc_offset_min: int = Field(default=0, ge=-14 * 60, le=14 * 60)
+
+    @model_validator(mode="after")
+    def _one(self):
+        if (self.in_s is None) == (self.at is None):
+            raise ValueError("a start is either a delay (in_s) or a clock time (at)")
+        if self.at is not None and not (0 <= int(self.at[:2]) < 24 and 0 <= int(self.at[3:]) < 60):
+            raise ValueError(f"{self.at} is not a time of day")
+        return self
+
+    def resolve(self, now: float | None = None) -> float:
+        """Epoch seconds at which to start: the next occurrence of the clock time, or now + delay."""
+        import time as _time
+        now = _time.time() if now is None else now
+        if self.in_s is not None:
+            return now + self.in_s
+        local = now + self.utc_offset_min * 60
+        day = local - local % 86400
+        target = day + int(self.at[:2]) * 3600 + int(self.at[3:]) * 60
+        if target <= local:
+            target += 86400
+        return target - self.utc_offset_min * 60
+
+    def describe(self) -> str:
+        if self.in_s is not None:
+            return f"starts {_span(self.in_s)} after Run" if self.in_s else "starts at once"
+        sign = "+" if self.utc_offset_min >= 0 else "-"
+        offset = f"UTC{sign}{abs(self.utc_offset_min) // 60:02d}:{abs(self.utc_offset_min) % 60:02d}"
+        return f"starts at {self.at} ({offset}), the next time that comes round"
+
+
 def _span(seconds: float) -> str:
     seconds = int(seconds)
     if seconds >= 3600 and seconds % 3600 == 0:
@@ -88,6 +127,7 @@ class PlaybookSpec(BaseModel):
     goal: str = ""
     steps: list[Step] = Field(min_length=1, max_length=MAX_STEPS)
     repeat: Repeat | None = None
+    start: Start | None = None
     notes: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -127,6 +167,8 @@ class PlaybookSpec(BaseModel):
             steps.append(item)
         total = sum(s.workflow.duration_s for s in self.steps)
         out = {"steps": steps, "total_s": total}
+        if self.start is not None:
+            out["start"] = self.start.describe()
         if self.repeat is not None:
             out["repeat"] = self.repeat.describe(total)
             out["window_s"] = self.repeat.every_s * (self.repeat.times - 1) + total
@@ -258,8 +300,9 @@ def _seconds_of(amount: str | None, unit: str | None) -> int:
     return _seconds(amount or "1", unit)
 
 
-def strip_repeat(text: str) -> tuple[str, Repeat | None, str]:
-    """Remove a standing-watch phrase. Returns (text without it, Repeat or None, note)."""
+def strip_repeat(text: str, window_s: int | None = None) -> tuple[str, Repeat | None, str]:
+    """Remove a standing-watch phrase. Returns (text without it, Repeat or None, note).
+    window_s: the length of a "from 10pm to 6am" window, when the request gave one."""
     lower = text.lower()
     m = re.search(REPEAT_PATTERNS[1], lower)
     if m:
@@ -272,7 +315,7 @@ def strip_repeat(text: str) -> tuple[str, Repeat | None, str]:
     if m:
         every = _seconds_of(m.group(1), m.group(2))
         window = (_seconds_of(m.group(3), m.group(4)) if m.group(4) else
-                  _seconds_of(m.group(6), m.group(7)) if m.group(7) else None)
+                  _seconds_of(m.group(6), m.group(7)) if m.group(7) else window_s)
         times = int(m.group(5)) if m.group(5) else (int(window // every) if window else None)
         note = ""
         if times is None:
@@ -282,7 +325,60 @@ def strip_repeat(text: str) -> tuple[str, Repeat | None, str]:
             note = f"{_span(window)} at one cycle every {_span(every)} is {times} cycles."
         rest = (text[: m.start()] + " " + text[m.end():]).strip(" ,.;")
         return rest, _repeat(every, max(times, 2)), note
+    if window_s:
+        raise ValueError("say how often to run within that window, e.g. 'from 10pm to 6am, every 30 minutes, ...'")
     return text, None, ""
+
+
+_CLOCK = r"(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?"
+
+
+def _clock(hour: str, minute: str | None, half: str | None, evening: bool) -> str | None:
+    h, m = int(hour), int(minute or 0)
+    if half:
+        if not 1 <= h <= 12:
+            return None
+        h = h % 12 + (12 if half.startswith("p") else 0)
+    elif not minute and evening and h < 12:
+        h += 12  # "tonight at 10"
+    elif not minute and not evening:
+        return None  # a bare number is not a time ("at 10" could be anything); ask for am/pm or hh:mm
+    return f"{h:02d}:{m:02d}" if 0 <= h < 24 and 0 <= m < 60 else None
+
+
+def local_offset_min() -> int:
+    import time as _time
+    return int(-(_time.altzone if _time.daylight and _time.localtime().tm_isdst else _time.timezone) // 60)
+
+
+def strip_start(text: str, utc_offset_min: int | None = None) -> tuple[str, Start | None, int | None]:
+    """Remove a start phrase. Returns (rest, Start or None, window_s for "from X to Y" or None)."""
+    offset = local_offset_min() if utc_offset_min is None else int(utc_offset_min)
+    lower = text.lower()
+    m = re.search(rf"(?:^|[,.;]?\s*)(?:(tonight|this evening)\s+)?from\s+{_CLOCK}\s+(?:to|until|till)\s+{_CLOCK}[,.]?", lower)
+    if m:
+        evening = bool(m.group(1))
+        start = _clock(m.group(2), m.group(3), m.group(4), evening)
+        end = _clock(m.group(5), m.group(6), m.group(7) or (None if m.group(6) else ("am" if evening and int(m.group(5)) < 12 else None)), False)
+        if not start or not end:
+            raise ValueError("say the times with am/pm or as hh:mm, e.g. 'from 10pm to 6am'")
+        window = ((int(end[:2]) * 60 + int(end[3:])) - (int(start[:2]) * 60 + int(start[3:]))) % (24 * 60) * 60
+        rest = (text[: m.start()] + " " + text[m.end():]).strip(" ,.;")
+        return rest, Start(at=start, utc_offset_min=offset), window
+    m = re.search(rf"(?:^|[,.;]?\s*)(?:(?:start(?:ing)?|begin(?:ning)?)\s+)?(?:(tonight|this evening)\s+)?at\s+{_CLOCK}(?=[\s,.;]|$)[,.]?", lower)
+    if m and not re.match(r"\s*least\b", lower[m.end():]):
+        at = _clock(m.group(2), m.group(3), m.group(4), bool(m.group(1)))
+        if at:
+            rest = (text[: m.start()] + " " + text[m.end():]).strip(" ,.;")
+            return rest, Start(at=at, utc_offset_min=offset), None
+    m = re.search(rf"(?:^|[,.;]?\s*)(?:(?:start(?:ing)?|begin(?:ning)?)\s+)?in\s+(?!the\b)(\d+(?:\.\d+)?)\s*({UNIT})[,.]?(?=\s*(?:,|\.|$|start|begin|sweep|watch|find|survey|scan|monitor|look|every|repeat))", lower)
+    if m:
+        delay = _seconds_of(m.group(1), m.group(2))
+        if delay > MAX_START_DELAY_S:
+            raise ValueError("a playbook can be scheduled to start at most 24 h ahead")
+        rest = (text[: m.start()] + " " + text[m.end():]).strip(" ,.;")
+        return rest, Start(in_s=delay, utc_offset_min=offset), None
+    return text, None, None
 
 
 def _repeat(every: int, times: int) -> Repeat:
@@ -297,10 +393,11 @@ def _repeat(every: int, times: int) -> Repeat:
 def is_multistep(text: str) -> bool:
     """A playbook: several steps, or one step repeated as a standing watch."""
     try:
-        rest, repeat, _ = strip_repeat(text)
+        rest, start, window = strip_start(text)
+        rest, repeat, _ = strip_repeat(rest, window)
     except ValueError:
         return True  # let the playbook planner explain what is missing
-    return repeat is not None or len(split_steps(rest)) > 1
+    return start is not None or repeat is not None or len(split_steps(rest)) > 1
 
 
 def _what_phrase(collect: list[str]) -> str:
@@ -318,10 +415,12 @@ def _has_rule_action(spec: WorkflowSpec, kinds: set[str]) -> bool:
     return any(a.kind in kinds for t in spec.triggers for a in t.do)
 
 
-def plan_playbook_deterministic(text: str) -> PlaybookSpec:
-    """Plain-language operation -> PlaybookSpec with the rules grammar. Raises ValueError when unsure."""
+def plan_playbook_deterministic(text: str, utc_offset_min: int | None = None) -> PlaybookSpec:
+    """Plain-language operation -> PlaybookSpec with the rules grammar. Raises ValueError when unsure.
+    utc_offset_min: the operator's time zone for clock times ("at 10pm"); default this machine's."""
     raw = " ".join(str(text).split())
-    body_text, repeat, repeat_note = strip_repeat(raw)
+    body_text, start, window = strip_start(raw, utc_offset_min)
+    body_text, repeat, repeat_note = strip_repeat(body_text, window)
     pieces = split_steps(body_text)
     steps: list[Step] = []
     notes: list[str] = [repeat_note] if repeat_note else []
@@ -381,7 +480,7 @@ def plan_playbook_deterministic(text: str) -> PlaybookSpec:
         steps.append(Step(workflow=spec, focus=focus, focus_step=focus_step if focus_step != index - 1 else None, gate=gate))
     if re.search(DEBRIEF.replace("^", r"(?:^|[.,;]\s*|\bthen\s+|\band\s+)"), raw.lower()):
         notes.append("A playbook always ends with a debrief and a report.")
-    return PlaybookSpec(goal=raw, steps=steps, repeat=repeat, notes=notes)
+    return PlaybookSpec(goal=raw, steps=steps, repeat=repeat, start=start, notes=notes)
 
 
 # --------------------------------------------------------------------------------------------- model planner
@@ -406,7 +505,10 @@ the step keeps: a trigger when [count ge 1].
 "If nothing turns up" after a step that has no filters and only alert rules means no alert was raised: gate
 "no_alerts" (and "if anything turns up" there means "alerted"). After "if you find any X, ...", a following "if
 nothing turns up, ..." is the other branch: same earlier step, same conditions [X], gate "none_found".
-Write vendor names capitalised ("Apple"). The first step always has focus "all" and gate "always". Do not add
+Write vendor names capitalised ("Apple"). "Every 10 minutes for the next hour", "repeat 4 times, every 15 minutes": repeat {every_s, times} (60 s to 6 h
+apart, at most 48 cycles); a repeat is the whole playbook again, not extra steps. "In 20 minutes": start {in_s};
+"at 10pm": start {at: "22:00"} (leave utc_offset_min at 0; the server sets the time zone).
+The first step always has focus "all" and gate "always". Do not add
 steps the operator did not ask for, and never shorten what the operator asked for to fit the limits.
 
 Single-step workflow rules:
@@ -425,7 +527,7 @@ def _plan_playbook_with_model(text: str, model: Any) -> PlaybookSpec:
     return spec
 
 
-def plan_any(text: str, planner: str = "auto", model: Any = None) -> dict[str, Any]:
+def plan_any(text: str, planner: str = "auto", model: Any = None, utc_offset_min: int | None = None) -> dict[str, Any]:
     """One entry point for the dashboard and CLI: a single workflow, or a playbook when the request has steps.
 
     Returns the workflow plan (see workflow.plan) or {"playbook", "summary", "planner", "model", "fallback_reason"}.
@@ -435,15 +537,19 @@ def plan_any(text: str, planner: str = "auto", model: Any = None) -> dict[str, A
         return plan(text, planner, model)
     reason = None
     try:
-        rules = plan_playbook_deterministic(text)
+        rules = plan_playbook_deterministic(text, utc_offset_min)
     except ValueError as exc:
-        if "at most" in str(exc):
+        if "at most" in str(exc) or "say how often" in str(exc) or "am/pm" in str(exc):
             raise  # over the playbook budget: refuse rather than let a model shorten what was asked for
         rules = None
     model = model or (default_planner_model() if planner in ("auto", "model") else None)
     if planner != "deterministic" and model is not None:
         try:
             spec = _plan_playbook_with_model(text, model)
+            if rules is not None and rules.start is not None:
+                spec.start = rules.start  # clock times are resolved by code, in the operator's time zone
+            if spec.start is not None and spec.start.at is not None and utc_offset_min is not None:
+                spec.start.utc_offset_min = int(utc_offset_min)
             return {"playbook": spec.model_dump(), "summary": spec.summary(), "planner": "model",
                     "model": model if isinstance(model, str) else type(model).__name__, "fallback_reason": None}
         except Exception as exc:
@@ -452,7 +558,7 @@ def plan_any(text: str, planner: str = "auto", model: Any = None) -> dict[str, A
             reason = _short_reason(exc)
     elif planner == "model":
         reason = "no planner model configured (set RF_SENTINEL_PLANNER_MODEL)"
-    spec = rules or plan_playbook_deterministic(text)
+    spec = rules or plan_playbook_deterministic(text, utc_offset_min)
     return {"playbook": spec.model_dump(), "summary": spec.summary(), "planner": "deterministic", "model": None,
             "fallback_reason": reason}
 
@@ -729,11 +835,20 @@ def run_playbook(agent, spec: PlaybookSpec, on_step: Callable[[str], None] = pri
         + (f"; standing watch {spec.repeat.describe(total)}" if spec.repeat else ""))
     records: list[dict[str, Any]] = []
     cycles_run = 0
+    origin = started
+    if spec.start is not None:
+        origin = spec.start.resolve(started)
+        wait = max(0.0, origin - time.time())
+        emit({"t": 0.0, "kind": "cycle", "cycle": 0, "status": "waiting", "next_in_s": round(wait), "next_at": origin,
+              "scheduled": True})
+        say(f"Scheduled: {spec.start.describe()}; waiting {_span(wait)}")
+        if agent._stop.wait(wait):
+            say("Stopped before the scheduled start")
     for cycle in range(cycles):
         if agent._stop.is_set():
             break
         if cycle:
-            start_at = started + cycle * spec.repeat.every_s
+            start_at = origin + cycle * spec.repeat.every_s
             wait = max(0.0, start_at - time.time())
             emit({"t": round(time.time() - started, 1), "kind": "cycle", "cycle": cycle, "status": "waiting",
                   "next_in_s": round(wait), "next_at": start_at})
@@ -742,7 +857,7 @@ def run_playbook(agent, spec: PlaybookSpec, on_step: Callable[[str], None] = pri
                 break
         if getattr(agent, "simulate", False):
             agent.sim_clock = (time.time(), float(total))  # one scripted scenario across every step of a cycle
-        if spec.repeat:
+        if spec.repeat or spec.start:
             emit({"t": round(time.time() - started, 1), "kind": "cycle", "cycle": cycle, "status": "running"})
         ran = _run_cycle(agent, spec, cycle, started, emit, step_log, say, on_detection, planner, base_dir, gain_db)
         records += ran

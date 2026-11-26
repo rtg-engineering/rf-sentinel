@@ -6045,11 +6045,13 @@
 
       function renderPlaybookPlan(planned) {
         const book = planned.playbook, summary = planned.summary;
+        const startChip = summary.start ? `<span class="wf-cond">${materialIcon("schedule")} ${escapeHtml(summary.start)}</span>` : "";
         const watch = book.repeat ? `<div class="wf-watch">${materialIcon("autorenew")}
-            <div><strong>Standing watch</strong> <span class="wf-note">${escapeHtml(summary.repeat || "")}</span></div>
+            <div><strong>Standing watch</strong> <span class="wf-note">${escapeHtml(summary.repeat || "")}</span> ${startChip}</div>
             <span class="wf-chip wf-dur"><button type="button" class="wf-x" data-cycles="-1" title="Fewer cycles" aria-label="Fewer cycles">${materialIcon("remove")}</button>
               ${materialIcon("autorenew")} ${book.repeat.times} cycles
-              <button type="button" class="wf-x" data-cycles="1" title="More cycles" aria-label="More cycles">${materialIcon("add")}</button></span></div>` : "";
+              <button type="button" class="wf-x" data-cycles="1" title="More cycles" aria-label="More cycles">${materialIcon("add")}</button></span></div>`
+          : summary.start ? `<div class="wf-watch">${materialIcon("schedule")}<div><strong>Scheduled</strong> ${startChip}</div></div>` : "";
         wfPlanEl.innerHTML = `${watch}
           <div class="wf-book">${book.steps.map((step, i) => wfBookStep(step, summary.steps[i], i, { edit: true, last: i === book.steps.length - 1 })).join("")}</div>
           <div class="wf-meta"><span class="wf-badges"><span class="wf-badge">${materialIcon("format_list_numbered")} Playbook · ${book.steps.length} step${book.steps.length > 1 ? "s" : ""} · up to ${wfDuration(summary.total_s)}${book.repeat ? " per cycle" : ""}</span>
@@ -6205,7 +6207,7 @@
         wfPlanBtn.innerHTML = `${materialIcon("progress_activity")}Planning…`;
         try {
           const response = await fetch("/api/agent/plan", { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text, planner: wfPlanner }) });
+            body: JSON.stringify({ text, planner: wfPlanner, tz_offset_min: -new Date().getTimezoneOffset() }) });
           const planned = await response.json();
           if (!response.ok) throw new Error(planned.error || `Planning failed (${response.status})`);
           wfPlanned = planned;
@@ -6310,9 +6312,19 @@
         pollAgent();
       });
 
+      function wfClock(seconds) {
+        const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), sec = seconds % 60;
+        return h ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
+      }
+
       function wfCycles(job) {
         const c = job.cycle;
-        if (!c || !job.playbook?.repeat) return "";
+        if (!c) return "";
+        if (!job.playbook?.repeat) {
+          const w = c.status === "waiting" && c.next_at && WF_ACTIVE.includes(job.status) ? Math.max(0, Math.round(c.next_at - Date.now() / 1000)) : null;
+          return w == null ? "" : `<div class="wf-cycles"><span class="lbl">${materialIcon("schedule")} Scheduled</span>
+            <span class="wf-note">starts in <span class="wf-countdown">${wfClock(w)}</span> (${escapeHtml(new Date(c.next_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))})</span></div>`;
+        }
         const hot = new Set((job.alerts || []).map((a) => a.cycle));
         const finished = !WF_ACTIVE.includes(job.status);
         const cells = Array.from({ length: c.total }, (_, i) => {
@@ -6322,7 +6334,8 @@
         }).join("");
         const wait = c.status === "waiting" && c.next_at && !finished ? Math.max(0, Math.round(c.next_at - Date.now() / 1000)) : null;
         return `<div class="wf-cycles"><span class="lbl">${materialIcon("autorenew")} Cycles</span>${cells}
-            ${wait != null ? `<span class="wf-note">next cycle in <span class="wf-countdown">${Math.floor(wait / 60)}:${String(wait % 60).padStart(2, "0")}</span></span>` : ""}</div>`;
+            ${wait != null ? `<span class="wf-note">${c.scheduled ? "starts" : "next cycle"} in <span class="wf-countdown">${wfClock(wait)}</span>
+              (${escapeHtml(new Date(c.next_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))})</span>` : ""}</div>`;
       }
 
       function wfTrack(job) {
@@ -6382,7 +6395,8 @@
             </div>`).join("");
         const story = ((book ? result.narrative : workflow.narrative) || []).map((line) => `<li>${escapeHtml(line)}</li>`).join("");
         const cyc = book?.repeat && job.cycle ? `Cycle ${job.cycle.index + 1} of ${job.cycle.total} · ` : "";
-        const current = book && job.cycle?.status === "waiting" && running ? `${cyc}waiting for the next cycle`
+        const current = book && job.cycle?.status === "waiting" && running
+          ? (job.cycle.scheduled ? "waiting for the scheduled start" : `${cyc}waiting for the next cycle`)
           : book && job.current_step != null ? `${cyc}Step ${job.current_step + 1} of ${book.steps.length} · ${book.steps[job.current_step].title}` : cyc.replace(/ · $/, "");
         const alertedKeys = new Set((job.alerts || []).map((a) => a.device?.key));
         const recurList = [...(result.recurring || [])].sort((a, b) => (alertedKeys.has(b.key) - alertedKeys.has(a.key))

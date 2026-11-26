@@ -8841,8 +8841,10 @@ def agent_plan():
     planner = str(body.get("planner") or "auto")
     if planner not in ("auto", "model", "deterministic"):
         return jsonify({"error": "planner must be auto, model, or deterministic"}), 400
+    offset = body.get("tz_offset_min")
+    offset = int(offset) if isinstance(offset, (int, float)) and -840 <= offset <= 840 else None
     try:
-        return jsonify(plan_any(text, planner))
+        return jsonify(plan_any(text, planner, utc_offset_min=offset))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
@@ -8919,7 +8921,8 @@ def agent_run():
             def on_event(event):
                 if event["kind"] == "cycle" and book is not None:
                     job["cycle"] = {"index": event["cycle"], "total": book.repeat.times if book.repeat else 1,
-                                    "status": event["status"], "next_at": event.get("next_at")}
+                                    "status": event["status"], "next_at": event.get("next_at"),
+                                    "scheduled": bool(event.get("scheduled"))}
                     if event["status"] == "running":
                         job["step_status"] = [{"status": "pending", "reason": ""} for _ in book.steps]
                 if event["kind"] == "step" and book is not None:
