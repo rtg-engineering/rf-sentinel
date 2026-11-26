@@ -6079,6 +6079,7 @@
           <div class="wf-approval" data-key="${escapeHtml(p.action_id)}">
             ${materialIcon("approval_delegation")}
             <div><strong>Approval needed: ${escapeHtml(p.tool.replaceAll("_", " "))}</strong>
+              <span class="wf-note"> · expires in ${Math.max(0, Math.round(p.expires_at - Date.now() / 1000))} s</span>
               <div class="small">${escapeHtml(Object.entries(p.params || {}).map(([k, v]) => `${k} ${typeof v === "object" ? JSON.stringify(v) : v}`).join(" · "))}</div></div>
             <input type="text" class="wf-operator" placeholder="Operator name" value="${escapeHtml(operator)}" aria-label="Operator name">
             <button type="button" class="wf-btn primary" data-approve="${escapeHtml(p.action_id)}">${materialIcon("check")}Approve</button>

@@ -427,6 +427,20 @@ count (detections so far), dwell_s (seconds between first and last sighting: use
 Operators: eq, ne, contains, not_contains (text); ge, le, eq, ne (numbers).
 Actions: alert(message, severity info|warning|critical), tag(label), record_iq(seconds <= 10),
 start_scan(protocol, seconds <= 300), extend(seconds), stop.
+Examples (request -> spec):
+- "watch for trackers for 5 minutes, only stronger than -60. if a tracker is seen for more than 2 minutes, send an
+  urgent alert and record 5 seconds of iq" -> collect ["ble"], duration_s 300, filters [device_class eq tracker,
+  rssi_dbfs ge -60], triggers [when [device_class eq tracker, dwell_s ge 120] do [alert critical, record_iq 5]]
+- "find bluetooth devices for 3 minutes. when a new device stronger than -45 appears, alert me" -> collect
+  ["ble", "classic"], duration_s 180, triggers [when [rssi_dbfs ge -45, new eq true] do [alert warning]]
+- "survey cell towers for 3 minutes. send an urgent alert if an unknown network appears or if a 2G cell shows up"
+  -> collect ["cellular"], duration_s 180, triggers [when [operator eq "unknown operator"] do [alert critical]],
+  [when [generation eq "2G"] do [alert critical]] ("or" means separate triggers sharing the actions)
+- "find apple devices for 1 minute" -> collect ["ble"] (vendors come from BLE advertisements), filters
+  [manufacturer contains "Apple"]
+- "watch for trackers and rogue cell towers for 2 minutes ..." -> collect ["ble", "cellular"] (one SDR protocol
+  group plus the cellular modem is allowed)
+Use exactly the values the operator gave; do not invent filters or triggers they did not ask for.
 Never plan transmitting, jamming, spoofing, replaying, or paging. If the request asks for that, return a spec
 that only receives and explain in notes. Keep the operator's wording in goal. Put assumptions in notes.
 """
