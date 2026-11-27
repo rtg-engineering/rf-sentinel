@@ -15,10 +15,13 @@ RUN echo "wireshark-common wireshark-common/install-setuid boolean false" | debc
       libboost-program-options-dev libboost-system-dev libboost-thread-dev \
       libfftw3-dev \
       libbladerf2 bladerf libusb-1.0-0 \
+      python3-soapysdr soapysdr-module-bladerf \
       tshark \
       ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# python3-soapysdr: device discovery and non-bladeRF receivers for the built-in IQ service
+# (python -m rf_platform.soapy_gateway.server); bladeRF streaming goes through libbladeRF directly.
 # SoapySDR C++ headers/lib + a source-built libbladeRF.so.2: same story as
 # the passive-shield station1 container. apt has no SoapySDR dev package for
 # this arch/repo (headers are custom-built on-device), and apt's libbladerf2
