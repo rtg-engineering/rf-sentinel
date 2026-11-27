@@ -3,3 +3,4 @@ numpy
 requests
 websocket-client
 flask-sock
+pydantic>=2.6
