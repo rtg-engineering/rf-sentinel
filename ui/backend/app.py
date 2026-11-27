@@ -8191,6 +8191,19 @@ def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
+@app.get("/fleet")
+def fleet_page():
+    """Many nodes, one picture: the fleet coordinator's decisions on a map, played back."""
+    return send_from_directory(app.static_folder, "fleet.html")
+
+
+@app.get("/api/fleet/scenario")
+def fleet_scenario():
+    """The scripted fleet scenario (simulated), run through the real coordinator: frames, decisions, fix score."""
+    from rf_platform.fleet.scenario import run
+    return jsonify(run())
+
+
 @app.get("/agent")
 def agent_page():
     """The mission view: type what to find, see the plan, run it, watch it work, read the result."""

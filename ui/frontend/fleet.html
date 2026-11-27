@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RF Sentinel Fleet</title>
+<meta name="description" content="Many RF Sentinel nodes, one picture: the fleet cues, locates, tracks and alerts together.">
+<link rel="stylesheet" href="/vendor/maplibre-gl.css">
+<style>
+:root { --bg: #05080d; --panel: rgba(13, 20, 29, .86); --line: rgba(148, 170, 196, .16); --ink: #e9f0f7; --muted: #8fa1b5; --faint: #5c6d80;
+  --a: #8b5cf6; --b: #22d3ee; --c: #34d399; --warn: #f5a524; --bad: #f2555a; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+.app { display: grid; grid-template-rows: auto 1fr auto; height: 100vh; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.brand { display: flex; gap: 10px; align-items: center; font-weight: 700; }
+.brand small { color: var(--muted); font-weight: 500; letter-spacing: .1em; text-transform: uppercase; font-size: 11px; display: block; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.chip { display: inline-flex; gap: 6px; align-items: center; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-size: 12.5px; background: rgba(255,255,255,.02); white-space: nowrap; }
+.chip b { color: var(--ink); }
+.chip.sim { color: var(--warn); border-color: rgba(245, 165, 36, .5); }
+.chip a { color: var(--b); }
+label.chip { cursor: pointer; }
+.main { display: grid; grid-template-columns: 1fr 380px; min-height: 0; }
+@media (max-width: 900px) { .main { grid-template-columns: 1fr; grid-template-rows: 55vh auto; } }
+#map { position: relative; min-height: 300px; background: #0a1118; }
+.say { position: absolute; left: 16px; top: 16px; right: 16px; max-width: 640px; z-index: 2; pointer-events: none;
+  background: rgba(6, 10, 16, .82); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; backdrop-filter: blur(10px); }
+.say .k { font: 600 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--b); }
+.say .k.alert { color: var(--bad); } .say .k.cover { color: var(--warn); } .say .k.cue { color: var(--a); } .say .k.locate { color: var(--c); }
+.say .txt { font-size: 15px; margin-top: 2px; }
+.legend { position: absolute; left: 16px; bottom: 16px; z-index: 2; background: rgba(6,10,16,.82); border: 1px solid var(--line); border-radius: 12px;
+  padding: 8px 10px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: auto auto; gap: 3px 12px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+aside { border-left: 1px solid var(--line); display: grid; grid-template-rows: auto auto 1fr; min-height: 0; background: rgba(8, 12, 18, .6); }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 12px; }
+.stat { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; }
+.stat span { display: block; font-size: 10.5px; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+.stat strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.nodes { padding: 0 12px 10px; display: flex; flex-direction: column; gap: 6px; }
+.node { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.node .d { width: 9px; height: 9px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); flex: none; }
+.node.off .d { background: #55606c; box-shadow: none; }
+.node .p { font: 11px var(--mono); color: var(--muted); }
+.node .task { color: var(--a); font-size: 11.5px; }
+.feed { overflow: auto; padding: 4px 12px 12px; border-top: 1px solid var(--line); }
+.feed h3 { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 10px 0 6px; }
+.dec { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; margin-bottom: 8px; cursor: pointer; transition: border-color .2s, opacity .2s; }
+.dec:hover { border-color: rgba(139, 92, 246, .6); }
+.dec.future { opacity: .32; }
+.dec .h { display: flex; justify-content: space-between; font: 600 10.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--b); }
+.dec.alert .h { color: var(--bad); } .dec.cover .h { color: var(--warn); } .dec.cue .h { color: var(--a); } .dec.locate .h { color: var(--c); }
+.dec.alert { border-color: rgba(242, 85, 90, .45); }
+.dec .t { color: var(--muted); }
+footer { border-top: 1px solid var(--line); padding: 8px 16px 10px; display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; }
+footer button { all: unset; cursor: pointer; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+  background: linear-gradient(120deg, var(--a), var(--b)); color: #fff; }
+.speed { display: flex; gap: 4px; }
+.speed button { width: auto; padding: 0 9px; height: 26px; background: transparent; border: 1px solid var(--line); color: var(--muted); font-size: 12px; border-radius: 8px; }
+.speed button.on { color: var(--ink); border-color: rgba(139, 92, 246, .7); }
+.track { position: relative; height: 34px; }
+.track input { width: 100%; margin: 0; position: absolute; top: 10px; accent-color: var(--a); }
+.marks { position: absolute; left: 0; right: 0; top: 0; height: 8px; }
+.marks i { position: absolute; top: 0; width: 3px; height: 8px; border-radius: 2px; background: var(--b); }
+.marks i.alert { background: var(--bad); } .marks i.cover { background: var(--warn); } .marks i.cue { background: var(--a); } .marks i.locate { background: var(--c); }
+.clock { font: 600 13px var(--mono); color: var(--muted); }
+.note { color: var(--faint); font-size: 12px; padding: 0 12px 12px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand"><svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b5cf6"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs>
+      <circle cx="16" cy="16" r="3.4" fill="url(#g)"/><circle cx="6" cy="9" r="2.4" fill="url(#g)"/><circle cx="26" cy="9" r="2.4" fill="url(#g)"/><circle cx="9" cy="26" r="2.4" fill="url(#g)"/><circle cx="24" cy="25" r="2.4" fill="url(#g)"/>
+      <path d="M6 9 16 16 26 9M9 26 16 16 24 25" stroke="url(#g)" stroke-width="1.2" fill="none" opacity=".6"/></svg>
+      <div>RF Sentinel <small>Fleet</small></div></div>
+    <div class="chips">
+      <span class="chip sim" id="simChip">SIMULATED FLEET · scripted scenario</span>
+      <span class="chip" id="scoreChip"></span>
+      <label class="chip"><input type="checkbox" id="truth"> Show true positions</label>
+      <label class="chip"><input type="checkbox" id="satellite"> Satellite</label>
+      <a class="chip" href="/agent">Mission</a><a class="chip" href="/">Dashboard</a>
+    </div>
+  </header>
+  <div class="main">
+    <div id="map">
+      <div class="say" id="say"><div class="k" id="sayK">Fleet coordinator</div><div class="txt" id="sayT">Five nodes listen together. Press play.</div></div>
+      <div class="legend">
+        <span><i style="background:#f472b6"></i>tracker</span><span><i style="background:#22d3ee"></i>phone / device</span>
+        <span><i style="background:#f2555a"></i>rogue cell</span><span><i style="background:#34d399"></i>node</span>
+        <span><i style="background:transparent;border:1px solid #cbd5e1"></i>uncertainty</span><span><i style="background:#f5a524"></i>vehicle (TPMS)</span>
+      </div>
+    </div>
+    <aside>
+      <div class="stats" id="stats"></div>
+      <div class="nodes" id="nodes"></div>
+      <div class="feed" id="feed"><h3>What the fleet decided</h3><div id="decisions"></div>
+        <div class="note" id="note"></div></div>
+    </aside>
+  </div>
+  <footer>
+    <button id="play" aria-label="Play">▶</button>
+    <div class="track"><div class="marks" id="marks"></div><input type="range" id="scrub" min="0" value="0" aria-label="Scenario time"></div>
+    <div style="display:flex;gap:10px;align-items:center"><span class="clock" id="clock">0:00</span>
+      <div class="speed" id="speed"><button data-s="5">5×</button><button data-s="15" class="on">15×</button><button data-s="40">40×</button></div></div>
+  </footer>
+</div>
+<script src="/vendor/maplibre-gl.js"></script>
+<script>
+(async () => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const clock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+  const COLORS = { tracker: "#f472b6", phone: "#22d3ee", beacon: "#60a5fa", rogue_cell: "#f2555a", cell: "#34d399", vehicle: "#f5a524" };
+  const r = await fetch("/api/fleet/scenario", { credentials: "same-origin", headers: { "X-RF-Sentinel": "1" } });
+  if (!r.ok) { $("sayT").textContent = r.status === 401 ? "Sign in on the dashboard first." : `Could not load the scenario (HTTP ${r.status}).`; return; }
+  const data = await r.json();
+  const nodes = Object.fromEntries(data.nodes.map((n) => [n.id, n]));
+  const frames = data.frames, last = frames.length - 1;
+  $("scoreChip").innerHTML = `Fixes vs truth: median error <b>${data.score.median_error_m} m</b> · inside their circle <b>${data.score.within_uncertainty}</b>`;
+  $("note").textContent = "Simulated: no radio is used and no real place's devices are shown. The coordinator is the same code that would run on live nodes' sightings; positions are weighted-centroid estimates, scored here against the scenario's ground truth.";
+  $("scrub").max = last;
+
+  // ---- map --------------------------------------------------------------------------------------------------
+  const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services";
+  const style = { version: 8, sources: {
+      dark: { type: "raster", tileSize: 256, maxzoom: 16, attribution: "Esri, HERE, Garmin, © OpenStreetMap contributors",
+              tiles: [`${ESRI}/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`] },
+      sat: { type: "raster", tileSize: 256, attribution: "Esri, Maxar, Earthstar Geographics", tiles: [`${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`] } },
+    layers: [{ id: "bg", type: "background", paint: { "background-color": "#0a1118" } },
+             { id: "dark", type: "raster", source: "dark", paint: { "raster-opacity": .9 } },
+             { id: "sat", type: "raster", source: "sat", layout: { visibility: "none" }, paint: { "raster-opacity": .7, "raster-saturation": -.4 } }] };
+  const map = new maplibregl.Map({ container: "map", style, center: [data.site.lon, data.site.lat], zoom: 15.6, pitch: 35, bearing: -12, attributionControl: { compact: true } });
+  const circle = (lat, lon, m, steps = 48) => {
+    const pts = [];
+    for (let i = 0; i <= steps; i++) { const a = (i / steps) * 2 * Math.PI;
+      pts.push([lon + (m * Math.sin(a)) / (111320 * Math.cos(lat * Math.PI / 180)), lat + (m * Math.cos(a)) / 110540]); }
+    return pts;
+  };
+  const fc = (features) => ({ type: "FeatureCollection", features });
+  await new Promise((res) => map.on("load", res));
+  for (const id of ["coverage", "links", "unc", "trails", "fixes", "truth", "nodes", "outside"]) map.addSource(id, { type: "geojson", data: fc([]) });
+  map.addLayer({ id: "coverage", type: "fill", source: "coverage", paint: { "fill-color": ["get", "c"], "fill-opacity": ["get", "o"] } });
+  map.addLayer({ id: "coverage-line", type: "line", source: "coverage", paint: { "line-color": ["get", "c"], "line-opacity": .35, "line-dasharray": [2, 3] } });
+  map.addLayer({ id: "links", type: "line", source: "links", paint: { "line-color": ["get", "c"], "line-opacity": .35, "line-width": 1 } });
+  map.addLayer({ id: "unc", type: "fill", source: "unc", paint: { "fill-color": ["get", "c"], "fill-opacity": .08 } });
+  map.addLayer({ id: "unc-line", type: "line", source: "unc", paint: { "line-color": ["get", "c"], "line-opacity": .55, "line-width": 1 } });
+  map.addLayer({ id: "trails", type: "line", source: "trails", paint: { "line-color": ["get", "c"], "line-width": 2, "line-opacity": .6 } });
+  map.addLayer({ id: "truth", type: "circle", source: "truth", paint: { "circle-radius": 5, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": "#ffffff", "circle-stroke-width": 1.5 } });
+  map.addLayer({ id: "fixes-glow", type: "circle", source: "fixes", paint: { "circle-radius": ["get", "g"], "circle-color": ["get", "c"], "circle-opacity": .25, "circle-blur": 1 } });
+  map.addLayer({ id: "fixes", type: "circle", source: "fixes", paint: { "circle-radius": ["get", "r"], "circle-color": ["get", "c"], "circle-stroke-color": "#05080d", "circle-stroke-width": 1.5 } });
+  map.addLayer({ id: "fix-labels", type: "symbol", source: "fixes", layout: { "text-field": ["get", "label"], "text-size": 12, "text-offset": [0, 1.3], "text-anchor": "top" },
+    paint: { "text-color": "#e9f0f7", "text-halo-color": "#05080d", "text-halo-width": 1.5 }, filter: ["==", ["get", "named"], true] });
+  map.addLayer({ id: "nodes-ring", type: "circle", source: "nodes", paint: { "circle-radius": ["get", "ring"], "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": ["get", "c"], "circle-stroke-width": 2, "circle-stroke-opacity": .7 } });
+  map.addLayer({ id: "nodes", type: "circle", source: "nodes", paint: { "circle-radius": 8, "circle-color": ["get", "c"], "circle-stroke-color": "#05080d", "circle-stroke-width": 2 } });
+  map.addLayer({ id: "node-labels", type: "symbol", source: "nodes", layout: { "text-field": ["get", "label"], "text-size": 12.5, "text-offset": [0, -1.6], "text-anchor": "bottom", "text-font": ["Open Sans Bold"] },
+    paint: { "text-color": "#e9f0f7", "text-halo-color": "#05080d", "text-halo-width": 1.6 } });
+  map.addLayer({ id: "outside", type: "symbol", source: "outside", layout: { "text-field": ["get", "label"], "text-size": 12 }, paint: { "text-color": ["get", "c"], "text-halo-color": "#05080d", "text-halo-width": 1.5 } });
+
+  const center = [data.nodes.reduce((s, n) => s + n.lon, 0) / data.nodes.length, data.nodes.reduce((s, n) => s + n.lat, 0) / data.nodes.length];
+  const DIRS = { N: [0, 1], NE: [.7, .7], E: [1, 0], SE: [.7, -.7], S: [0, -1], SW: [-.7, -.7], W: [-1, 0], NW: [-.7, .7] };
+
+  function draw(i) {
+    const f = frames[i];
+    const nodeState = Object.fromEntries(f.nodes.map((n) => [n.id, n]));
+    map.getSource("nodes").setData(fc(data.nodes.map((n) => { const st = nodeState[n.id]; const tasked = Object.keys(st.tasks).length > 0;
+      return { type: "Feature", geometry: { type: "Point", coordinates: [n.lon, n.lat] },
+        properties: { c: st.online ? (tasked ? "#a78bfa" : "#34d399") : "#55606c", ring: tasked ? 14 + 4 * Math.sin(i / 2) : 0, label: `${n.name}${st.online ? "" : " (offline)"}` } }; })));
+    map.getSource("coverage").setData(fc(data.nodes.map((n) => ({ type: "Feature", geometry: { type: "Polygon", coordinates: [circle(n.lat, n.lon, 140)] },
+      properties: { c: nodeState[n.id].online ? "#34d399" : "#55606c", o: nodeState[n.id].online ? .04 : .02 } }))));
+    const fixes = [], unc = [], trails = [], links = [], truth = [], outside = [];
+    for (const e of f.entities) {
+      const c = COLORS[e.kind] || "#22d3ee";
+      const interesting = ["tracker", "rogue_cell"].includes(e.kind);
+      if (e.fix) {
+        fixes.push({ type: "Feature", geometry: { type: "Point", coordinates: [e.fix.lon, e.fix.lat] },
+          properties: { c, r: interesting ? 7 : 4.5, g: interesting ? 22 : 0, label: e.label.replace(" (separated from owner)", ""), named: interesting || e.kind === "cell" } });
+        if (interesting || e.kind === "cell") unc.push({ type: "Feature", geometry: { type: "Polygon", coordinates: [circle(e.fix.lat, e.fix.lon, e.fix.uncertainty_m)] }, properties: { c } });
+        if (e.trail.length > 1) trails.push({ type: "Feature", geometry: { type: "LineString", coordinates: e.trail.map(([la, lo]) => [lo, la]) }, properties: { c } });
+        if (interesting) for (const n of e.fix.nodes) links.push({ type: "Feature", geometry: { type: "LineString", coordinates: [[nodes[n].lon, nodes[n].lat], [e.fix.lon, e.fix.lat]] }, properties: { c } });
+        if ($("truth").checked && e.truth) truth.push({ type: "Feature", geometry: { type: "Point", coordinates: [e.truth[1], e.truth[0]] }, properties: {} });
+      } else if (e.outside && (interesting || e.protocol === "cellular")) {
+        const [dx, dy] = DIRS[e.outside];
+        outside.push({ type: "Feature", geometry: { type: "Point", coordinates: [center[0] + dx * 0.0034, center[1] + dy * 0.0026] },
+          properties: { c, label: `${e.outside} → ${e.label} (outside, distance unknown)` } });
+      }
+    }
+    for (const [id, feats] of [["fixes", fixes], ["unc", unc], ["trails", trails], ["links", links], ["truth", truth], ["outside", outside]]) map.getSource(id).setData(fc(feats));
+    // side panel
+    const located = f.entities.filter((e) => e.fix).length;
+    const alerts = data.decisions.filter((d) => d.t <= f.t && d.kind === "alert").length;
+    $("stats").innerHTML = [["Heard now", f.entities.length], ["Located", located], ["Alerts", alerts]].map(([k, v]) => `<div class="stat"><span>${k}</span><strong>${v}</strong></div>`).join("");
+    $("nodes").innerHTML = data.nodes.map((n) => { const st = nodeState[n.id];
+      const tasks = Object.entries(st.tasks).map(([p, why]) => `${p.toUpperCase()}: ${why}`).join(" · ");
+      return `<div class="node ${st.online ? "" : "off"}"><span class="d"></span><b>${esc(n.name)}</b><span class="p">${st.online ? esc(st.listening.join(" + ").toUpperCase()) : "offline"}</span>
+        ${tasks ? `<span class="task">${esc(tasks)}</span>` : ""}</div>`; }).join("");
+    document.querySelectorAll(".dec").forEach((el) => el.classList.toggle("future", +el.dataset.t > f.t));
+    const current = [...data.decisions].reverse().find((d) => d.t <= f.t);
+    if (current && current !== shown) {
+      shown = current;
+      $("sayK").className = `k ${current.kind}`; $("sayK").textContent = `${clock(current.t)} · ${current.kind}`;
+      $("sayT").textContent = current.text;
+      const el = document.querySelector(`.dec[data-i="${data.decisions.indexOf(current)}"]`);
+      if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+    $("clock").textContent = `${clock(f.t)} / ${clock(frames[last].t)}`;
+    $("scrub").value = i;
+  }
+  let shown = null;
+  $("decisions").innerHTML = data.decisions.map((d, i) => `<div class="dec ${d.kind} future" data-i="${i}" data-t="${d.t}"><div class="h"><span>${esc(d.kind)}</span><span>${clock(d.t)}</span></div>
+    <div class="t">${esc(d.text)}</div></div>`).join("");
+  $("marks").innerHTML = data.decisions.map((d) => `<i class="${d.kind}" style="left:${(d.t / frames[last].t) * 100}%"></i>`).join("");
+  $("decisions").addEventListener("click", (e) => { const el = e.target.closest(".dec"); if (!el) return;
+    const d = data.decisions[+el.dataset.i]; idx = Math.min(last, Math.round(d.t / data.tick_s)); shown = null; draw(idx);
+    const ent = frames[idx].entities.find((x) => x.key === d.entity);
+    if (ent && ent.fix) map.flyTo({ center: [ent.fix.lon, ent.fix.lat], zoom: 16.3, speed: .8 }); });
+
+  let idx = 0, playing = false, speed = 15, timer = null;
+  const tick = () => { if (idx >= last) { stop(); return; } idx++; draw(idx); };
+  const stop = () => { playing = false; clearInterval(timer); $("play").textContent = "▶"; };
+  const start = () => { if (idx >= last) idx = 0; playing = true; $("play").textContent = "❚❚"; clearInterval(timer);
+    timer = setInterval(tick, (data.tick_s * 1000) / speed); };
+  $("play").addEventListener("click", () => (playing ? stop() : start()));
+  $("scrub").addEventListener("input", (e) => { idx = +e.target.value; shown = null; draw(idx); });
+  $("truth").addEventListener("change", () => draw(idx));
+  $("satellite").addEventListener("change", (e) => { map.setLayoutProperty("sat", "visibility", e.target.checked ? "visible" : "none");
+    map.setLayoutProperty("dark", "visibility", e.target.checked ? "none" : "visible"); });
+  $("speed").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; speed = +b.dataset.s;
+    document.querySelectorAll("#speed button").forEach((x) => x.classList.toggle("on", x === b)); if (playing) start(); });
+  draw(0);
+  if (new URLSearchParams(location.search).get("autoplay") === "1") setTimeout(start, 1200);
+})();
+</script>
+</body>
+</html>
