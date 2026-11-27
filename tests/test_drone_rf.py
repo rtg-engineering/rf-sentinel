@@ -265,3 +265,15 @@ class ReceiverCardTest(unittest.TestCase):
                 b.agent_jobs.clear()
         self.assertEqual(sorted(held), ["bladerf:0", "bladerf:1"])
         self.assertEqual(held["bladerf:1"]["find"], "Drone RF for 60 s")
+
+
+class DroneConfirmedPhrasingTest(unittest.TestCase):
+    def test_confirmed_without_naming_the_drone(self):
+        from rf_platform.agent.playbook import plan_any
+        from rf_platform.agent.workflow import WorkflowSpec
+        spec = WorkflowSpec(**plan_any("watch for drones for 2 minutes and alert me when one is confirmed",
+                                       planner="deterministic")["spec"])
+        self.assertIn(("device_class", "eq", "drone"), [(c.field, c.op, c.value) for c in spec.triggers[0].when])
+        loose = WorkflowSpec(**plan_any("watch for drones for 2 minutes and alert me when anything shows up",
+                                        planner="deterministic")["spec"])
+        self.assertNotIn("device_class", [c.field for c in loose.triggers[0].when])

@@ -451,6 +451,12 @@ def plan_deterministic(text: str, standing_actions: bool = False) -> WorkflowSpe
                      "Signal strength is relative (dBFS at the receiver), not calibrated dBm.")
     if len(triggers) < len(trigger_clauses):
         notes.append("Some 'if/when' clauses had no action I recognise and were left out.")
+    if collect == ["drone"] and re.search(r"\bconfirm(?:ed|s)?\b", lower):
+        # "alert me when one is confirmed": the clause names no drone, but in a drone watch "confirmed" can only
+        # mean the detector's confirmation, never just any drone-like link.
+        for trigger in triggers:
+            if not any(c.field == "device_class" for c in trigger.when):
+                trigger.when.append(Condition(field="device_class", op="eq", value="drone"))
     return WorkflowSpec(goal=raw, collect=collect, duration_s=task.duration_s, device_id=task.device_id,
                         channel=task.channel if task.profile.name == "zigbee" else None,
                         filters=filters, triggers=triggers, notes=notes)
