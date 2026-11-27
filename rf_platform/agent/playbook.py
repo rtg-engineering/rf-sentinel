@@ -661,6 +661,17 @@ def cycle_stats(records: list[dict[str, Any]]) -> dict[str, int]:
     return {"seen": len(seen), "new": len(new), "alerts": alerts}
 
 
+def _distinct(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Several devices often share a label ("Apple, Inc."): add the end of each one's key so lines can be told apart."""
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item["label"]] = counts.get(item["label"], 0) + 1
+    for item in items:
+        if counts[item["label"]] > 1 and item["label"] != item["key"]:
+            item["label"] = f"{item['label']} (…{str(item['key'])[-5:]})"
+    return items
+
+
 def recurring(records: list[dict[str, Any]], devices: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Standing watch: devices decoded in more than one cycle, most cycles first."""
     ran = sorted({r["cycle"] + 1 for r in records if r["status"] == "done"})
@@ -674,7 +685,7 @@ def recurring(records: list[dict[str, Any]], devices: list[dict[str, Any]]) -> l
         out.append({"key": device["key"], "label": device.get("identity") or device.get("name") or device["key"],
                     "protocol": device.get("protocol"), "cycles": device["cycles"], "of": len(ran), "span_s": span,
                     "tags": device.get("tags") or []})
-    return sorted(out, key=lambda d: -len(d["cycles"]))
+    return _distinct(sorted(out, key=lambda d: -len(d["cycles"])))
 
 
 def persistence(records: list[dict[str, Any]], devices: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -692,7 +703,7 @@ def persistence(records: list[dict[str, Any]], devices: list[dict[str, Any]]) ->
         out.append({"key": device["key"], "label": device.get("identity") or device.get("name") or device["key"],
                     "protocol": device.get("protocol"), "steps": device["steps"], "span_s": span,
                     "every_step": device["steps"] == ran, "tags": device.get("tags") or []})
-    return out
+    return _distinct(out)
 
 
 def step_summary(record: dict[str, Any], sentence: bool = False) -> str:

@@ -229,6 +229,14 @@ class RunTest(unittest.TestCase):
         self.assertFalse((base / "known_devices.json").exists())  # synthetic devices never become "known" for real runs
 
 
+    def test_recurring_lines_tell_same_named_devices_apart(self):
+        from rf_platform.agent.playbook import recurring
+        records = [{"cycle": c, "status": "done"} for c in range(3)]
+        devices = [{"key": f"ble:AA:BB:CC:DD:EE:0{i}", "identity": "Apple, Inc.", "cycles": [1, 2, 3]} for i in range(2)]
+        devices.append({"key": "ble:11:22", "identity": "Tile, Inc.", "cycles": [1, 2]})
+        self.assertEqual([r["label"] for r in recurring(records, devices)],
+                         ["Apple, Inc. (…EE:00)", "Apple, Inc. (…EE:01)", "Tile, Inc."])
+
     def test_standing_watch_repeats_and_finds_recurring_devices(self):
         from rf_platform.agent import playbook
         with patch.object(playbook, "MIN_REPEAT_S", 5):
