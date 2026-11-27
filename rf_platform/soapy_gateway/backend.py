@@ -37,6 +37,7 @@ KNOWN_DRIVERS = {
 NON_RF_DRIVERS = {"audio"}  # sound cards exposed by SoapyAudio are not receivers
 CHUNK_SAMPLES = 131_072  # samples per published chunk (filled from several driver reads)
 RING_CHUNKS = 64
+MAX_CAPTURE_SAMPLES = 4_194_304  # one capture block: 4 Mi samples (8 MB CS8), ~0.2 s at 20 Msps
 SOAPY_SDR_OVERFLOW = -4
 TRANSIENT_READ_ERRORS = {-1, SOAPY_SDR_OVERFLOW}  # SOAPY_SDR_TIMEOUT, SOAPY_SDR_OVERFLOW
 NO_DATA_TIMEOUT_S = 5.0           # a running stream that delivers nothing this long has failed
@@ -163,8 +164,11 @@ class RxWorker:
         self.samples_received = 0
         self.overflows = 0  # driver-reported overruns (samples lost)
         self.driver_path: str | None = None  # "libbladerf" or "soapysdr"
-        self._ring: deque[tuple[int, bytes, float]] = deque(maxlen=RING_CHUNKS)
+        # (sequence, CS8 payload, center frequency, tuning generation); the generation counts applied retunes, so a
+        # reader can tell samples taken after a retune from ones still in flight.
+        self._ring: deque[tuple[int, bytes, float, int]] = deque(maxlen=RING_CHUNKS)
         self._seq = 0
+        self._gen = 0
         self._cond = threading.Condition()
         self._stop = threading.Event()
         self._pending_freq: int | None = None
@@ -197,7 +201,9 @@ class RxWorker:
                 if self._pending_freq is not None:
                     freq, self._pending_freq = self._pending_freq, None
                     dev.setFrequency(rx, 0, float(freq))
-                    self.center_hz, self.retuned_at, self.status = freq, time.time(), "running"
+                    with self._cond:
+                        self._gen += 1
+                        self.center_hz, self.retuned_at, self.status = freq, time.time(), "running"
                 filled = 0
                 while filled < CHUNK_SAMPLES and not self._stop.is_set() and self._pending_freq is None:
                     result = dev.readStream(stream, [buf[filled:]], CHUNK_SAMPLES - filled, timeoutUs=500_000)
@@ -216,7 +222,7 @@ class RxWorker:
                 payload = cf32_to_cs8(buf[:filled])
                 with self._cond:
                     self._seq += 1
-                    self._ring.append((self._seq, payload, self.center_hz))
+                    self._ring.append((self._seq, payload, self.center_hz, self._gen))
                     self._cond.notify_all()
                 if not received and self._on_success:
                     self._on_success()  # the device delivers again: clear its failure backoff
@@ -243,6 +249,50 @@ class RxWorker:
         self.status = "retuning"
         self._pending_freq = int(center_hz)
 
+    def capture(self, samples: int, center_hz: int | None = None, settle_samples: int = 0,
+                timeout_s: float = 3.0) -> tuple[bytes, int]:
+        """`samples` contiguous CS8 samples taken after now (and after the retune, when `center_hz` differs from the
+        current frequency), dropping `settle_samples` first. One call per dwell is how a hopping client (tune, read a
+        block, move on) works without guessing which streamed frames already belong to the new frequency.
+        Returns (payload, center_hz)."""
+        need, skip = int(samples) * 2, 0
+        with self._cond:
+            gen = self._gen
+            if center_hz is not None and (int(center_hz) != self.center_hz or self._pending_freq is not None):
+                gen += 1
+                self._pending_freq, self.status = int(center_hz), "retuning"
+                skip = max(0, int(settle_samples)) * 2
+            cursor = self._seq
+            out = bytearray()
+            deadline = time.monotonic() + timeout_s
+            while len(out) < need:
+                progressed = False
+                for seq, payload, freq, g in self._ring:
+                    if seq <= cursor:
+                        continue
+                    if out and seq != cursor + 1:
+                        out.clear()  # fell behind the ring: start the block again so it stays contiguous
+                    cursor, progressed = seq, True
+                    if g < gen:
+                        continue
+                    if g > gen:
+                        raise RuntimeError("the stream was retuned by another client during the capture")
+                    if skip:
+                        drop = min(skip, len(payload))
+                        skip, payload = skip - drop, payload[drop:]
+                    out.extend(payload)
+                    if len(out) >= need:
+                        break
+                if len(out) >= need:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not self.alive:
+                    raise TimeoutError(f"captured {len(out) // 2} of {samples} samples in {timeout_s:.1f} s"
+                                       + (f" ({self.error})" if self.error else ""))
+                if not progressed:
+                    self._cond.wait(remaining)
+            return bytes(out[:need]), int(self.center_hz)
+
     def cursor(self, start: str = "latest") -> int:
         with self._cond:
             if start == "oldest" and self._ring:
@@ -254,7 +304,7 @@ class RxWorker:
         deadline = time.monotonic() + timeout_s
         with self._cond:
             while True:
-                for seq, payload, _ in self._ring:
+                for seq, payload, _, _ in self._ring:
                     if seq > cursor:
                         return seq, payload
                 remaining = deadline - time.monotonic()
@@ -455,6 +505,22 @@ class SoapyBackend:
         session.worker.retune(int(config["center_freq_hz"]))
         session.config.update({k: v for k, v in config.items() if k in session.config or k == "center_freq_hz"})
         return session
+
+    def capture_stream(self, session_id: str, config: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
+        """Tune (optionally) and return one contiguous block from a running stream: see RxWorker.capture."""
+        session = self.get(session_id, "stream")
+        samples = int(config.get("samples") or 0)
+        if not 0 < samples <= MAX_CAPTURE_SAMPLES:
+            raise ValueError(f"samples must be 1..{MAX_CAPTURE_SAMPLES}")
+        center = config.get("center_freq_hz")
+        if center is not None:
+            self._check(self.device(session.config["device_id"]), int(center), int(session.config["sample_rate_sps"]))
+        rate = int(session.config["sample_rate_sps"])
+        settle = int(float(config.get("settle_us") or 0) * rate / 1e6)
+        payload, freq = session.worker.capture(samples, None if center is None else int(center), settle,
+                                               float(config.get("timeout_s") or 3.0))
+        session.config["center_freq_hz"] = freq
+        return payload, {"center_freq_hz": freq, "sample_rate_sps": rate, "samples": len(payload) // 2}
 
     # Power sweeps -------------------------------------------------------------------------------
     def start_sweep(self, config: dict[str, Any], engine: str = "soapy_sweep") -> Session:

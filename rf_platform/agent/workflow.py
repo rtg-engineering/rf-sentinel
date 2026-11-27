@@ -22,9 +22,9 @@ from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .profiles import MAX_DURATION_S
+from .profiles import MAX_DURATION_S, drone_band
 
-Protocol = Literal["ble", "classic", "zigbee", "tpms", "cellular"]
+Protocol = Literal["ble", "classic", "zigbee", "tpms", "cellular", "drone"]
 FieldName = Literal["protocol", "label", "name", "manufacturer", "device_type", "device_class", "address",
                     "rssi_dbfs", "count", "dwell_s", "new", "operator", "rat", "generation", "role"]
 Op = Literal["eq", "ne", "contains", "not_contains", "ge", "le"]
@@ -34,6 +34,8 @@ NUMBER_FIELDS = {"rssi_dbfs", "count", "dwell_s"}
 MAX_RECORD_S = 10
 MAX_FOLLOW_UP_S = 300
 # Tracker kinds. "find my" alone is not enough: iPhones, Macs and AirPods send Find My frames too.
+CONFIRMED_DRONE = "confirmed drone"  # device_type the drone adapter gives a detector-confirmed link
+DRONE_WORDS = r"\b(?:drones?|uavs?|uas|quadcopters?|dji|ocusync)\b"
 TRACKER_WORDS = ("airtag", "find my accessory", "tile", "tracker", "smarttag", "chipolo", "pebblebee")
 
 
@@ -149,7 +151,9 @@ class WorkflowSpec(BaseModel):
         protocols = set(protocols if protocols is not None else (self.sdr_collect() or self.collect))
         what = ("bluetooth devices" if protocols == {"ble", "classic"} else "ble devices" if protocols == {"ble"}
                 else "bluetooth classic devices" if protocols == {"classic"} else
-                "zigbee" if protocols == {"zigbee"} else "cell towers" if protocols == {"cellular"} else "tire sensors")
+                "zigbee" if protocols == {"zigbee"} else "cell towers" if protocols == {"cellular"} else
+                ("drone controllers" if drone_band(self.goal) == "2g4" else "drones") if protocols == {"drone"}
+                else "tire sensors")
         return (f"find {what} for {self.duration_s} seconds" + (f" on {self.device_id}" if self.device_id else "")
                 + (f" on channel {self.channel}" if self.channel and "zigbee" in protocols else ""))
 
@@ -161,7 +165,7 @@ class WorkflowSpec(BaseModel):
 
 
 PROTOCOL_TITLES = {"ble": "BLE", "classic": "Bluetooth Classic", "zigbee": "Zigbee", "tpms": "TPMS",
-                   "cellular": "Cellular (modem)"}
+                   "cellular": "Cellular (modem)", "drone": "Drone RF"}
 
 
 # --------------------------------------------------------------------------------------------- planning
@@ -194,7 +198,7 @@ ACTION_PATTERNS: list[tuple[str, Callable[[re.Match], Action]]] = [
      lambda m: Action(kind="record_iq", seconds=_seconds(m.group(1), m.group(2)) if m.group(1) else 5)),
     (rf"\b(?:grab|take|get|pull|keep)\s+(\d+(?:\.\d+)?)\s*({UNIT_S})\s+of\s+(?:iq|samples|evidence|raw iq)\b",
      lambda m: Action(kind="record_iq", seconds=_seconds(m.group(1), m.group(2)))),
-    (rf"\b(?:scan|look|sweep|check|listen|survey)\s+(?:for\s+|the\s+)?(bluetooth classic|classic bluetooth|classic|br/edr|zigbee|tpms|tire sensors?|ble|cell towers?|cellular|cells|lte|5g)"
+    (rf"\b(?:scan|look|sweep|check|listen|survey)\s+(?:for\s+|the\s+)?(bluetooth classic|classic bluetooth|classic|br/edr|zigbee|tpms|tire sensors?|ble|cell towers?|cellular|cells|lte|5g|drones?)"
      rf"(?:\s+devices)?(?:\s+for\s+(\d+(?:\.\d+)?)\s*({UNIT_S}))?",
      lambda m: Action(kind="start_scan", protocol=_protocol_word(m.group(1)),
                       seconds=_seconds(m.group(2), m.group(3)) if m.group(2) else 60)),
@@ -212,6 +216,7 @@ ACTION_PATTERNS: list[tuple[str, Callable[[re.Match], Action]]] = [
 def _protocol_word(word: str) -> str:
     word = word.lower()
     return ("classic" if "classic" in word or "br/edr" in word else "zigbee" if "zigbee" in word
+            else "drone" if "drone" in word
             else "cellular" if re.search(r"cell|lte|5g|tower", word)
             else "tpms" if "tpms" in word or "tire" in word else "ble")
 
@@ -229,6 +234,8 @@ def _conditions(text: str) -> list[Condition]:
     for vendor in VENDORS:
         if re.search(rf"\b(?:from|by|made by|vendor) {vendor}\b|\b{vendor} (?:devices?|gear)\b", text):
             found.append(Condition(field="manufacturer", op="not_contains" if neg else "contains", value=vendor.title()))
+    if re.search(r"\bconfirmed\b", text) and re.search(DRONE_WORDS, text):
+        found.append(Condition(field="device_class", op="eq", value="drone"))  # not drone-like links
     for noun, (field, op, value) in DEVICE_NOUNS.items():
         pattern = rf"\b{noun}\b(?! (?:for|out|over|over|it))" if noun == "watch" else rf"\b{noun}\b"
         if noun == "watch" and re.match(r"\s*watch\b", text):
@@ -400,7 +407,7 @@ def plan_deterministic(text: str, standing_actions: bool = False) -> WorkflowSpe
     trackers = bool(re.search(r"\b(?:trackers?|airtags?|tiles?|find my|smarttags?)\b", main))
     cellular_words = r"\b(?:cell|cells|cellular|towers?|lte|5g|4g|2g|3g|gsm|base stations?|carriers?|plmn|(?:unknown|unrecognized) (?:network|operator|carrier))\b"
     implies_cellular = bool(re.search(cellular_words, main)) or (
-        not re.search(r"\b(bluetooth|ble|zigbee|tpms|tire|classic|trackers?|airtags?|beacons?)\b", main)
+        not re.search(r"\b(bluetooth|ble|zigbee|tpms|tire|classic|trackers?|airtags?|beacons?|drones?|uavs?|uas|quadcopters?|dji)\b", main)
         and bool(re.search(cellular_words, " ".join(trigger_clauses))))
     if implies_cellular and not re.search(cellular_words, main):
         main = f"survey cell towers {main}"
@@ -409,7 +416,7 @@ def plan_deterministic(text: str, standing_actions: bool = False) -> WorkflowSpe
     whole_duration = re.search(rf"\b(?:in|over|during|for) the next (\d+(?:\.\d+)?)\s*({UNIT_S})", lower)
     if whole_duration and not re.search(rf"\b\d+(?:\.\d+)?\s*{UNIT_S}\b", main):
         main = f"{main} for {_seconds(whole_duration.group(1), whole_duration.group(2))} seconds"
-    probe = main if re.search(r"\b(bluetooth|ble|btle|zigbee|802\.15\.4|thread|tpms|tire|tyre|classic|beacons?|airtags?|cell|cells|cellular|towers?|lte|5g|4g|base stations?|carriers?)\b", main) \
+    probe = main if re.search(r"\b(drones?|uavs?|uas|quadcopters?|dji|ocusync|bluetooth|ble|btle|zigbee|802\.15\.4|thread|tpms|tire|tyre|classic|beacons?|airtags?|cell|cells|cellular|towers?|lte|5g|4g|base stations?|carriers?)\b", main) \
         else main if re.search(r"\bwi-?fi\b", main) else (
             # Vendors and device kinds are identified from BLE advertisements; Classic only yields LAPs.
             "find ble devices " if re.search(rf"\b(?:{'|'.join(VENDORS)}|phones?|watches|headphones|earbuds|wearables?)\b", main)
@@ -418,10 +425,15 @@ def plan_deterministic(text: str, standing_actions: bool = False) -> WorkflowSpe
         task = parse(re.sub(rf"\b\d+(?:\.\d+)?\s*{UNIT_S}\s+of\s+(?:iq|samples)", "", probe))
     except IntentError as exc:
         raise ValueError(str(exc)) from exc
+    other_sdr = re.search(r"\b(?:bluetooth|ble|btle|trackers?|airtags?|tiles?|beacons?|zigbee|tpms|tire|classic)\b", main)
+    if re.search(DRONE_WORDS, main) and other_sdr:
+        raise ValueError("Drone watching takes its own receiver for the whole step, so it cannot share a step with "
+                         f"{other_sdr.group(0)}. Ask for them one after the other, e.g. 'watch for drones for 60 "
+                         "seconds then find trackers for 60 seconds'.")
     collect = [task.profile.name, *task.companions]
     if trackers and task.profile.name == "ble":
         collect = ["ble"]  # trackers are BLE advertisers
-    mixed_bt = re.search(r"\b(?:bluetooth|ble|trackers?|airtags?|tiles?|beacons?|zigbee|tpms|tire)\b", main)
+    mixed_bt = re.search(r"\b(?:bluetooth|ble|trackers?|airtags?|tiles?|beacons?|zigbee|tpms|tire|drones?|uavs?|dji)\b", main)
     if task.profile.name != "cellular" and re.search(cellular_words, main) and mixed_bt:
         collect = collect + ["cellular"]  # e.g. "watch for trackers and rogue cells": SDR + modem together
     elif task.profile.name == "cellular" and mixed_bt:
@@ -447,7 +459,8 @@ def plan_deterministic(text: str, standing_actions: bool = False) -> WorkflowSpe
 PLANNER_INSTRUCTIONS = """\
 You turn an RF operator's request into a WorkflowSpec for RF Sentinel, a RECEIVE-ONLY RF monitoring system.
 
-- collect: protocols to receive. "ble", "classic" (Bluetooth Classic / BR/EDR), "zigbee", "tpms", or "cellular"
+- collect: protocols to receive. "ble", "classic" (Bluetooth Classic / BR/EDR), "zigbee", "tpms", "drone" (drone RF
+  links via the station's drone detector; device_type "drone_detection" = confirmed, "drone_link" = unconfirmed), or "cellular"
   (cell towers via a cellular modem: fields operator, rat ("LTE", "5G NR", "3G WCDMA", "2G GSM"), generation
   ("2G".."5G"), role ("serving", "neighbour", "scanned"); rssi_dbfs holds RSRP in dBm for cells). A plain
   "bluetooth" request means ["ble", "classic"]. Trackers, AirTags, Tiles and beacons are BLE.
@@ -551,6 +564,8 @@ def _plan_with_model(text: str, model: Any) -> WorkflowSpec:
 
 # --------------------------------------------------------------------------------------------- execution
 def device_class(record: dict[str, Any]) -> str:
+    if record.get("protocol") == "drone":  # the detector's own verdict, never inferred from the label
+        return "drone" if record.get("device_type") == CONFIRMED_DRONE else "drone link"
     text = " ".join(str(record.get(k) or "") for k in ("label", "name", "manufacturer", "device_type")).lower()
     if any(word in text for word in TRACKER_WORDS):
         return "tracker"
@@ -663,6 +678,10 @@ class WorkflowEngine:
                 record["device_class"] = device_class(record)
             record["count"] += 1
             record["last_seen"] = now
+            if record["protocol"] == "drone" and event.get("device_type") == CONFIRMED_DRONE != record["device_type"]:
+                # A track first seen as a drone-like link, now confirmed by the detector: same record, upgraded.
+                record["device_type"], record["label"] = CONFIRMED_DRONE, event.get("identity") or record["label"]
+                record["device_class"] = device_class(record)
             if record["protocol"] == "cellular" and event.get("operator") and not str(event["operator"]).startswith(("unverified", "PLMN not")):
                 # A later full scan can resolve a cell first seen with an unverified PLMN.
                 record["operator"] = record["manufacturer"] = event["operator"]
@@ -864,7 +883,7 @@ class WorkflowEngine:
         profile = PROFILES[action.protocol]
         receiver = self.agent.radio.choose(profile.freqs_hz, profile.sample_rate_sps)
         what = {"ble": "ble devices", "classic": "bluetooth classic devices", "zigbee": "zigbee",
-                "tpms": "tire sensors", "cellular": "cell towers"}[action.protocol]
+                "tpms": "tire sensors", "cellular": "cell towers", "drone": "drones"}[action.protocol]
         child = self.agent.child()
         label = PROTOCOL_TITLES[action.protocol]
         self.step(f"Starting a {label} scan on {receiver['id']} for {action.seconds:.0f} s (trigger on {device['label']})")

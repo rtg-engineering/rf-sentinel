@@ -144,12 +144,27 @@ def _events(profile: str, elapsed: float, duration: float, rng: random.Random, r
             if rng.random() < 0.15:
                 out.append({"kind": "tpms", "simulated": True, "sensor_id": sensor, "pressure_kpa": round(230 + rng.gauss(0, 4)),
                             "rssi_dbfs": round(-55 + rng.gauss(0, 4), 1), "seen_at": now})
+    elif profile == "drone":
+        # One drone link: first a drone-like link the detector cannot confirm, then (from 40% of the scenario) the
+        # confirmed detection on the same track; plus a steady 5.8 GHz WiFi-like link that never confirms.
+        if f >= 0.15 and rng.random() < 0.25:
+            confirmed = f >= 0.4
+            out.append({"kind": "drone_detection" if confirmed else "drone_link", "simulated": True,
+                        "protocol": "drone_rf", "key": "sim-drone-track-1", "track_id": "sim-drone-track-1",
+                        "frequency_hz": 5_760_000_000.0, "confidence": round(0.8 if confirmed else 0.45, 2),
+                        "device_type": "confirmed drone" if confirmed else "drone-like link",
+                        "identity": ("Drone link (confirmed)" if confirmed else "Drone-like link (not confirmed)")
+                                    + ": dji_ocusync, 5.8 GHz", "seen_at": now})
+        if rng.random() < 0.1:
+            out.append({"kind": "drone_link", "simulated": True, "protocol": "drone_rf", "key": "drone_link:ism_5g8:5825000000",
+                        "frequency_hz": 5_825_000_000.0, "confidence": 0.3, "device_type": "drone-like link",
+                        "identity": "Drone-like link (not confirmed): drone, 5.8 GHz", "seen_at": now})
     return out
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--profile", required=True, choices=("ble", "classic", "cellular", "zigbee", "tpms"))
+    parser.add_argument("--profile", required=True, choices=("ble", "classic", "cellular", "zigbee", "tpms", "drone"))
     parser.add_argument("--duration", type=float, default=60.0, help="Scenario length (D); events continue after it")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--interval", type=float, default=0.4)

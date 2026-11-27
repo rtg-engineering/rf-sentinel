@@ -23,7 +23,8 @@ def _condition(c: Condition, cell: bool) -> str:
     unit = "dBm" if cell else "dBFS"
     v = c.value
     if c.field == "device_class":
-        return f"{'is' if c.op == 'eq' else 'is not'} a {v}"
+        noun = {"drone": "drone the detector confirmed", "drone link": "drone-like link"}.get(str(v), v)
+        return f"{'is' if c.op == 'eq' else 'is not'} a {noun}"
     if c.field == "new":
         return "has not been seen before" if (v is True) == (c.op == "eq") else "has been seen before"
     if c.field == "rssi_dbfs":
@@ -76,7 +77,7 @@ def _rule(t: Trigger, cell: bool) -> str:
 def explain_workflow(spec: WorkflowSpec, lead: str = "I'll") -> str:
     cell = spec.collect == ["cellular"]
     what = {"ble": "Bluetooth LE", "classic": "Bluetooth Classic", "zigbee": "Zigbee", "tpms": "tire sensors",
-            "cellular": "cell towers (with the modem)"}
+            "cellular": "cell towers (with the modem)", "drone": "drone RF links (with the drone detector)"}
     kinds = [c for c in spec.filters if c.field in ("device_class", "label", "manufacturer", "device_type")]
     noun = ("trackers" if any(c.field == "device_class" and c.value == "tracker" and c.op == "eq" for c in kinds) else "")
     sentence = f"{lead} listen to {_join([what[p] for p in spec.collect])} for {_duration(spec.duration_s)}"

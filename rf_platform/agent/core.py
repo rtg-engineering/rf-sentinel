@@ -36,6 +36,17 @@ WEAK_MEDIAN_PEAK_DBFS = -18.0
 MAX_ADJUSTMENTS = 4
 
 
+def drone_profile_for(profile: Profile, command: str) -> Profile:
+    """Gain is measured where the detector will listen: the 2.4 GHz controller band when the request asks for it."""
+    from dataclasses import replace
+    from .profiles import drone_band
+    if drone_band(command) != "2g4":
+        return profile
+    return replace(profile, freqs_hz=(2_405_500_000, 2_440_000_000, 2_475_500_000),
+                   notes="Runs the station's drone detector through this receiver on the 2.4 GHz band, where drone "
+                         "controllers and some links transmit. Needs the detector installed on this host.")
+
+
 def plugin_path(name: str) -> str | None:
     local = Path(sys.executable).parent / name
     return str(local) if local.exists() else shutil.which(name)
@@ -71,6 +82,10 @@ def plugin_command(task: Task, device: dict[str, Any], gain_db: float, base_url:
     if p.name == "tpms":
         return [exe, "--gateway", base_url, *auth, "listen", "--device-id", device["id"], "--protocol", "tpms",
                 "--auto-hop-known", "--sample-rate-sps", str(p.sample_rate_sps), *common_gain, "--json"]
+    if p.name == "drone":  # the external detector, reading through the IQ service (see rf_platform/plugins/drone-rf)
+        from .profiles import drone_band
+        return [exe, "listen", "--base-url", base_url, *auth, "--device-id", device["id"],
+                "--band", drone_band(task.command), *common_gain, "--json"]
     if p.name == "classic":
         # Receive-only "listen" from the IQ service; the plugin's transmitting page-stimulus mode is never built here.
         # Absolute, and created here: the native decoder runs from the plugin's own directory, so a relative path
@@ -147,6 +162,8 @@ class Agent:
             on_step(message)
 
         task = parse(command)
+        if task.profile.name == "drone":
+            task.profile = drone_profile_for(task.profile, command)
         capabilities: dict[str, Any] = {}
         companion: dict[str, Any] | None = None
         if task.profile.name == "classic" or "classic" in task.companions:
@@ -417,7 +434,11 @@ class Agent:
         item["count"] += 1
         item["last_seen"] = event.get("seen_at")
         item["gain_db"] = gain
-        for field in ("identity", "name", "address_type", "pdu_type", "device_type_detail", "channel"):
+        confirmed = item.get("device_type") == "confirmed drone"
+        for field in ("identity", "name", "address_type", "pdu_type", "device_type_detail", "channel", "confidence",
+                      "frequency_hz", "device_type"):
+            if confirmed and field in ("identity", "device_type", "confidence"):
+                continue  # a drone the detector confirmed stays confirmed when a later, weaker sighting arrives
             if event.get(field) not in (None, "", []):
                 item[field] = event[field]
         rssi = event.get("rssi_dbfs")

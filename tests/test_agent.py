@@ -119,7 +119,8 @@ class AgentRunTest(unittest.TestCase):
     def test_plugin_commands_are_receive_only_and_bounded(self):
         for name in PROFILES:
             task = parse({"ble": "find bluetooth", "zigbee": "find zigbee", "tpms": "find tire sensors",
-                          "classic": "find bluetooth classic devices", "cellular": "survey cell towers"}[name])
+                          "classic": "find bluetooth classic devices", "cellular": "survey cell towers",
+                          "drone": "watch for drones"}[name])
             with patch.object(core, "plugin_path", return_value="/bin/" + PROFILES[name].plugin):
                 command = core.plugin_command(task, DEVICE, 40, "http://127.0.0.1:8790", "tok")
             text = " ".join(command)
