@@ -13,6 +13,9 @@ from unittest.mock import patch
 from rf_platform.agent import core
 from rf_platform.agent.playbook import (PlaybookSpec, is_multistep, plan_any, plan_playbook_deterministic, render,
                                         run_playbook, split_steps)
+import importlib.util
+
+HAS_PYDANTIC_AI = importlib.util.find_spec("pydantic_ai") is not None
 
 OPERATION = ("Sweep for bluetooth trackers for 2 minutes. If you find any, watch them for 5 minutes and send an urgent "
              "alert if one is still there after 3 minutes, and record 5 seconds of IQ. Then survey cell towers for "
@@ -128,6 +131,7 @@ class PlannerTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "first step"):
             PlaybookSpec.model_validate({"steps": [{**step, "gate": {"when": "found"}}]})
 
+    @unittest.skipUnless(HAS_PYDANTIC_AI, "pydantic-ai is optional (pip install '.[analyst-llm]')")
     def test_model_planner_is_validated_and_falls_back(self):
         from pydantic_ai.messages import ModelResponse, ToolCallPart
         from pydantic_ai.models.function import FunctionModel
@@ -282,6 +286,9 @@ class RunTest(unittest.TestCase):
         book = plan_playbook_deterministic("find ble devices for 30 seconds. then watch them for 1 minute. repeat 4 "
                                            "times, every 5 minutes")
         self.assertEqual((book.repeat.every_s, book.repeat.times, len(book.steps)), (300, 4, 2))
+        book = plan_playbook_deterministic("Every 30 minutes, repeat 14 times, sweep for bluetooth trackers for 2 "
+                                           "minutes and send an urgent alert when a new one appears.")
+        self.assertEqual((book.repeat.every_s, book.repeat.times, book.steps[0].workflow.duration_s), (1800, 14, 120))
         book = plan_playbook_deterministic("survey cell towers for 1 minute, every hour until I stop it")
         self.assertEqual(book.repeat.times, 12)
         self.assertIn("unless stopped", book.notes[0])

@@ -165,6 +165,10 @@ class AgentGateway:
         self.on_pending = on_pending
         self.audit: list[dict[str, Any]] = []
 
+    def record_request(self, operator: str | None, source: str) -> None:
+        """The first audit entry of a run: who asked for it (None when the dashboard runs without authentication)."""
+        self._log("run", {"source": source}, "requested", operator=operator or "unauthenticated")
+
     def _log(self, tool: str, params: dict[str, Any], decision: str, **extra) -> None:
         self.audit.append({"t": time.time(), "tool": tool, "params": params, "mode": self.mode,
                            "decision": decision, **extra})
