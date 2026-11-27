@@ -149,14 +149,18 @@ The steps run in order under one gateway (mode, approvals, audit) and one stop c
 
 In the dashboard, a playbook plan is a numbered pipeline: each step shows its condition and focus, and its duration can be changed. While it runs, a stepper shows each step as waiting, running (with how many devices it focuses on), done (with its results), or skipped (with the reason). The timeline marks which step each event came from. The two playbook example prompts show the flow. In simulation, all the steps share one scripted scenario clock, so the strong newcomer arrives part-way through, as it would live.
 
-**Planning quality.** `tests/fixtures/playbook_phrases.json` holds 17 reviewed multi-step requests and 2 that must be refused. Each request is recorded with the exact plan it must produce. `python3 scripts/evaluate_planner.py --playbooks [--model …]` scores a planner per step part:
-- **Rules planner:** 17/17, with 2/2 refusals.
-- **Model planner** (`openai-codex:gpt-6-astra`), live:
-  - 16/17, with 2/2 refusals and no fallbacks.
-  - The one miss gates on "found a tracker" instead of filtering for trackers. That is the same devices, reached a different way.
-  - The guidance was refined on the first 12 requests. The last 5 were written afterwards as a held-out check.
+**Planning quality.** Two reviewed corpora record each request with the exact plan it must produce, plus requests that must be refused. `python3 scripts/evaluate_planner.py [--playbooks] [--model …] --json-out FILE` scores a planner per part. The latest results (2026-11-27) are in [`docs/validation/planner-scorecard.json`](validation/planner-scorecard.json):
 
-Whether a request has steps is decided by the rules (sequencing words and step verbs). A single request always plans exactly as before; the 30-phrase workflow corpus is checked for that.
+| Corpus | Rules planner | Model planner (`openai-codex:gpt-6-astra`, live) |
+|---|---|---|
+| Multi-step: `tests/fixtures/playbook_phrases.json`, 21 requests + 3 refusals | 21/21 exact (45/45 steps); 3/3 refusals | 20/21 exact; 3/3 refusals; no fallbacks |
+| Single requests: `tests/fixtures/workflow_phrases.json`, 27 requests + 3 refusals | 27/27 exact; 3/3 refusals | 23/27 exact, 24/27 equivalent; 3/3 refusals; no fallbacks |
+
+- The model's one multi-step miss gates on "found a tracker" instead of filtering for trackers: the same devices, reached a different way.
+- The model guidance was refined on the first 12 multi-step requests; later requests were written afterwards as a held-out check.
+- These are small sets written by the developer. They show behaviour on known phrasings, not a general accuracy rate.
+
+Whether a request has steps is decided by the rules (sequencing words and step verbs). A single request always plans exactly as before; the single-request corpus is checked for that.
 
 **Standing watches.** A watch repeats a whole playbook on a schedule:
 
@@ -198,12 +202,20 @@ A request beyond a limit is refused with the reason.
 
 The probes are read-only: no receiver is opened. Run them before leaving a watch overnight.
 
-**Surviving restarts.** While a scheduled playbook or a standing watch runs, it is recorded in `<log dir>/agent-runs/active/`. If the dashboard restarts, the watch resumes from its next scheduled cycle, in the same mode, and is marked *resumed*. A cycle that was in progress when the dashboard stopped is not re-run, and its results are lost. A run that ends normally, or is stopped, is no longer recorded there.
+**Surviving restarts.** While a scheduled playbook or a standing watch runs, it is recorded in `<log dir>/agent-runs/active/`, together with its progress: the cycle in progress, and a summary of each finished cycle (devices, new devices, alerts and their messages). The file is replaced atomically, so a crash never leaves it half-written. If the dashboard restarts:
+- the watch resumes from its next scheduled cycle, in the same mode and under the operator who started it, and is marked *resumed*;
+- its report keeps the original cycle numbering and has a **Before the restart** section: the cycles that ran earlier (counts and alert messages; their device lists were not kept), the cycle that was **interrupted** (its partial results are lost, and the report says so), and any cycles **missed** while the dashboard was down;
+- if every cycle was already due when the dashboard came back, nothing is resumed, but a report with that history is still saved.
+
+A run that ends normally, or is stopped, is no longer recorded there.
 
 **Ask about a run.** When a run has finished, including runs loaded from **Recent runs**, an *Ask* bar takes questions such as "what alerted?", "which trackers came back every cycle?", "what was strongest?" or "why was step 2 skipped?" (`POST /api/agent/jobs/<id>/ask`).
-- **With a model:** the model answers, and it can read the run only through tools (overview, devices, alerts). Its answer is then checked by code: every device it cites must be one the run recorded, and every number must appear in what the tools returned.
-- **Limit of the check:** it rejects invented devices and readings, but it cannot prove a small count the model worked out itself. "8 devices appeared in every cycle" passes if 8 occurs anywhere in the records. For exact counts, ask the code path (planner *Rules*).
-- **Live, on a simulated standing watch:** 6 of 6 `gpt-6-astra` answers passed the check. Where the records lacked the information, the model said so instead of guessing.
+- **With a model:** the model answers, and it can read the run only through tools (overview, list devices, count devices, alerts). Every tool result is numbered. Its answer is then checked by code:
+  - every device it cites must be one the run recorded;
+  - every number it states must be **cited**: the tool call it came from and the exact field (`count`, `devices.0.best_signal`, …). Code resolves the field and requires the same value. Counts come from the `count_devices` tool, so the model never counts for itself. Numbers inside the name of a device it cites ("PCI 56") are not claims.
+  - The citations are shown with the answer (*Where each number comes from*).
+- **Limit of the check:** it proves that each number is the value of the field cited. It cannot prove that the sentence describes that field correctly; the visible sources make that reviewable. In a live check, "3 cycles" was cited to the cycle number of the third step: the right value, reached indirectly.
+- **Live, on a real 3-cycle watch** (two bladeRFs, 2026-11-27; `scripts/evaluate_ask.py`): 8 of 8 `gpt-6-astra` answers passed the check, and all 8 matched what code computes from the records (devices in every cycle, new devices, trackers, strongest signal, alerts, skipped steps).
 - **Without a model, or if the check fails:** code answers the common questions from the run's records, and the answer states the reason.
 
 **Saved plans.** **Save** under a plan stores it by name on the server, so the dashboard and the CLI share it. Typing "run tonight's watch" (or clicking the saved plan) loads that plan, re-validated, without planning again; `rf-sentinel agent library` lists saved plans. Saved plans live in `<log dir>/agent-runs/library.json`.
@@ -301,10 +313,35 @@ Every agent operation is authorized by the tool gateway (`rf_platform/agent/gate
 | `passive-auto` | allowed | allowed, within bounds | allowed |
 
 - **Ceiling.** The server sets `RF_SENTINEL_AGENT_MODE` (default `passive-auto`; an unrecognized value fails closed to `observe`). A run may request the same mode or a more restrictive one. A request for a more privileged mode is capped.
-- **Approvals.** Each approval is bound to one pending operation of one run, by action ID and content hash. It needs a named operator, can be used once, and expires (default 300 s). Stopping the run cancels it. A denied gain change leaves the scan running at its current gain.
+- **Approvals.** Each approval is bound to one pending operation of one run, by action ID and content hash. It needs a named operator, can be used once, and expires (default 300 s). Stopping the run cancels it. A denied gain change leaves the scan running at its current gain. With sign-in on, the approval is recorded under the signed-in approver; a name in the request is ignored.
 - **Never available.** Transmit-capable operations (`transmit`, `page_stimulus`, `replay`, `jam`, `spoof`) and raw access (`shell`, `raw_driver`, `write_register`) are not tools. Requests for them are refused in every mode.
 - **Direct API.** `POST /api/agent/tools/<tool>` runs read tools. Collection tools return `403` where the mode denies them, and `409` otherwise, because collection must go through a run so that it is bounded, owned, and audited.
-- **Audit.** Every decision (allowed, denied, approval requested, approved or denied by whom, expired, or cancelled) is recorded in the run.
+- **Audit.** Every decision (allowed, denied, approval requested, approved or denied by whom, expired, or cancelled) is recorded in the run. The first entry records who requested the run.
+- **One run at a time, atomically.** Checking that no run is active and registering the new run happen under one lock, so two requests arriving together cannot both start a run (one gets `409`). Receivers are then claimed from the IQ service, which is the arbiter across processes: it lists a receiver in use as occupied, and refuses (`409`) a second stream on it, so a dashboard run and a separate CLI run cannot share one receiver.
+
+## Sign-in and roles
+
+The gateway decides whether an *operation* is permitted. Sign-in decides whether the *caller* may ask for it. Both apply to every API call (`rf_platform/auth.py`).
+
+| Role | Can |
+|---|---|
+| `viewer` | read detections, runs, reports, plans |
+| `operator` | also plan, run, stop, refine, save plans, ask, and change scans and settings |
+| `approver` | also approve or deny an agent's pending operation |
+
+```bash
+# On the dashboard host (writes <log dir>/auth/operators.json; only a SHA-256 of each token is stored)
+rf-sentinel agent operators add alice --role approver --save    # prints the token once; --save keeps it for your CLI
+rf-sentinel agent operators list
+rf-sentinel agent operators remove alice                         # takes effect at once, including open browser sessions
+```
+
+- **When it is on** (`RF_SENTINEL_AUTH`): `auto` (default) requires sign-in whenever operators exist or the dashboard listens beyond this machine (any host other than loopback), and leaves it off on loopback with no operators and in demo mode (simulated data only). `required` and `off` force it.
+- **Browser.** A sign-in dialog takes the token and sets a session cookie (HttpOnly, SameSite=Strict, 12 h). State-changing calls must also carry the page's `X-RF-Sentinel` header, which another site cannot add. The header shows who is signed in.
+- **CLI and scripts.** `Authorization: Bearer <token>`: `--token`, else `RF_SENTINEL_TOKEN`, else `~/.config/rf-sentinel/token`.
+- **Always open:** `/api/health` (for container health checks) and the sign-in endpoints.
+- **Separation of duties** (optional): with `RF_SENTINEL_APPROVAL_SEPARATION=1`, the operator who started a run cannot approve its operations.
+- **Not covered:** the dashboard serves plain HTTP. On an untrusted network, put it behind TLS (a reverse proxy) so tokens and cookies are not sent in the clear.
 
 ## Why two stages of gain
 
@@ -314,5 +351,5 @@ On two bladeRF 2.0 micro units at 2.4 GHz, the strongest signals were WiFi. Leve
 
 - Receive-only, one run at a time, bounded duration. The receiver stream is released when a run ends (verified: no streams left on the service after runs).
 - Bluetooth Classic runs only when the capability check passes. Live Classic decoding has not yet been validated against known Classic traffic here; the numbers above are from synthetic packets.
-- The dashboard agent is disabled in demo mode, since there are no radios.
+- In demo mode (the public Docker demo) the agent runs on simulated receivers only, and every plan, report and run is labelled SIMULATED.
 - Decode yield depends on the RF environment and on decoder sensitivity. In a 45 s run here, it found 2–3 devices.
