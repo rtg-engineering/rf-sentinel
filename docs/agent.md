@@ -350,6 +350,7 @@ On two bladeRF 2.0 micro units at 2.4 GHz, the strongest signals were WiFi. Leve
 ## Safety and limits
 
 - Receive-only, one run at a time, bounded duration. The receiver stream is released when a run ends (verified: no streams left on the service after runs).
-- Bluetooth Classic runs only when the capability check passes. Live Classic decoding has not yet been validated against known Classic traffic here; the numbers above are from synthetic packets.
+- Bluetooth Classic runs only when the capability check passes. **First over-the-air decode (2026-11-27, bladeRF, 20 MHz at 2442 MHz):** within 60 s of a Classic device being switched on, the agent reported an active piconet, LAP FF33BE, 476 times, and resolved its UAP (CA). The decoder processed 69% of the stream at this bandwidth, and the run says so. Whether this piconet is the test device is pending a check of its address. The full address (NAP) needs a passive FHS, which was not seen. Sensitivity and detection rate are not yet measured; the decoder figures above are from synthetic packets.
+- Inquiry access codes (GIAC 9E8B33, LIAC 9E8B00) are shown as *"Inquiry: a device is searching for Bluetooth devices"*, not as devices.
 - In demo mode (the public Docker demo) the agent runs on simulated receivers only, and every plan, report and run is labelled SIMULATED.
 - Decode yield depends on the RF environment and on decoder sensitivity. In a 45 s run here, it found 2–3 devices.

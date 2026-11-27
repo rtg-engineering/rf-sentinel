@@ -37,6 +37,23 @@ def _classic_key(event):
     return event.get("address") or event.get("bdaddr") or (f"LAP {event['lap']}" if event.get("lap") else None)
 
 
+def classic_identity(event) -> None:
+    """A readable identity for a Classic sighting. The key stays "LAP xxxxxx" so a device keeps one record before and
+    after its UAP is resolved. LAPs 0x9E8B00-0x9E8B3F are inquiry access codes, not devices: GIAC (9E8B33) means
+    something nearby is searching for Bluetooth devices; LIAC (9E8B00) is the limited-discovery search."""
+    lap = str(event.get("lap") or "").upper()
+    if not lap or event.get("address") or event.get("bdaddr"):
+        return
+    if lap.startswith("9E8B") and int(lap, 16) <= 0x9E8B3F:
+        name = {"9E8B33": "GIAC", "9E8B00": "LIAC"}.get(lap, f"IAC {lap}")
+        event["identity"] = f"Inquiry ({name}): a device is searching for Bluetooth devices"
+        event["device_type_detail"] = "inquiry"
+    elif event.get("uap"):
+        event["identity"] = f"Classic piconet {str(event['uap']).upper()}:{lap} (UAP:LAP)"
+    else:
+        event.setdefault("identity", f"Classic piconet LAP {lap}")
+
+
 def _cell_key(event):
     return event.get("key")
 

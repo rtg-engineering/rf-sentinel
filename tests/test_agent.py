@@ -138,3 +138,18 @@ class AgentRunTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClassicIdentityTest(unittest.TestCase):
+    """Live capture, 2026-11-27: GIAC 9E8B33 (a device search) and piconet FF33BE, UAP CA resolved mid-run."""
+
+    def test_inquiry_codes_and_resolved_uap(self):
+        from rf_platform.agent.profiles import classic_identity
+        search = {"lap": "9E8B33"}
+        classic_identity(search)
+        self.assertIn("searching for Bluetooth devices", search["identity"])
+        early, resolved = {"lap": "FF33BE"}, {"lap": "FF33BE", "uap": "CA"}
+        classic_identity(early)
+        classic_identity(resolved)
+        self.assertEqual(early["identity"], "Classic piconet LAP FF33BE")
+        self.assertEqual(resolved["identity"], "Classic piconet CA:FF33BE (UAP:LAP)")
