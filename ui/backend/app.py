@@ -8705,6 +8705,7 @@ def status():
     gateway_live_centers = {} if RF_SENTINEL_DEMO_MODE else _sync_scanner_assignment_centers_from_gateway()
     devices = _available_devices()
     ui_config = _read_ui_config()
+    agent_receivers = _agent_receivers()  # before state_lock: never hold both job and scanner locks
     with state_lock:
         enabled_protocols = {str(item).lower() for item in state.decoder_stats.get("enabled_protocols", ui_config.get("protocols", []))}
         follow_target = _follow_state_for_protocols({"follow": state.decoder_stats.get("follow", {})}, enabled_protocols)
@@ -8712,6 +8713,7 @@ def status():
             {
                 **({"validation_metrics": _validation_metrics_view()} if RF_SENTINEL_DEMO_MODE else {}),
                 "sdr_backend": _sdr_backend_state(),
+                "agent_receivers": agent_receivers,
                 "running": state.running,
                 "mode": state.mode,
                 "stream_id": state.stream_id,
@@ -8920,6 +8922,24 @@ def _agent_detection(job: dict[str, Any], spec, event: dict[str, Any]) -> None:
 def _agent_running() -> dict[str, Any] | None:
     with agent_jobs_lock:
         return next((j for j in agent_jobs.values() if j["status"] in ("running", "awaiting_approval", "stopping")), None)
+
+
+AGENT_RECEIVER_RE = re.compile(r"\b(?:Receiver:|scan on|on)\s+((?:bladerf|hackrf|rtlsdr|airspy|sdrplay|lime|uhd|plutosdr|sim):\d+)")
+
+
+def _agent_receivers() -> dict[str, dict[str, Any]]:
+    """Receivers the running agent missions hold, from their own step log ("Receiver: bladerf:0 ..."), so the
+    dashboard's receiver cards say what each radio is doing instead of the idle scanner's last configuration."""
+    out: dict[str, dict[str, Any]] = {}
+    with agent_jobs_lock:
+        active = [j for j in agent_jobs.values() if j["status"] in ("running", "awaiting_approval", "stopping")]
+        for job in active:
+            find = (job.get("summary") or {}).get("find") if isinstance(job.get("summary"), dict) else None
+            for step in job.get("steps") or []:
+                for device_id in AGENT_RECEIVER_RE.findall(str(step.get("message") if isinstance(step, dict) else step)):
+                    out[device_id] = {"job_id": job["job_id"], "find": find or job.get("command") or "agent mission",
+                                      "requested_by": job.get("requested_by")}
+    return out
 
 
 def _agent_public(job: dict[str, Any]) -> dict[str, Any]:
