@@ -25,7 +25,7 @@ class PublishTest(unittest.TestCase):
             cls.result = run_playbook(core.Agent(simulate=True), book, on_step=lambda m: None)
         # What a live report also carries: an advertised name, a receiver serial, a cell's ID and TAC.
         cls.result["devices"][0]["name"] = "Pat's AirPods"
-        cls.result["steps"].append({"t": 1.0, "message": "Receiver: bladerf:0 (BladeRF #0 [47f54f48..c655151b])"})
+        cls.result["steps"].append({"t": 1.0, "message": "Receiver: bladerf:0 (BladeRF #0 [0123abcd..89abcdef])"})
         cls.result["devices"].append({"key": "LTE:18BBA08", "protocol": "cellular", "count": 2, "cell_id": "18BBA08",
                                       "tac": "1613", "identity": "AT&T · LTE · PCI 56", "steps": [2]})
         cls.folder = save(cls.result, Path(cls.temp.name))
@@ -40,7 +40,7 @@ class PublishTest(unittest.TestCase):
         out = publish(self.folder, Path(self.temp.name) / "public")
         text = (out / "run.json").read_text() + (out / "report.html").read_text()
         self.assertIsNone(MAC.search(text))
-        for secret in ("Pat's AirPods", "47f54f48", "18BBA08", "1613", "PCI 56"):
+        for secret in ("Pat's AirPods", "0123abcd", "18BBA08", "1613", "PCI 56"):
             self.assertNotIn(secret, text)
         public = json.loads((out / "run.json").read_text())
         self.assertEqual(public["redaction"]["source_run_json_sha256"],
