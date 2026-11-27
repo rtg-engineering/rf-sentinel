@@ -20,7 +20,38 @@ relative to root):
 docker build -f docker/Dockerfile -t rf-sentinel:latest .
 ```
 
-## Deploy (actual production config: `rfiq`)
+## Deploy (agent missions: built-in IQ service)
+
+The agent (missions, discovery, `/agent`, `/fleet`) uses RF Sentinel's own IQ
+service, which owns the receivers outright. Stop anything else holding them
+first (`rfiq-daemon@radioN`, a PASSIVE-SHIELD detector container): a bladeRF
+opened by two processes can wedge until it is replugged.
+
+```
+mkdir -p ~/.config/rf-sentinel ~/rf-sentinel-data
+head -c 24 /dev/urandom | base64 | tr -d '/+=' > ~/.config/rf-sentinel/iq_token
+T=$(cat ~/.config/rf-sentinel/iq_token)
+
+docker run -d --name rf-sentinel-iq --restart unless-stopped --network host \
+  --privileged -v /dev/bus/usb:/dev/bus/usb \
+  -e SDR_GATEWAY_API_TOKEN=$T \
+  rf-sentinel:latest python3 -m rf_platform.soapy_gateway.server --host 127.0.0.1 --port 8790
+
+docker run -d --name rf-sentinel --restart unless-stopped --network host \
+  -v ~/rf-sentinel-data:/var/log/rf_sentinel \
+  -e RF_SENTINEL_TEXTUAL_CONSOLE=0 -e SDR_BACKEND=soapy \
+  -e SDR_GATEWAY_BASE_URL=http://127.0.0.1:8790 -e SDR_GATEWAY_API_TOKEN=$T \
+  rf-sentinel:latest
+
+# Sign-in (the dashboard requires it when bound to 0.0.0.0); the token is shown once.
+docker exec rf-sentinel rf-sentinel agent operators add NAME --role approver --log-dir /var/log/rf_sentinel
+```
+
+Cell surveys use the Cellular Survey service on `127.0.0.1:5098` (its own
+container, holding the modem). The image runs Python 3.10 (Ubuntu 22.04), so
+code must not use 3.11-only names such as `datetime.UTC`.
+
+## Deploy (older production config: `rfiq`)
 
 This is what's actually running on station1 and dev-desktop today —
 shares the radio with sdr-shark and the shared `bt-detector` sidecar
