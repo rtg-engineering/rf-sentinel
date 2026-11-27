@@ -9,6 +9,9 @@ from unittest.mock import patch
 from rf_platform.agent import core
 from rf_platform.agent.ask import ask, device_table
 from rf_platform.agent.playbook import plan_playbook_deterministic, run_playbook
+import importlib.util
+
+HAS_PYDANTIC_AI = importlib.util.find_spec("pydantic_ai") is not None
 
 
 class AskTest(unittest.TestCase):
@@ -36,6 +39,7 @@ class AskTest(unittest.TestCase):
         self.assertIn("2G GSM", ask(self.result, "which cells did you see?", "deterministic")["answer"])
         self.assertIn("I can answer", ask(self.result, "what is the meaning of life", "deterministic")["answer"])
 
+    @unittest.skipUnless(HAS_PYDANTIC_AI, "pydantic-ai is optional (pip install '.[analyst-llm]')")
     def test_model_answers_are_checked(self):
         from pydantic_ai.messages import ModelResponse, ToolCallPart
         from pydantic_ai.models.function import FunctionModel
@@ -45,9 +49,48 @@ class AskTest(unittest.TestCase):
             if len(messages) == 1:
                 return ModelResponse(parts=[ToolCallPart("list_devices", {"kind": "tracker"})])
             return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {
-                "answer": f"{tracker['label']} was seen {tracker['count']} times.", "devices": [tracker["key"]]})])
+                "answer": f"{tracker['label']} was seen {tracker['count']} times.", "devices": [tracker["key"]],
+                "numbers": [{"value": tracker["count"], "call": 1, "path": "devices.0.count"}]})])
         out = ask(self.result, "how often was the tracker seen?", "model", model=FunctionModel(honest))
         self.assertEqual((out["by"], out["checked"]), ("model", True))
+        self.assertEqual(out["sources"], [f"{tracker['count']} ← list_devices (call 1) · devices.0.count"])
+
+        trackers = sum(1 for d in device_table(self.result) if d["kind"] == "tracker")
+
+        def counts_with_the_tool(messages, info):
+            if len(messages) == 1:
+                return ModelResponse(parts=[ToolCallPart("count_devices", {"kind": "tracker"})])
+            return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {
+                "answer": f"{trackers} tracker(s) were decoded.", "numbers": [{"value": trackers, "call": 1, "path": "count"}]})])
+        self.assertEqual(ask(self.result, "how many trackers?", "model", model=FunctionModel(counts_with_the_tool))["by"], "model")
+
+        # The coincidence the old check let through: a number that occurs somewhere in the records, stated as
+        # something else. Uncited, it is rejected; cited to a field that holds another value, it is rejected too.
+        total = len(device_table(self.result))
+
+        def uncited(messages, info):
+            if len(messages) == 1:
+                return ModelResponse(parts=[ToolCallPart("overview", {})])
+            return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {
+                "answer": f"{total} trackers came back in every cycle."})])
+        out = ask(self.result, "which trackers came back?", "model", model=FunctionModel(uncited))
+        self.assertEqual(out["by"], "rules")
+        self.assertIn("without citing", out["fallback_reason"])
+
+        def miscited(messages, info):
+            if len(messages) == 1:
+                return ModelResponse(parts=[ToolCallPart("count_devices", {"kind": "tracker"})])
+            return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {
+                "answer": f"{total + 5} trackers.", "numbers": [{"value": total + 5, "call": 1, "path": "count"}]})])
+        out = ask(self.result, "how many trackers?", "model", model=FunctionModel(miscited))
+        self.assertIn("that field holds", out["fallback_reason"])
+
+        def bad_path(messages, info):
+            if len(messages) == 1:
+                return ModelResponse(parts=[ToolCallPart("count_devices", {})])
+            return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {
+                "answer": "4 devices.", "numbers": [{"value": 4, "call": 1, "path": "devices.9.count"}]})])
+        self.assertIn("does not exist", ask(self.result, "how many?", "model", model=FunctionModel(bad_path))["fallback_reason"])
 
         def invents_number(messages, info):
             return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {

@@ -16,6 +16,9 @@ from rf_platform.agent.gateway import AgentGateway, ApprovalBroker
 from rf_platform.agent.workflow import (Action, Condition, Trigger, WorkflowEngine, WorkflowSpec, plan,
                                         plan_deterministic, run_workflow)
 from tests.test_agent import DEVICE, FAKE_PLUGIN
+import importlib.util
+
+HAS_PYDANTIC_AI = importlib.util.find_spec("pydantic_ai") is not None
 
 TRACKERS = ("Watch for bluetooth trackers for 5 minutes, only stronger than -60. If a tracker is seen for more "
             "than 2 minutes, send an urgent alert and record 5 seconds of IQ. If an AirTag appears, scan "
@@ -67,6 +70,7 @@ class PlannerTest(unittest.TestCase):
 
 
 class ModelPlannerTest(unittest.TestCase):
+    @unittest.skipUnless(HAS_PYDANTIC_AI, "pydantic-ai is optional (pip install '.[analyst-llm]')")
     def test_model_plan_is_validated_and_falls_back(self):
         from pydantic_ai.messages import ModelResponse, ToolCallPart
         from pydantic_ai.models.function import FunctionModel

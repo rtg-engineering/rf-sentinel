@@ -27,7 +27,7 @@ from typing import Any
 import numpy as np
 import requests
 import websocket
-from flask import Flask, Response, jsonify, request, send_from_directory
+from flask import Flask, Response, g, jsonify, request, send_from_directory, session
 from werkzeug.exceptions import BadRequest
 from websocket._exceptions import WebSocketConnectionClosedException
 
@@ -1285,6 +1285,119 @@ class CombinedBluetoothDetector:
 
 
 app = Flask(__name__, static_folder=str(PROJECT_ROOT / "ui" / "frontend"), static_url_path="")
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Strict", SESSION_COOKIE_NAME="rf_sentinel_session",
+                  PERMANENT_SESSION_LIFETIME=12 * 3600)
+SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
+
+
+def _auth_store():
+    from rf_platform.auth import OperatorStore, auth_dir
+    return OperatorStore(auth_dir(RF_SENTINEL_LOG_DIR))
+
+
+def _auth_mode() -> str:
+    from rf_platform.auth import mode
+    return mode(_auth_store(), os.getenv("RF_SENTINEL_HOST", os.getenv("BT_EXPLORER_HOST", "0.0.0.0")),
+                RF_SENTINEL_DEMO_MODE)
+
+
+def _ensure_session_key() -> None:
+    """Browser sessions are signed with a per-installation key (kept beside operators.json). Flask opens the session
+    before any request hook runs, so the key is set when the app starts."""
+    if not app.secret_key:
+        from rf_platform.auth import auth_dir, session_secret
+        try:
+            app.secret_key = session_secret(auth_dir(RF_SENTINEL_LOG_DIR))
+        except OSError:  # log dir not writable: sessions still work, but do not survive a restart
+            import secrets
+            app.secret_key = secrets.token_bytes(32)
+
+
+def _caller() -> dict[str, str] | None:
+    """The authenticated operator: a Bearer token (CLI, scripts) or a signed browser session."""
+    from rf_platform.auth import bearer
+    store = _auth_store()
+    token = bearer(request.headers.get("Authorization"))
+    if token:
+        return store.identify(token)
+    _ensure_session_key()
+    name = session.get("operator")
+    return store.current(name) if name else None
+
+
+_ensure_session_key()
+
+
+@app.before_request
+def _authenticate():
+    """Every /api/ call: identify the caller and check their role (see rf_platform/auth.py). The agent's tool gateway
+    then separately decides whether the operation itself is permitted."""
+    from rf_platform.auth import needed_role, rank
+    g.operator = None
+    if not request.path.startswith("/api/"):
+        return None
+    g.auth_mode = _auth_mode()
+    role = needed_role(request.method, request.path)
+    if g.auth_mode == "off" or role is None:
+        return None
+    caller = _caller()
+    if caller is None:
+        hint = ("No operators are set up yet: run `rf-sentinel agent operators add NAME --role approver` on the "
+                "dashboard host, then sign in with the token it prints." if not _auth_store().any()
+                else "Sign in with your operator token.")
+        return jsonify({"error": f"Authentication required. {hint}", "auth": "required"}), 401
+    if not request.headers.get("Authorization") and request.method not in SAFE_METHODS \
+            and request.headers.get("X-RF-Sentinel") != "1":
+        # Browser sessions ride on a cookie: a state-changing call must also carry the page's own header, which
+        # another site cannot add (with SameSite=Strict, this blocks cross-site request forgery).
+        return jsonify({"error": "Missing X-RF-Sentinel header"}), 403
+    if rank(caller["role"]) < rank(role):
+        return jsonify({"error": f"{caller['name']} is a {caller['role']}; this needs the {role} role.",
+                        "auth": "forbidden"}), 403
+    g.operator = caller
+    return None
+
+
+@app.get("/api/health")
+def health():
+    return jsonify({"running": True})
+
+
+@app.get("/api/auth/me")
+def auth_me():
+    caller = _caller() if g.get("auth_mode") == "required" else None
+    return jsonify({"auth": g.get("auth_mode"), "operator": caller,
+                    "approval_separation": _approval_separation()})
+
+
+@app.post("/api/auth/login")
+def auth_login():
+    body = request.get_json(silent=True) or {}
+    caller = _auth_store().identify(str(body.get("token") or "").strip())
+    if caller is None:
+        time.sleep(0.5)  # tokens are 256-bit; this only slows a script hammering the endpoint
+        return jsonify({"error": "Unknown token"}), 401
+    _ensure_session_key()
+    session.clear()
+    session.permanent = True
+    session["operator"] = caller["name"]
+    return jsonify({"operator": caller})
+
+
+@app.post("/api/auth/logout")
+def auth_logout():
+    _ensure_session_key()
+    session.clear()
+    return jsonify({"ok": True})
+
+
+def _approval_separation() -> bool:
+    """RF_SENTINEL_APPROVAL_SEPARATION=1: the operator who started a run may not approve its operations."""
+    return os.getenv("RF_SENTINEL_APPROVAL_SEPARATION", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _operator_name() -> str | None:
+    return (g.get("operator") or {}).get("name")
 app.logger.setLevel(logging.INFO)
 logging.getLogger("werkzeug").setLevel(logging.WARNING)
 state = ExplorerState()
@@ -8748,6 +8861,7 @@ agent_jobs: dict[str, dict[str, Any]] = {}
 AGENT_EVENTS_KEPT = 400   # recent workflow events per job (the dashboard polls the job every second)
 AGENT_STEPS_KEPT = 600
 agent_jobs_lock = threading.Lock()
+agent_admission_lock = threading.Lock()  # held across "is a run active?" and launching the next run
 AGENT_PROTOCOL_TAG = {"ble": "ble", "zigbee": "ieee802154", "tpms": "tpms", "classic": "btc", "cellular": "cellular"}
 _agent_broker = None
 
@@ -8951,10 +9065,11 @@ def agent_run():
     planner_info = body.get("planner") if isinstance(body.get("planner"), dict) else {"planner": "deterministic"}
     if decide("start_scan", mode) == "deny":
         return jsonify({"error": f"{mode} mode is read-only: it cannot start collection.", "mode": mode}), 403
-    if _agent_running():
-        return jsonify({"error": "An agent run is already active; stop it first."}), 409
-    job = _launch_agent_job(spec, book, command, mode, planner_info, simulate, body.get("gain_db"),
-                            str(body.get("source") or "dashboard")[:20])
+    with agent_admission_lock:  # the check and the launch are one step: two requests cannot both start a run
+        if _agent_running():
+            return jsonify({"error": "An agent run is already active; stop it first."}), 409
+        job = _launch_agent_job(spec, book, command, mode, planner_info, simulate, body.get("gain_db"),
+                                str(body.get("source") or "dashboard")[:20], requested_by=_operator_name())
     return jsonify(_agent_public(job))
 
 
@@ -8963,7 +9078,7 @@ def _active_dir() -> Path:
 
 
 def _launch_agent_job(spec, book, command: str, mode: str, planner_info: dict[str, Any], simulate: bool, gain,
-                      source: str, resumed: dict[str, Any] | None = None) -> dict[str, Any]:
+                      source: str, resumed: dict[str, Any] | None = None, requested_by: str | None = None) -> dict[str, Any]:
     """Start a workflow or playbook job in the background. Long playbooks (scheduled or repeating) are recorded in
     <log dir>/agent-runs/active/ while they run, so a dashboard restart can resume them (resume_agent_watches)."""
     from rf_platform.agent.core import Agent
@@ -8975,7 +9090,7 @@ def _launch_agent_job(spec, book, command: str, mode: str, planner_info: dict[st
            "source": source, "status": "running", "started_at": time.time(),
            "steps": [], "result": None, "error": None, "workflow": spec.model_dump(), "summary": spec.summary(),
            "planner": planner_info, "events": [], "alerts": [], "simulated": agent_simulated(simulate),
-           "activity": []}
+           "activity": [], "requested_by": requested_by}
     if book is not None:
         job.update(kind="playbook", playbook=book.model_dump(), summary=book.summary(), workflow=None,
                    step_status=[{"status": "pending", "reason": ""} for _ in book.steps], current_step=None,
@@ -8983,6 +9098,7 @@ def _launch_agent_job(spec, book, command: str, mode: str, planner_info: dict[st
     gateway = AgentGateway(mode, job_id, _agent_approvals(),
                            on_pending=lambda p: job["steps"].append({"t": round(time.time() - job["started_at"], 1),
                                                                      "message": f"Approval needed for {p['tool']} {p['params']} (action {p['action_id']})"}))
+    gateway.record_request(requested_by, source)
     agent = Agent(_gateway_base(), os.getenv("SDR_GATEWAY_API_TOKEN", ""), gateway=gateway, run_id=job_id,
                   simulate=simulate or None)
     job["agent"] = agent
@@ -8992,6 +9108,8 @@ def _launch_agent_job(spec, book, command: str, mode: str, planner_info: dict[st
     def work():
         try:
             def on_event(event):
+                if event["kind"] == "cycle":
+                    _record_cycle_progress(event)
                 if event["kind"] == "cycle" and event["status"] == "done" and event.get("stats"):
                     job.setdefault("cycle_stats", []).append({"cycle": event["cycle"], **event["stats"]})
                 if event["kind"] == "cycle" and book is not None and event["status"] != "done":
@@ -9029,6 +9147,8 @@ def _launch_agent_job(spec, book, command: str, mode: str, planner_info: dict[st
                                              base_dir=RF_SENTINEL_LOG_DIR / "agent-runs",
                                              gain_db=float(gain) if gain is not None else None)
                 job["current_step"] = None
+                if resumed:
+                    _add_restart_history(job["result"], resumed)
                 job["report_dir"] = str(save_playbook(job["result"], RF_SENTINEL_LOG_DIR / "agent-runs"))
                 records = job["result"]["steps_run"]
                 if not agent._stop.is_set() and not any(r["status"] == "done" for r in records):
@@ -9055,17 +9175,52 @@ def _launch_agent_job(spec, book, command: str, mode: str, planner_info: dict[st
             job["audit"] = gateway.audit
 
     active_file = None
+    offset = int((resumed or {}).get("offset", 0))  # cycles of the original watch that came before this job
+    active_entry: dict[str, Any] = {}
+
+    def write_active() -> None:
+        nonlocal active_file
+        if active_file is None:
+            return
+        try:
+            tmp = active_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(active_entry))
+            tmp.replace(active_file)  # never a half-written file, even if the dashboard dies mid-write
+        except OSError:
+            pass
+
+    def _record_cycle_progress(event: dict[str, Any]) -> None:
+        """Persist which cycle is running and a summary of each finished one, so a restart can say what was lost."""
+        if active_file is None:
+            return
+        absolute = offset + int(event.get("cycle", 0))
+        if event["status"] == "running":
+            active_entry["in_progress"] = {"cycle": absolute, "started_at": time.time()}
+        elif event["status"] == "done":
+            active_entry["in_progress"] = None
+            active_entry.setdefault("cycles_done", []).append({
+                "cycle": absolute, "finished_at": time.time(), **(event.get("stats") or {}),
+                "alert_messages": [str(a.get("message") or "")[:200] for a in job["alerts"]
+                                   if a.get("cycle") == event.get("cycle")][:20]})
+        else:
+            return
+        write_active()
+
     if book is not None and (book.repeat or book.start):
         origin = book.start.resolve(job["started_at"]) if book.start else job["started_at"]
         active_file = _active_dir() / f"{job_id}.json"
+        active_entry.update({"job_id": job_id, "playbook": (resumed or {}).get("original") or book.model_dump(),
+                             "origin": (resumed or {}).get("origin", origin), "mode": mode,
+                             "planner": planner_info, "simulate": bool(simulate), "command": command,
+                             "source": source, "gain_db": gain, "requested_by": requested_by,
+                             "cycles_done": list((resumed or {}).get("before") or []),
+                             "interrupted": list((resumed or {}).get("interrupted") or []),
+                             "missed": list((resumed or {}).get("missed") or []), "in_progress": None})
         try:
             active_file.parent.mkdir(parents=True, exist_ok=True)
-            active_file.write_text(json.dumps({"job_id": job_id, "playbook": (resumed or {}).get("original") or book.model_dump(),
-                                               "origin": (resumed or {}).get("origin", origin), "mode": mode,
-                                               "planner": planner_info, "simulate": bool(simulate), "command": command,
-                                               "source": source, "gain_db": gain}))
         except OSError:
             active_file = None
+        write_active()
     if resumed:
         job["resumed"] = resumed["note"]
         job["steps"].append({"t": 0.0, "message": resumed["note"]})
@@ -9102,7 +9257,17 @@ def resume_agent_watches(now: float | None = None) -> list[dict[str, Any]]:
         times = original.repeat.times if original.repeat else 1
         next_k = 0 if now <= origin else (int(-(-(now - origin) // every)) if every else times)
         remaining = times - next_k
-        if remaining <= 0 or _agent_running():
+        before = list(entry.get("cycles_done") or [])
+        interrupted = list(entry.get("interrupted") or [])
+        if entry.get("in_progress"):
+            interrupted.append({**entry["in_progress"], "restart_at": now})
+        # Every cycle that was due before now and neither finished nor was cut off: missed while the dashboard was down.
+        known = {c["cycle"] for c in before} | {c["cycle"] for c in interrupted} | set(entry.get("missed") or [])
+        missed = sorted(set(entry.get("missed") or []) | {c for c in range(min(next_k, times))
+                                                          if c not in known and origin + c * (every or 0) <= now})
+        if remaining <= 0:
+            if before or interrupted:
+                _save_restart_only_report(entry, original, before, interrupted, missed)
             continue
         book = original.model_copy(deep=True)
         book.repeat = Repeat(every_s=every, times=remaining) if every and remaining >= 2 else None
@@ -9110,12 +9275,80 @@ def resume_agent_watches(now: float | None = None) -> list[dict[str, Any]]:
         book = PlaybookSpec.model_validate(book.model_dump())
         note = (f"Resumed after a dashboard restart: cycles {next_k + 1}–{times} of {times}" if every
                 else "Resumed after a dashboard restart: waiting for the scheduled start")
-        job = _launch_agent_job(book.steps[0].workflow, book, entry.get("command") or book.goal, entry["mode"],
-                                entry.get("planner") or {"planner": "deterministic"}, bool(entry.get("simulate")),
-                                entry.get("gain_db"), "resumed",
-                                resumed={"note": note, "origin": origin, "original": original.model_dump()})
+        with agent_admission_lock:
+            if _agent_running():
+                continue
+            job = _launch_agent_job(book.steps[0].workflow, book, entry.get("command") or book.goal, entry["mode"],
+                                    entry.get("planner") or {"planner": "deterministic"}, bool(entry.get("simulate")),
+                                    entry.get("gain_db"), "resumed", requested_by=entry.get("requested_by"),
+                                    resumed={"note": note, "origin": origin, "original": original.model_dump(),
+                                             "offset": next_k, "total": times, "before": before,
+                                             "interrupted": interrupted, "missed": missed})
         resumed.append(job)
     return resumed
+
+
+def _restart_lines(before: list[dict[str, Any]], interrupted: list[dict[str, Any]], missed: list[int]) -> list[str]:
+    from datetime import datetime, timezone
+    clock = lambda t: datetime.fromtimestamp(float(t), timezone.utc).strftime("%H:%M UTC")  # noqa: E731
+    lines = []
+    if before:
+        numbers = [c["cycle"] + 1 for c in before]
+        lines.append(f"{len(before)} cycle(s) ran before a dashboard restart ({_number_ranges(numbers)}): "
+                     f"{sum(int(c.get('alerts') or 0) for c in before)} alert(s); their summaries "
+                     "are under Before the restart, but their device lists were not kept.")
+    for c in interrupted:
+        lines.append(f"Cycle {c['cycle'] + 1} was interrupted by a dashboard restart"
+                     + (f" at {clock(c['restart_at'])}" if c.get("restart_at") else "")
+                     + "; its partial results were lost.")
+    if missed:
+        lines.append(f"Cycle(s) {_number_ranges([c + 1 for c in missed])} did not run: the dashboard was down when they were due.")
+    return lines
+
+
+def _number_ranges(numbers: list[int]) -> str:
+    numbers, parts = sorted(set(numbers)), []
+    for n in numbers:
+        if parts and n == parts[-1][1] + 1:
+            parts[-1][1] = n
+        else:
+            parts.append([n, n])
+    return ", ".join(f"{a}" if a == b else f"{a}–{b}" for a, b in parts)
+
+
+def _add_restart_history(result: dict[str, Any], resumed: dict[str, Any]) -> None:
+    """A resumed watch's report also states what happened before the restart, so no cycle silently disappears."""
+    history = {"offset": int(resumed.get("offset", 0)), "total": resumed.get("total"),
+               "cycles": resumed.get("before") or [], "interrupted": resumed.get("interrupted") or [],
+               "missed": resumed.get("missed") or []}
+    result["before_restart"] = history
+    result["cycle_offset"] = history["offset"]
+    lines = _restart_lines(history["cycles"], history["interrupted"], history["missed"])
+    narrative = result.setdefault("narrative", [])
+    narrative[1:1] = lines
+
+
+def _save_restart_only_report(entry: dict[str, Any], original, before, interrupted, missed) -> None:
+    """The dashboard came back after a watch's last cycle was due: nothing is left to run, but the cycles that did
+    run (and the one that was cut off) still get a saved report instead of vanishing with the active file."""
+    from rf_platform.agent.playbook import save as save_playbook
+    from rf_platform.agent.report import finalize
+    started = float(entry.get("origin") or time.time())
+    result = {"kind": "playbook", "command": entry.get("command") or original.goal, "receiver": "(restart record)",
+              "mode": entry.get("mode"), "planner": entry.get("planner") or {}, "playbook": original.model_dump(),
+              "summary": original.summary(), "simulated": bool(entry.get("simulate")), "steps_run": [], "steps": [],
+              "devices": [], "alerts": [], "evidence": [], "persistence": [], "recurring": [],
+              "elapsed_s": round(time.time() - started, 1), "stopped": True,
+              "narrative": ["The watch ended while the dashboard was down; no cycle was left to resume."],
+              "cycles": {"every_s": original.repeat.every_s, "planned": original.repeat.times, "run": len(before)}
+              if original.repeat else None}
+    result = finalize(result, started)
+    _add_restart_history(result, {"offset": 0, "total": original.repeat.times if original.repeat else 1,
+                                  "before": before, "interrupted": interrupted, "missed": missed})
+    try:
+        save_playbook(result, RF_SENTINEL_LOG_DIR / "agent-runs")
+    except Exception:  # a broken history must not stop the dashboard from starting
+        logging.getLogger(__name__).exception("could not save the restart record for %s", entry.get("job_id"))
 
 
 def _saved_agent_runs(limit: int = 20, exclude: set[str] | None = None) -> list[dict[str, Any]]:
@@ -9253,9 +9486,12 @@ def agent_job_decide(job_id: str):
     pending = [p for p in _agent_approvals().pending(job_id) if p["action_id"] == body.get("action_id")]
     if not pending:
         return jsonify({"error": "No such pending action for this run"}), 404
+    # With authentication on, the decision is recorded under the signed-in identity; a name in the body is ignored.
+    operator = _operator_name() or str(body.get("operator") or "")
+    if approve and _approval_separation() and operator and operator == job.get("requested_by"):
+        return jsonify({"error": f"{operator} started this run, so another operator must approve it."}), 403
     try:
-        item = _agent_approvals().resolve(pending[0]["action_id"], approve, str(body.get("operator") or ""),
-                                          str(body.get("reason") or ""))
+        item = _agent_approvals().resolve(pending[0]["action_id"], approve, operator, str(body.get("reason") or ""))
     except PermissionDenied as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify({"action_id": item.action_id, "decision": item.decision, "operator": item.operator})

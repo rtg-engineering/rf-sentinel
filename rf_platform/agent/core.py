@@ -73,7 +73,10 @@ def plugin_command(task: Task, device: dict[str, Any], gain_db: float, base_url:
                 "--auto-hop-known", "--sample-rate-sps", str(p.sample_rate_sps), *common_gain, "--json"]
     if p.name == "classic":
         # Receive-only "listen" from the IQ service; the plugin's transmitting page-stimulus mode is never built here.
-        log = Path(os.getenv("RF_SENTINEL_LOG_DIR") or ".demo/livelog") / "agent-classic-sniffer.log"
+        # Absolute, and created here: the native decoder runs from the plugin's own directory, so a relative path
+        # pointed into a folder that did not exist and the decoder exited (255) before decoding anything.
+        log = (Path(os.getenv("RF_SENTINEL_LOG_DIR") or ".demo/livelog") / "agent-classic-sniffer.log").resolve()
+        log.parent.mkdir(parents=True, exist_ok=True)
         return [exe, "listen", "--source", "gateway", "--gateway-base-url", base_url,
                 *(["--gateway-token", token] if token else []), "--device-id", device["id"],
                 "--center-mhz", str(p.extra["center_mhz"]), "--bandwidth-mhz", str(p.extra["bandwidth_mhz"]),
@@ -394,6 +397,9 @@ class Agent:
 
     @staticmethod
     def _record(detections, profile: Profile, event, gain, on_detection) -> None:
+        if profile.name == "classic":
+            from .profiles import classic_identity
+            classic_identity(event)
         key = profile.key(event)
         if not key:
             return

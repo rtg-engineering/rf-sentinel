@@ -7,7 +7,7 @@ so runs started from the CLI or the dashboard can be inspected and stopped from 
   rf-sentinel agent status <run-id>
   rf-sentinel agent stop <run-id>
   rf-sentinel agent list
-  rf-sentinel agent approve <run-id> <action-id> --operator NAME     # or: deny ... --reason "..."
+  rf-sentinel agent approve <run-id> <action-id>                     # or: deny ... --reason "..." (approver role)
   rf-sentinel agent report <run-id>
   rf-sentinel agent policy
   rf-sentinel agent library                                         # saved plans; run one: agent run "run <name>"
@@ -20,7 +20,12 @@ so runs started from the CLI or the dashboard can be inspected and stopped from 
   rf-sentinel agent run "sweep for trackers for 2 minutes. if you find any, watch them for 5 minutes and alert me
                          if one is still there after 3 minutes. then survey cell towers for 1 minute"   # a playbook
 
+  rf-sentinel agent operators add alice --role approver --save     # on the dashboard host; prints a token once
+  rf-sentinel agent operators list | remove NAME
+  rf-sentinel agent publish <run dir> <out dir>                    # public copy: device IDs, names, cell IDs removed
+
 Server: --server, else RF_SENTINEL_URL, else http://127.0.0.1:5050. Receive-only.
+Token (when the dashboard requires sign-in): --token, else RF_SENTINEL_TOKEN, else ~/.config/rf-sentinel/token.
 """
 from __future__ import annotations
 
@@ -32,17 +37,29 @@ import time
 
 import requests
 
-COMMANDS = ("run", "plan", "status", "stop", "list", "approve", "deny", "report", "policy", "library", "ask", "ready")
+COMMANDS = ("run", "plan", "status", "stop", "list", "approve", "deny", "report", "policy", "library", "ask", "ready",
+            "operators", "publish")
+TOKEN_FILE = os.path.expanduser("~/.config/rf-sentinel/token")
+
+
+def saved_token() -> str:
+    try:
+        with open(TOKEN_FILE) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
 TERMINAL = ("done", "stopped", "denied", "error")
 
 
 class Server:
-    def __init__(self, url: str | None):
+    def __init__(self, url: str | None, token: str | None = None):
         self.url = (url or os.getenv("RF_SENTINEL_URL") or "http://127.0.0.1:5050").rstrip("/")
+        self.token = token or os.getenv("RF_SENTINEL_TOKEN") or saved_token()
 
     def call(self, method: str, path: str, body: dict | None = None, timeout: float = 30):
+        headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
         try:
-            response = requests.request(method, f"{self.url}{path}", json=body, timeout=timeout)
+            response = requests.request(method, f"{self.url}{path}", json=body, timeout=timeout, headers=headers)
         except requests.ConnectionError:
             raise SystemExit(f"error: cannot reach the RF Sentinel service at {self.url} "
                              f"(start the dashboard, set --server, or use --local)")
@@ -188,6 +205,36 @@ def run_local(args) -> int:
     return 0
 
 
+def operators(args) -> int:
+    from pathlib import Path
+    from rf_platform.auth import OperatorStore, auth_dir
+    store = OperatorStore(auth_dir(Path(args.log_dir)))
+    if args.action == "list":
+        for o in store.list():
+            print(f"{o['name']:<24} {o['role']:<9} added {o['created_at']}")
+        if not store.list():
+            print(f"No operators in {store.path}.")
+        return 0
+    if not args.name:
+        raise SystemExit("error: give the operator's name")
+    if args.action == "remove":
+        print("removed" if store.remove(args.name) else f"no operator {args.name}")
+        return 0
+    try:
+        token = store.add(args.name, args.role)
+    except (ValueError, OSError) as exc:
+        raise SystemExit(f"error: {exc}")
+    print(f"{args.name} ({args.role}) added to {store.path}.")
+    print(f"Token (shown once; sign in to the dashboard with it, or set RF_SENTINEL_TOKEN):\n{token}")
+    if args.save:
+        os.makedirs(os.path.dirname(TOKEN_FILE), mode=0o700, exist_ok=True)
+        fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(token + "\n")
+        print(f"Saved to {TOKEN_FILE} for this user's CLI.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] not in COMMANDS and not argv[0].startswith("-"):
@@ -196,6 +243,7 @@ def main(argv: list[str] | None = None) -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--server", help="RF Sentinel service URL (default RF_SENTINEL_URL or http://127.0.0.1:5050)")
+    common.add_argument("--token", help="Operator token (default RF_SENTINEL_TOKEN or ~/.config/rf-sentinel/token)")
     sub = parser.add_subparsers(dest="cmd", required=True)
     run = sub.add_parser("run", parents=[common])
     run.add_argument("request", nargs="+")
@@ -231,10 +279,30 @@ def main(argv: list[str] | None = None) -> int:
         c = sub.add_parser(name, parents=[common])
         c.add_argument("run_id")
         c.add_argument("action_id")
-        c.add_argument("--operator", required=True)
+        c.add_argument("--operator", help="only when the dashboard runs without sign-in; otherwise your token names you")
         c.add_argument("--reason", default="")
+    ops = sub.add_parser("operators", help="Manage dashboard operators (on the dashboard host; edits its log dir)")
+    ops.add_argument("action", choices=["list", "add", "remove"])
+    ops.add_argument("name", nargs="?")
+    ops.add_argument("--role", choices=["viewer", "operator", "approver"], default="operator")
+    ops.add_argument("--log-dir", default=os.getenv("RF_SENTINEL_LOG_DIR", "/var/log/rf_sentinel"),
+                     help="the dashboard's RF_SENTINEL_LOG_DIR (operators live in <log dir>/auth/)")
+    ops.add_argument("--save", action="store_true", help=f"also store the new token in {TOKEN_FILE} for this user's CLI")
+    pub = sub.add_parser("publish", help="Write a public copy of a saved run (identifiers removed), with checksums")
+    pub.add_argument("run_dir")
+    pub.add_argument("out_dir")
     args = parser.parse_args(argv)
-    server = Server(args.server)
+    if args.cmd == "operators":
+        return operators(args)
+    if args.cmd == "publish":
+        from pathlib import Path
+        from .publish import publish
+        try:
+            print(publish(Path(args.run_dir), Path(args.out_dir)))
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise SystemExit(f"error: {exc}")
+        return 0
+    server = Server(args.server, args.token)
 
     if args.cmd == "run":
         if args.local:
@@ -292,7 +360,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd in ("approve", "deny"):
         result = server.call("POST", f"/api/agent/jobs/{args.run_id}/{args.cmd}",
-                             {"action_id": args.action_id, "operator": args.operator, "reason": args.reason})
+                             {"action_id": args.action_id, "operator": args.operator or "", "reason": args.reason})
         print(f"{result['action_id']}: {result['decision']} by {result['operator']}")
         return 0
     if args.cmd == "report":

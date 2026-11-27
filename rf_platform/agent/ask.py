@@ -1,9 +1,16 @@
 """Ask about a finished run: "which trackers came back every cycle?", "why did step 2 not run?", "what was strongest?"
 
 With a model configured, the model answers; it can only read the run through the tools below. Without one (or
-when its answer fails the check), common questions are answered by code from the run's own records. Its answer is checked mechanically: every device
-it cites must be one the run recorded, and every number in it must appear in what the tools returned. An answer
-that fails the check is not shown; the code answer is shown instead, with the reason.
+when its answer fails the check), common questions are answered by code from the run's own records.
+
+The model's answer is checked mechanically before it is shown:
+- every device it cites must be one the run recorded;
+- every number it states must be cited to an exact field of a numbered tool call (``{"value", "call", "path"}``),
+  and the value at that field must match. Counts come from the ``count_devices`` tool, so the model never has to
+  work one out itself. A number that merely occurs somewhere in the records no longer passes.
+The citations are returned with the answer, so the operator sees what each number refers to. What code cannot
+prove is that the sentence describes the cited field correctly; showing the source makes that visible.
+An answer that fails the check is not shown; the code answer is shown instead, with the reason.
 """
 from __future__ import annotations
 
@@ -118,32 +125,82 @@ def answer_rules(result: dict[str, Any], question: str) -> dict[str, Any] | None
     return None
 
 
+class Cite(BaseModel):
+    value: float = Field(description="The number exactly as written in the answer")
+    call: int = Field(description="The `call` number of the tool result it comes from")
+    path: str = Field(description="Dot path to the field in that result, e.g. 'count', 'devices.0.best_signal', 'steps.1.step'")
+
+
 class Answer(BaseModel):
     answer: str = Field(description="Plain-language answer, using only facts returned by the tools")
     devices: list[str] = Field(default_factory=list, description="Keys of every device the answer mentions")
+    numbers: list[Cite] = Field(default_factory=list, description="One citation for every number in the answer")
 
 
 _NUMBER = re.compile(r"(?<![\w:.\-])-?\d+(?:\.\d+)?(?![\w:])")
 
 
-def check(answer: Answer, devices: list[dict[str, Any]], seen_text: str) -> str | None:
-    """Mechanical grounding: cited devices exist, and every number in the answer was in what the tools returned."""
-    keys = {d["key"] for d in devices}
+def _resolve(value: Any, path: str) -> Any:
+    for part in [p for p in str(path).split(".") if p != ""]:
+        if isinstance(value, list) and re.fullmatch(r"\d+", part) and int(part) < len(value):
+            value = value[int(part)]
+        elif isinstance(value, dict) and part in value:
+            value = value[part]
+        else:
+            raise KeyError(path)
+    return value
+
+
+def _same(number: float, written: str) -> bool:
+    decimals = len(written.split(".")[1]) if "." in written else 0
+    return round(float(number), decimals) == float(written)
+
+
+def check(answer: Answer, devices: list[dict[str, Any]], calls: dict[int, Any]) -> str | None:
+    """Mechanical grounding: cited devices exist; every number is cited to a tool-call field holding that value."""
+    keys = {d["key"]: d for d in devices}
     unknown = [k for k in answer.devices if k not in keys]
     if unknown:
         return f"cites device(s) the run never recorded: {', '.join(unknown[:3])}"
-    seen_numbers = {float(n) for n in re.findall(r"-?\d+(?:\.\d+)?", seen_text)}
-    for raw in _NUMBER.findall(answer.answer):
-        if float(raw) not in seen_numbers and float(raw) not in (0.0, 1.0):
-            return f"states {raw}, which is not in the run's records"
+    valid: list[float] = []
+    for cite in answer.numbers:
+        if cite.call not in calls:
+            return f"cites tool call {cite.call}, which was never made"
+        try:
+            target = _resolve(calls[cite.call], cite.path)
+        except KeyError:
+            return f"cites {cite.path!r} in call {cite.call}, which does not exist"
+        if isinstance(target, bool) or not isinstance(target, (int, float, str)):
+            return f"cites {cite.path!r} in call {cite.call}, which is not a number"
+        found = [float(n) for n in re.findall(r"-?\d+(?:\.\d+)?", target)] if isinstance(target, str) else [float(target)]
+        if not any(abs(f - cite.value) < 1e-9 for f in found):
+            return f"cites {cite.value:g} at {cite.path!r} in call {cite.call}, but that field holds {target}"
+        valid.append(cite.value)
+    text = answer.answer
+    for key in answer.devices:  # numbers inside a cited device's own name ("PCI 56", "LTE:18BBA08") are not claims
+        for name in sorted({key, keys[key].get("label") or ""}, key=len, reverse=True):
+            if name:
+                text = text.replace(name, " ")
+    for raw in _NUMBER.findall(text):
+        if not any(_same(v, raw) for v in valid):
+            return f"states {raw} without citing the field it comes from"
     return None
+
+
+def sources(answer: Answer, calls: dict[int, Any], tools: dict[int, str]) -> list[str]:
+    """How each cited number was sourced, for display beside the answer."""
+    return [f"{c.value:g} ← {tools.get(c.call, '?')} (call {c.call}) · {c.path}" for c in answer.numbers]
 
 
 ASK_INSTRUCTIONS = """\
 You answer an RF operator's question about one finished RF Sentinel run (receive-only RF monitoring). Use the
 tools to read the run; use ONLY facts the tools return. Name devices by label and include their keys in `devices`.
-Copy numbers exactly as the tools give them; do not compute new numbers (no sums, averages or percentages).
-If the records do not answer the question, say so. Keep it short: a sentence or a few bullet lines.
+Every tool result has a `call` number. For EVERY number you write (counts, signal levels, step or cycle numbers,
+durations), add an entry to `numbers`: the value as written, the `call` it came from, and the dot path of the field
+that holds it (list positions are numbers: "devices.0.best_signal"). Never compute a number (no sums, averages,
+percentages, or counting list items yourself): for "how many …" call count_devices and cite its `count`. A number
+you cannot cite must not appear. If the records do not answer the question, say so. Keep it short: a sentence or a
+few bullet lines.
 """
 
 
@@ -152,19 +209,26 @@ def answer_model(result: dict[str, Any], question: str, model: Any) -> tuple[Ans
     os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")
     from pydantic_ai import Agent, UsageLimits
     devices = device_table(result)
-    seen: list[str] = []
+    calls: dict[int, Any] = {}
+    tools: dict[int, str] = {}
 
-    def record(value: Any) -> str:
-        text = json.dumps(value, default=str)
-        seen.append(text)
-        return text
+    def record(name: str, value: Any) -> str:
+        n = len(calls) + 1
+        calls[n] = json.loads(json.dumps({"call": n, **(value if isinstance(value, dict) else {"items": value})}, default=str))
+        tools[n] = name
+        return json.dumps(calls[n])
     agent = Agent(model, output_type=Answer, instructions=ASK_INSTRUCTIONS, retries=1)
+
+    def matching(protocol, kind, alerted_only, min_steps, min_cycles, new_only=False, tagged=None):
+        return [d for d in devices if (not protocol or d["protocol"] == protocol) and (not kind or d["kind"] == kind)
+                and (not alerted_only or d["alerted"]) and len(d["steps"]) >= min_steps
+                and len(d["cycles"]) >= min_cycles and (not new_only or d["new"]) and (not tagged or tagged in d["tags"])]
 
     @agent.tool_plain
     def overview() -> str:
         """The run's request, steps or cycles, totals, and plain-language summary."""
         story = result.get("narrative") if result.get("kind") == "playbook" else (result.get("workflow") or {}).get("narrative")
-        return record({"request": result.get("command"), "simulated": result.get("simulated"), "mode": result.get("mode"),
+        return record("overview", {"request": result.get("command"), "simulated": result.get("simulated"), "mode": result.get("mode"),
                        "elapsed_s": result.get("elapsed_s"), "devices": len(devices), "summary": story,
                        "steps": [{"step": r["index"] + 1, **({"cycle": r.get("cycle", 0) + 1} if result.get("cycles") else {}), "title": r.get("title"),
                                   "status": r["status"], "reason": r.get("reason")} for r in result.get("steps_run") or []]})
@@ -173,25 +237,35 @@ def answer_model(result: dict[str, Any], question: str, model: Any) -> tuple[Ans
     def list_devices(protocol: str | None = None, kind: str | None = None, alerted_only: bool = False,
                      min_steps: int = 0, min_cycles: int = 0, sort: str = "count", limit: int = 20) -> str:
         """Devices the run recorded. protocol: ble/classic/zigbee/tpms/cellular; kind: tracker/beacon; sort: count or signal."""
-        items = [d for d in devices if (not protocol or d["protocol"] == protocol) and (not kind or d["kind"] == kind)
-                 and (not alerted_only or d["alerted"]) and len(d["steps"]) >= min_steps and len(d["cycles"]) >= min_cycles]
+        items = matching(protocol, kind, alerted_only, min_steps, min_cycles)
         if sort == "signal":
             items = sorted([d for d in items if d["best_signal"] is not None], key=lambda d: -d["best_signal"])
         drop = ({"cycles"} if not result.get("cycles") else set()) | ({"steps"} if result.get("kind") != "playbook" else set())
-        return record({"total": len(items), "devices": [{k: v for k, v in d.items() if k not in drop}
-                                                        for d in items[:max(1, min(limit, 50))]]})
+        return record("list_devices", {"total": len(items), "devices": [{k: v for k, v in d.items() if k not in drop}
+                                                                        for d in items[:max(1, min(limit, 50))]]})
+
+    @agent.tool_plain
+    def count_devices(protocol: str | None = None, kind: str | None = None, alerted_only: bool = False,
+                      min_steps: int = 0, min_cycles: int = 0, new_only: bool = False, tagged: str | None = None) -> str:
+        """How many recorded devices match: use this for every "how many" (cite its `count`). min_cycles=N means
+        decoded in at least N cycles; the run's cycle count is in overview."""
+        return record("count_devices", {"count": len(matching(protocol, kind, alerted_only, min_steps, min_cycles,
+                                                                  new_only, tagged)),
+                                        "filters": {"protocol": protocol, "kind": kind, "alerted_only": alerted_only,
+                                                    "min_steps": min_steps, "min_cycles": min_cycles,
+                                                    "new_only": new_only, "tagged": tagged}})
 
     @agent.tool_plain
     def list_alerts() -> str:
         """Every alert raised, with severity, message, device and step."""
         alerts = result.get("alerts") if result.get("kind") == "playbook" else (result.get("workflow") or {}).get("alerts")
         repeating = bool(result.get("cycles"))
-        return record([{"severity": a["severity"], "message": a["message"], "device": (a.get("device") or {}).get("key"),
+        return record("list_alerts", [{"severity": a["severity"], "message": a["message"], "device": (a.get("device") or {}).get("key"),
                         "step": a.get("step", 0) + 1, **({"cycle": a.get("cycle", 0) + 1} if repeating else {})}
                        for a in alerts or []])
 
-    out = agent.run_sync(question, usage_limits=UsageLimits(request_limit=6)).output
-    return out, "\n".join(seen)
+    out = agent.run_sync(question, usage_limits=UsageLimits(request_limit=8)).output
+    return out, calls, tools
 
 
 def ask(result: dict[str, Any], question: str, planner: str = "auto", model: Any = None) -> dict[str, Any]:
@@ -205,11 +279,12 @@ def ask(result: dict[str, Any], question: str, planner: str = "auto", model: Any
     # common questions but cannot follow every qualifier ("which Verizon cell was strongest after 10pm?").
     if model is not None and planner != "deterministic":
         try:
-            answer, seen = answer_model(result, question, model)
-            problem = check(answer, device_table(result), seen)
+            answer, calls, tools = answer_model(result, question, model)
+            problem = check(answer, device_table(result), calls)
             if problem is None:
                 return {"answer": answer.answer, "devices": answer.devices, "by": "model",
-                        "model": model if isinstance(model, str) else type(model).__name__, "checked": True}
+                        "model": model if isinstance(model, str) else type(model).__name__, "checked": True,
+                        "sources": sources(answer, calls, tools)}
             reason = f"model answer rejected: {problem}"
         except Exception as exc:
             reason = _short_reason(exc)

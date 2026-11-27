@@ -2510,6 +2510,75 @@
     </style>
   </head>
   <body>
+    <div id="signInOverlay" class="config-overlay" hidden>
+      <form class="config-panel" id="signInForm" role="dialog" aria-modal="true" aria-labelledby="signInTitle" style="max-width:460px;color:var(--ink)">
+        <div class="config-panel-head">
+          <div>
+            <h2 id="signInTitle" style="color:var(--ink)">Sign in</h2>
+            <p id="signInHint">This dashboard controls receivers, so it needs an operator token. Ask whoever runs RF Sentinel on this host for one (<code>rf-sentinel agent operators add NAME --role operator</code>).</p>
+          </div>
+        </div>
+        <input id="signInToken" type="password" autocomplete="current-password" placeholder="Operator token (rfs_…)" aria-label="Operator token"
+               style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit">
+        <p id="signInError" role="alert" style="color:#b83c32;min-height:1.2em;margin:8px 0 0"></p>
+        <div class="config-actions">
+          <button class="primary-btn" type="submit"><span class="material-symbols-rounded">login</span>Sign in</button>
+        </div>
+      </form>
+    </div>
+    <script>
+      // Operator sign-in. Every same-origin API call carries the page's own header (required for state-changing
+      // calls on a cookie session, which another site cannot forge). A 401 opens the sign-in dialog.
+      (() => {
+        const original = window.fetch.bind(window);
+        let prompting = false;
+        window.rfAuth = { mode: null, operator: null };
+        window.fetch = async (input, init = {}) => {
+          const url = typeof input === "string" ? input : input.url;
+          const api = url.startsWith("/api/") || url.startsWith(location.origin + "/api/");
+          if (!api) return original(input, init);
+          const headers = new Headers(init.headers || (typeof input === "string" ? undefined : input.headers));
+          headers.set("X-RF-Sentinel", "1");
+          const response = await original(input, { ...init, headers, credentials: "same-origin" });
+          if (response.status === 401 && !url.includes("/api/auth/") && !prompting) {
+            prompting = true;
+            const overlay = document.getElementById("signInOverlay");
+            if (overlay) { overlay.hidden = false; document.getElementById("signInToken")?.focus(); }
+          }
+          return response;
+        };
+        document.addEventListener("DOMContentLoaded", async () => {
+          document.getElementById("signInForm").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const token = document.getElementById("signInToken").value.trim();
+            const response = await original("/api/auth/login", { method: "POST", credentials: "same-origin",
+              headers: { "Content-Type": "application/json", "X-RF-Sentinel": "1" }, body: JSON.stringify({ token }) });
+            if (response.ok) { location.reload(); return; }
+            document.getElementById("signInError").textContent = "That token is not recognised.";
+          });
+          try {
+            const me = await (await original("/api/auth/me", { credentials: "same-origin" })).json();
+            window.rfAuth = { mode: me.auth, operator: me.operator, separation: me.approval_separation };
+            if (me.auth !== "required") return;
+            if (!me.operator) { prompting = true; document.getElementById("signInOverlay").hidden = false; return; }
+            const pill = document.createElement("div");
+            pill.className = "status-pill";
+            pill.title = `Signed in as ${me.operator.name} (${me.operator.role})`;
+            pill.innerHTML = '<span class="material-symbols-rounded" style="font-size:18px">badge</span>';
+            const who = document.createElement("strong");
+            who.textContent = `${me.operator.name} · ${me.operator.role}`;
+            const out = document.createElement("button");
+            out.type = "button"; out.className = "ghost-btn"; out.textContent = "Sign out"; out.style.marginLeft = "8px";
+            out.addEventListener("click", async () => {
+              await original("/api/auth/logout", { method: "POST", credentials: "same-origin", headers: { "X-RF-Sentinel": "1" } });
+              location.reload();
+            });
+            pill.append(who, out);
+            document.querySelector(".header-right")?.prepend(pill);
+          } catch { /* the dashboard still works without auth information */ }
+        });
+      })();
+    </script>
     <div id="followMenu" class="follow-menu" hidden></div>
     <div id="protocolConfigOverlay" class="config-overlay" hidden>
       <section class="config-panel" role="dialog" aria-modal="true" aria-labelledby="protocolConfigTitle">
@@ -6340,15 +6409,19 @@
         const pending = job.pending_approvals || [];
         if (!pending.length) return "";
         const operator = wfStore.get("wf.operator", "");
+        const signedIn = window.rfAuth?.operator;
+        const canApprove = !signedIn || signedIn.role === "approver";
+        const own = signedIn && window.rfAuth.separation && job.requested_by === signedIn.name;
         return pending.map((p) => `
           <div class="wf-approval" data-key="${escapeHtml(p.action_id)}">
             ${materialIcon("approval_delegation")}
             <div><strong>Approval needed: ${escapeHtml(p.tool.replaceAll("_", " "))}</strong>
               <span class="wf-note"> · expires in ${Math.max(0, Math.round(p.expires_at - Date.now() / 1000))} s</span>
               <div class="small">${escapeHtml(Object.entries(p.params || {}).map(([k, v]) => `${k} ${typeof v === "object" ? JSON.stringify(v) : v}`).join(" · "))}</div></div>
-            <input type="text" class="wf-operator" placeholder="Operator name" value="${escapeHtml(operator)}" aria-label="Operator name">
-            <button type="button" class="wf-btn primary" data-approve="${escapeHtml(p.action_id)}">${materialIcon("check")}Approve</button>
-            <button type="button" class="wf-btn ghost" data-deny="${escapeHtml(p.action_id)}">${materialIcon("block")}Deny</button>
+            ${signedIn ? `<span class="wf-note">${canApprove ? (own ? "you started this run: another approver must approve it" : `as ${escapeHtml(signedIn.name)}`) : "needs an approver"}</span>`
+              : `<input type="text" class="wf-operator" placeholder="Operator name" value="${escapeHtml(operator)}" aria-label="Operator name">`}
+            ${canApprove ? `<button type="button" class="wf-btn primary" data-approve="${escapeHtml(p.action_id)}" ${own ? "disabled" : ""}>${materialIcon("check")}Approve</button>
+            <button type="button" class="wf-btn ghost" data-deny="${escapeHtml(p.action_id)}">${materialIcon("block")}Deny</button>` : ""}
           </div>`).join("");
       }
 
@@ -6367,9 +6440,9 @@
         }
         const btn = event.target.closest("[data-approve],[data-deny]");
         if (!btn || !agentJobId) return;
-        const operator = btn.parentElement.querySelector(".wf-operator")?.value.trim();
+        const operator = window.rfAuth?.operator?.name || btn.parentElement.querySelector(".wf-operator")?.value.trim();
         if (!operator) { showToast("Enter your name: approvals are recorded against a named operator"); return; }
-        wfStore.set("wf.operator", operator);
+        if (!window.rfAuth?.operator) wfStore.set("wf.operator", operator);
         const approve = btn.dataset.approve !== undefined;
         const response = await fetch(`/api/agent/jobs/${agentJobId}/${approve ? "approve" : "deny"}`, { method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -6445,7 +6518,8 @@
         const qa = (wfAnswers.get(job.job_id) || []).map((x, i) => `<div class="wf-qa" data-key="qa-${i}">
             <div class="q">${materialIcon("help")} ${escapeHtml(x.q)}</div>
             <div class="a">${x.pending ? "Reading the run's records…" : escapeHtml(x.a)}</div>
-            ${x.pending ? "" : `<div class="by">${escapeHtml(x.by)}</div>`}</div>`).join("");
+            ${x.pending ? "" : `<div class="by">${escapeHtml(x.by)}</div>`}
+            ${x.sources?.length ? `<details class="by"><summary>Where each number comes from</summary>${x.sources.map((src) => `<div><code>${escapeHtml(src)}</code></div>`).join("")}</details>` : ""}</div>`).join("");
         return `<div class="wf-ask">${qa}
             <form class="wf-refine" data-ask="${escapeHtml(job.job_id)}">${materialIcon("forum")}
               <input type="text" class="wf-ask-text" autocomplete="off" aria-label="Ask about this run"
@@ -6474,7 +6548,8 @@
           const out = await response.json();
           if (!response.ok) throw new Error(out.error || "Could not answer");
           entry.a = out.answer;
-          entry.by = out.by === "model" ? `Answered by ${out.model}; every device and number checked against this run's records`
+          entry.sources = out.sources || [];
+          entry.by = out.by === "model" ? `Answered by ${out.model}; every device checked, and every number tied to the record field it came from`
             : `Answered from this run's records by code${out.fallback_reason ? ` (model: ${out.fallback_reason})` : ""}`;
         } catch (err) {
           entry.a = err.message; entry.by = "";

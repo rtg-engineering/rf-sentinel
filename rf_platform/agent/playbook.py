@@ -288,7 +288,7 @@ _AMOUNT = rf"(?:(\d+(?:\.\d+)?)\s*|an?\s+|one\s+)?({UNIT})"
 REPEAT_PATTERNS = [
     # "every 10 minutes for the next hour", "every 15 min, 4 times", "every hour until I stop it"
     rf"(?:^|[,.;]?\s*)(?:and\s+)?(?:(?:repeat|do|run)(?:\s+(?:this|that|it|the whole thing))?(?:\s+again)?\s+)?every\s+{_AMOUNT}"
-    rf"(?:\s*(?:,\s*)?(?:for\s+(?:the\s+next\s+|another\s+)?{_AMOUNT}|(\d+)\s+times|(?:over|during)\s+the\s+next\s+{_AMOUNT}"
+    rf"(?:\s*(?:,\s*)?(?:for\s+(?:the\s+next\s+|another\s+)?{_AMOUNT}|(?:repeat(?:\s+(?:this|that|it))?\s+)?(\d+)\s+times|(?:over|during)\s+the\s+next\s+{_AMOUNT}"
     rf"|until\s+(?:i\s+stop\s+it|stopped|told\s+to\s+stop)))?[,.]?",
     # "repeat 4 times, every 15 minutes" / "repeat this 3 times"
     rf"(?:^|[,.;]?\s*)(?:and\s+)?repeat(?:\s+(?:this|that|it))?\s+(\d+)\s+times(?:\s*,?\s*every\s+{_AMOUNT})?[,.]?",
@@ -305,10 +305,10 @@ def strip_repeat(text: str, window_s: int | None = None) -> tuple[str, Repeat | 
     window_s: the length of a "from 10pm to 6am" window, when the request gave one."""
     lower = text.lower()
     m = re.search(REPEAT_PATTERNS[1], lower)
-    if m:
+    if m and not m.group(3) and not re.search(REPEAT_PATTERNS[0], lower):
+        raise ValueError("say how often to repeat, e.g. 'repeat 4 times, every 15 minutes'")
+    if m and m.group(3):
         times = int(m.group(1))
-        if not m.group(3):
-            raise ValueError("say how often to repeat, e.g. 'repeat 4 times, every 15 minutes'")
         rest = (text[: m.start()] + " " + text[m.end():]).strip(" ,.;")
         return rest, _repeat(_seconds_of(m.group(2), m.group(3)), times), ""
     m = re.search(REPEAT_PATTERNS[0], lower)
@@ -950,6 +950,26 @@ def run_playbook(agent, spec: PlaybookSpec, on_step: Callable[[str], None] = pri
 
 
 # --------------------------------------------------------------------------------------------- report
+def _restart_html(history: dict[str, Any] | None, e) -> str:
+    """Before the restart: cycles that ran under an earlier dashboard process, and the ones it lost or missed."""
+    if not history:
+        return ""
+    from datetime import datetime, timezone
+    clock = lambda t: datetime.fromtimestamp(float(t), timezone.utc).strftime("%Y-%m-%d %H:%M UTC") if t else "–"  # noqa: E731
+    rows = "".join(f"<tr><td>{c['cycle'] + 1}</td><td>ran</td><td>{e(clock(c.get('finished_at')))}</td>"
+                   f"<td>{e(c.get('seen', '–'))}</td><td>{e(c.get('new', '–'))}</td><td>{e(c.get('alerts', '–'))}"
+                   + "".join(f"<div class='muted'>{e(m)}</div>" for m in c.get("alert_messages") or []) + "</td></tr>"
+                   for c in history.get("cycles") or [])
+    rows += "".join(f"<tr><td>{c['cycle'] + 1}</td><td><strong>interrupted</strong></td><td>{e(clock(c.get('restart_at')))}</td>"
+                    "<td colspan=3 class='muted'>cut off by a dashboard restart; partial results lost</td></tr>"
+                    for c in history.get("interrupted") or [])
+    rows += "".join(f"<tr><td>{c + 1}</td><td><strong>missed</strong></td><td>–</td>"
+                    "<td colspan=3 class='muted'>due while the dashboard was down</td></tr>" for c in history.get("missed") or [])
+    return ("<h2>Before the restart</h2><div class='card'><p class='muted'>Kept from the watch's progress record: per-cycle "
+            "counts and alert messages. Device lists from these cycles were not kept.</p><table><tr><th>Cycle</th>"
+            "<th>Outcome</th><th>When</th><th>Devices</th><th>New</th><th>Alerts</th></tr>" + rows + "</table></div>")
+
+
 def render(result: dict[str, Any]) -> str:
     e = lambda v: html.escape("" if v is None else str(v))  # noqa: E731
     summary = result.get("summary") or {}
@@ -975,13 +995,14 @@ def render(result: dict[str, Any]) -> str:
             + ("<ul>" + "".join(f"<li>{e(t)}</li>" for t in item.get("triggers") or []) + "</ul>" if item.get("triggers") else "")
             + (f"<p class='muted'>{e(record['reason'])}</p>" if record.get("reason") else "")
             + (f"<ul class='story'>{story}</ul>" if story else "") + "</section>")
-    where = lambda x: (f"cycle {x.get('cycle', 0) + 1} · " if cycles else "") + f"step {x['step'] + 1}"  # noqa: E731
+    off = int(result.get("cycle_offset") or 0)  # a watch resumed after a restart continues the original numbering
+    where = lambda x: (f"cycle {x.get('cycle', 0) + 1 + off} · " if cycles else "") + f"step {x['step'] + 1}"  # noqa: E731
     cycle_rows = ""
     if cycles:
         for cycle in sorted({r["cycle"] for r in result["steps_run"]}):
             mine = [r for r in result["steps_run"] if r["cycle"] == cycle]
             begun = min((r.get("started_s") for r in mine if r.get("started_s") is not None), default=None)
-            cycle_rows += (f"<tr><td>{cycle + 1}</td><td>{e(_span(begun) if begun is not None else '–')}</td>"
+            cycle_rows += (f"<tr><td>{cycle + 1 + off}</td><td>{e(_span(begun) if begun is not None else '–')}</td>"
                            + "".join(f"<td>{e(status_word.get(r['status'], r['status']))}"
                                      + (f"<div class='muted'>{e(step_summary(r))}</div>" if r['status'] == 'done' else
                                         f"<div class='muted'>{e(r['reason'])}</div>" if r.get('reason') else "") + "</td>" for r in mine)
@@ -1040,7 +1061,7 @@ planned by {e(planner.get('planner'))}{(' (' + e(planner.get('model')) + ')') if
 {f"<h2>Alerts</h2><ul class='alerts'>{alerts}</ul>" if alerts else ""}
 {f"<h2>Recurring across cycles</h2><div class='card'><ul>{recur}</ul></div>" if recur else ""}
 {f"<h2>Persistent devices</h2><div class='card'><ul>{persist}</ul></div>" if persist and not cycles else ""}
-{cycle_rows}
+{_restart_html(result.get("before_restart"), e)}{cycle_rows}
 <h2>Steps</h2>{''.join(cards)}
 {f"<h2>Evidence</h2><div class='card'><ul>{evidence}</ul></div>" if evidence else ""}
 <h2>Devices</h2><div class="card"><table><tr><th>Device</th><th>Identity</th><th>Steps</th>{"<th>Cycles</th>" if cycles else ""}<th>Seen</th><th>Best signal</th></tr>{rows}</table></div>

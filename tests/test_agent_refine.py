@@ -5,6 +5,9 @@ import unittest
 
 from rf_platform.agent.playbook import plan_any
 from rf_platform.agent.refine import refine
+import importlib.util
+
+HAS_PYDANTIC_AI = importlib.util.find_spec("pydantic_ai") is not None
 
 TRACKERS = ("Watch for bluetooth trackers for 5 minutes, only stronger than -60. If a tracker is seen for more than "
             "2 minutes, send an urgent alert and record 5 seconds of IQ.")
@@ -62,6 +65,7 @@ class RulesRefineTest(unittest.TestCase):
 
 
 class ModelRefineTest(unittest.TestCase):
+    @unittest.skipUnless(HAS_PYDANTIC_AI, "pydantic-ai is optional (pip install '.[analyst-llm]')")
     def test_model_result_is_validated_and_falls_back(self):
         from pydantic_ai.messages import ModelResponse, ToolCallPart
         from pydantic_ai.models.function import FunctionModel

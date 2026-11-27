@@ -46,7 +46,7 @@ RF Sentinel listens across Bluetooth, WiFi, Zigbee/802.15.4, TPMS and other sub-
 | **Monitor** | Bounded missions: scheduled read-only assessments, follow-ups ranked by expected information gain, and an independent policy engine. Anything beyond read-only needs a named operator's approval bound to the exact proposal. Execution is currently simulated. |
 | **Remember** | Append-only environment memory: versioned baselines, "what changed since the last assessment", operator notes that never rewrite evidence, and assessments that can be re-verified later. |
 | **Prove** | Validation harness, published result card, verifiable evidence bundles, and recorded walkthroughs of the shipped dashboard. |
-| **Operate** | Ask in plain language ("find bluetooth devices"). The agent picks a receiver, measures clipping and corrects gain automatically, runs the decoder, and writes a verifiable run report, from the dashboard or the CLI. Receive-only. |
+| **Operate** | Describe a collection mission in plain language: "sweep for trackers for 2 minutes; if you find any, watch them and alert me if one stays 3 minutes; then survey cell towers for 90 seconds". The operator agent plans it as find / filter / when → do steps (up to 6), as a standing watch ("every 30 minutes") or for a set time ("from 10pm to 6am"). It shows the plan in one sentence and checks it can run here. Then it picks receivers, corrects gain, runs the decoders and the BLE, Bluetooth Classic, Zigbee, TPMS or cellular-modem survey, and acts on its rules: alert, tag, record IQ, follow up. Every action passes a permission gateway (observe, approval required, passive auto) and is audited; callers sign in with operator, viewer or approver roles. Receive-only; run on real receivers in a single-site session. Planner scores: [`docs/validation/planner-scorecard.json`](docs/validation/planner-scorecard.json). See [`docs/agent.md`](docs/agent.md). |
 | **Integrate** | Docker packaging, a protocol plugin model, a JSON status API, and an optional LLM provider (local or cloud) behind the same read-only tools and checks. |
 
 ## How it works
@@ -118,6 +118,10 @@ On these scenarios the deterministic analyst detects everything the LLM does. It
 These results measure the platform on synthetic replay. They do not measure live RF decoder accuracy, receiver sensitivity, or performance in an uncontrolled environment. Those are characterized per deployment.
 
 ## Product tour
+
+**Operator agent: one request, a whole mission.** A three-step mission is typed in plain language, planned, refined in words ("also tag them as suspect"), run, and asked about afterwards. Recorded on **simulated receivers** ([MP4](docs/media/rf-sentinel-agent-playbook.mp4); see [`docs/agent.md`](docs/agent.md)).
+
+![RF Sentinel operator agent: plan, refine, run and ask about a three-step mission (simulated receivers)](docs/media/rf-sentinel-agent-playbook.gif)
 
 **Operator walkthrough.** Baseline, a new entity, a changed AP relationship, and pattern-of-life review, in about 50 seconds ([MP4](docs/media/rf-sentinel-operator-walkthrough.mp4)).
 
