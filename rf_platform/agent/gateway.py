@@ -7,7 +7,12 @@ Modes (least to most privileged):
   passive-auto       bounded receive-only collection and gain changes run automatically
 
 The server sets a ceiling (RF_SENTINEL_AGENT_MODE, default passive-auto). A run may request the same or
-a more restrictive mode, never a more privileged one. Transmit-capable operations are not tools at all.
+a more restrictive mode, never a more privileged one.
+
+Transmitting: a few bounded operations make the station transmit (on the host Bluetooth adapter, not the SDRs).
+They are their own permission class: refused in observe mode, and in every other mode, passive-auto included, each one
+waits for a named operator's approval of that exact operation. Jamming, spoofing, replay and raw driver or shell
+access are not tools at all.
 """
 from __future__ import annotations
 
@@ -42,6 +47,9 @@ TOOLS: dict[str, str] = {
     "extend_scan": "collect",       # lengthen the run's own collection, within the duration limit
     "deliver_alert": "control",     # send an alert's text to the operator-configured webhook (rf_platform.agent.notify)
     "spectrum_sweep": "collect",    # bounded receive-only power sweep across a receiver's range (rf_platform.agent.discover)
+    # Transmitting: always needs a named operator's approval (rf_platform.agent.transmit)
+    "bt_inquiry": "transmit",       # bounded Bluetooth BR/EDR inquiry on the host adapter (sends inquiry packets)
+    "bt_remote_name": "transmit",   # Bluetooth remote name request to one full address (pages that device)
 }
 # Named explicitly so a request for them gets a clear refusal rather than "unknown tool".
 NEVER = {"transmit", "page_stimulus", "replay", "jam", "spoof", "raw_driver", "shell", "write_register"}
@@ -73,6 +81,8 @@ def decide(tool: str, mode: str) -> str:
         return "deny"
     if kind in ("read", "control"):
         return "allow"
+    if kind == "transmit":
+        return "deny" if mode == "observe" else "require_approval"
     return {"observe": "deny", "approval-required": "require_approval", "passive-auto": "allow"}[mode]
 
 
@@ -181,7 +191,7 @@ class AgentGateway:
             self._log(tool, params, "allowed")
             return
         if outcome == "deny":
-            why = "transmit-capable operations are never available to the agent" if tool in NEVER else \
+            why = f"{tool} is not an agent tool: jamming, spoofing, replay and raw access are never available" if tool in NEVER else \
                 f"{tool} is not permitted in {self.mode} mode" if tool in TOOLS else f"{tool} is not an agent tool"
             self._log(tool, params, "denied", reason=why)
             raise PermissionDenied(why)

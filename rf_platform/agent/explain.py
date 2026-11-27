@@ -52,7 +52,9 @@ def _action(a: Action) -> str:
             "record_iq": lambda: f"record {_duration(a.seconds)} of IQ as evidence",
             "start_scan": lambda: f"scan {PROTOCOL_TITLES[a.protocol]} for {_duration(a.seconds)}",
             "extend": lambda: f"keep watching {_duration(a.seconds)} longer",
-            "stop": lambda: "stop"}[a.kind]()
+            "stop": lambda: "stop",
+            "inquiry_scan": lambda: f"run a Bluetooth inquiry scan for {_duration(a.seconds)} (this transmits; I'll ask you to approve it first)",
+            "name_lookup": lambda: "ask the device its Bluetooth name (this transmits; I'll ask you to approve it first)"}[a.kind]()
 
 
 def _plural(text: str) -> str:

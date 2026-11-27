@@ -20,7 +20,9 @@ means it was also run on real receivers (two bladeRF 2.0, one cellular modem wit
 
 | Capability | Source | Test |
 |---|---|---|
-| Typed tool list; transmit-class operations named and always refused | `rf_platform/agent/gateway.py` (`TOOLS`, `NEVER`, `decide`) | `tests/test_agent_gateway.py::test_permission_matrix`, `test_observe_and_never_are_denied_without_waiting` |
+| Typed tool list; jamming, spoofing, replay and raw access are never tools | `rf_platform/agent/gateway.py` (`TOOLS`, `NEVER`, `decide`) | `tests/test_agent_gateway.py::test_permission_matrix`, `test_observe_and_never_are_denied_without_waiting` |
+| Transmit tools (Bluetooth inquiry, remote name request on the host adapter): refused in observe mode, and in every other mode each waits for a named operator's approval | `rf_platform/agent/gateway.py` (`"transmit"` class), `rf_platform/agent/transmit.py`, workflow actions `inquiry_scan` / `name_lookup` | `tests/test_transmit_authorization.py` |
+| Dashboard settings that transmit need an explicit, recorded authorization (approver role when sign-in is on); a setting without one never runs | `ui/backend/app.py` (`TRANSMIT_OPTIONS`, `_authorize_transmit_now`, `_authorized_bluetooth_classic`) | `tests/test_transmit_authorization.py::DashboardTransmitSettingTest` |
 | Server mode ceiling (`observe` < `approval-required` < `passive-auto`); unknown setting fails closed | `gateway.py` (`server_ceiling`, `effective_mode`) | `test_agent_gateway.py::test_ceiling_caps_requested_mode` |
 | Approvals bound to the exact operation (content hash), single-use, named operator, expiry, cancel on stop | `gateway.py` (`ApprovalBroker`) | `test_agent_gateway.py::test_approve_deny_expire_cancel`, `test_named_operator_single_use` |
 | Per-run audit trail (who asked, every tool decision) | `gateway.py` (`AgentGateway.audit`), written into `run.json` | `test_agent_gateway.py`, `tests/test_auth.py::test_approvals_are_recorded_under_the_signed_in_identity` |

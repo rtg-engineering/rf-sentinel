@@ -29,8 +29,12 @@ class PolicyTest(unittest.TestCase):
     def test_permission_matrix(self):
         for tool, kind in TOOLS.items():
             for mode in ("observe", "approval-required", "passive-auto"):
-                expected = "allow" if kind in ("read", "control") else \
-                    {"observe": "deny", "approval-required": "require_approval", "passive-auto": "allow"}[mode]
+                if kind in ("read", "control"):
+                    expected = "allow"
+                elif kind == "transmit":  # transmitting always needs a named operator's approval
+                    expected = "deny" if mode == "observe" else "require_approval"
+                else:
+                    expected = {"observe": "deny", "approval-required": "require_approval", "passive-auto": "allow"}[mode]
                 self.assertEqual(decide(tool, mode), expected, (tool, mode))
         for tool in NEVER | {"made_up_tool"}:
             self.assertEqual({decide(tool, m) for m in ("observe", "approval-required", "passive-auto")}, {"deny"})

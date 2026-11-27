@@ -2549,6 +2549,25 @@
             const overlay = document.getElementById("signInOverlay");
             if (overlay) { overlay.hidden = false; document.getElementById("signInToken")?.focus(); }
           }
+          if (response.status === 403 && typeof init.body === "string" && init.body.startsWith("{")) {
+            // Options that make the station transmit need the operator's explicit authorization: ask, then resend
+            // with it, or switch those options off and resend without them.
+            const info = await response.clone().json().catch(() => null);
+            const needed = Array.isArray(info?.transmit_authorization_required) ? info.transmit_authorization_required : [];
+            if (needed.length) {
+              const body = JSON.parse(init.body);
+              const ok = window.confirm("This makes the station TRANSMIT:\n\n" + needed.map((n) => "• " + n.effect).join("\n")
+                + "\n\nAuthorize it? (Choose Cancel to turn these options off.)");
+              if (ok) {
+                body.authorize_transmit = true;
+              } else if (body.bluetooth_classic && typeof body.bluetooth_classic === "object") {
+                for (const n of needed) body.bluetooth_classic[n.option] = false;
+                const boxes = { periodic_page_scan: "btcPeriodicPageScanInput", remote_name_lookup: "btcRemoteNameLookupInput" };
+                for (const n of needed) { const box = document.getElementById(boxes[n.option]); if (box) box.checked = false; }
+              }
+              return original(input, { ...init, headers, credentials: "same-origin", body: JSON.stringify(body) });
+            }
+          }
           return response;
         };
         document.addEventListener("DOMContentLoaded", async () => {

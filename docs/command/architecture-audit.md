@@ -18,7 +18,7 @@ plugins (subprocess, JSON lines) ──HTTP/WS──> IQ service (rf_platform/so
 cellular adapter ──HTTP──> Cellular Survey service (modem, no SIM)
 ```
 
-The station is a sound unit to reuse: collection is typed and bounded, the agent cannot reach transmit operations,
+The station is a sound unit to reuse: collection is typed and bounded, anything that transmits waits for a named operator's approval,
 runs are admitted one at a time, and every run ends in a checksummed report with its audit trail.
 
 ## Command: what is added
