@@ -554,6 +554,9 @@
         min-width: 0;
       }
 
+      .metric[hidden], .tab-btn[hidden], .kpi-strip[hidden], .panel[hidden], .detection-select-stack[hidden] { display: none !important; }
+      main.no-side { grid-template-columns: 270px minmax(0, 1fr); }
+
       main {
         display: grid;
         grid-template-columns: 270px minmax(0, 1fr) 346px;
@@ -2847,7 +2850,7 @@
             <div class="identity-table-wrap" id="identityTableWrap"></div>
           </section>
 
-          <section class="panel rssi-viewer">
+          <section class="panel rssi-viewer" hidden>
             <h2>2.4 GHz ISM Band</h2>
             <div class="rssi-title">2402-2480 MHz protocol activity</div>
             <div class="ism-legend">
@@ -4769,13 +4772,41 @@
         return detections * 2 + recency + strength + protocolBoost;
       }
 
+      // Every element on the page has to say something: a tile shows a measured level or a count above zero, a
+      // detection tab exists only for a protocol that has detections, and an empty side column is not drawn.
+      function tidyDashboard(known) {
+        const show = (el, on) => { el.closest(".metric").hidden = !on; };
+        show(metrics.btcRssi, known.rssi);
+        show(metrics.btleRssi, known.noise);
+        for (const key of ["detections", "bursts", "ble", "classic", "zigbee", "tpms", "wifi", "fm", "lfmf", "cellular"]) {
+          show(metrics[key], metrics[key].textContent.trim() !== "0");
+        }
+        const strip = document.querySelector(".kpi-strip");
+        strip.hidden = !strip.querySelector(".metric:not([hidden])");
+        const tabs = { btcTabBtn: "classic", btleTabBtn: "ble", zigbeeTabBtn: "zigbee", tpmsTabBtn: "tpms", wifiTabBtn: "wifi",
+                       fmTabBtn: "fm", lfmfTabBtn: "lfmf", cellularTabBtn: "cellular" };
+        let shown = 0;
+        for (const [id, key] of Object.entries(tabs)) {
+          const btn = document.getElementById(id);
+          const on = metrics[key].textContent.trim() !== "0" || btn.classList.contains("active");
+          btn.hidden = !on;
+          shown += on ? 1 : 0;
+        }
+        allTabBtn.hidden = shown < 2;  // one protocol (or none): nothing to switch between
+        // View, age filter, analytics and investigation act on detections: nothing to act on until there is one.
+        document.querySelector(".detection-select-stack").hidden = metrics.detections.textContent.trim() === "0";
+      }
+
       function renderMostInteresting(rows) {
         candidatePanelTitle.textContent = "Most Interesting";
         const interesting = [...rows]
           .sort((a, b) => interestingScore(b) - interestingScore(a))
           .slice(0, 18);
+        const sidePanel = candidatesEl.closest(".panel");
+        sidePanel.hidden = !interesting.length;
+        sidePanel.closest("main").classList.toggle("no-side", !interesting.length);
         if (!interesting.length) {
-          candidatesEl.morphHtml = `<div class="empty">No RF entities yet</div>`;
+          candidatesEl.morphHtml = "";
           return;
         }
         candidatesEl.morphHtml = interesting
@@ -4808,6 +4839,9 @@
       }
 
       function renderCandidates(candidates, addresses = [], rows = []) {
+        const sidePanel = candidatesEl.closest(".panel");  // shown unless the All view below finds nothing
+        sidePanel.hidden = false;
+        sidePanel.closest("main").classList.remove("no-side");
         if (activeDetectionTab === "ALL") {
           renderMostInteresting(rows);
           return;
@@ -5165,7 +5199,10 @@
             const scannerRunning = Boolean(status?.running || status?.worker_alive);
             const scannerOwned = scannerRunning || active || Boolean(device.occupied);
             const inferredChips = inferredSdrProtocolChips(device);
-            const scanLabel = sdrScanLabel(device, assignment, scannerOwned);
+            // Busy, but not with the scanner: an agent mission (or another IQ client) has it. Say so rather than
+            // guessing a protocol from the card's configured role.
+            const scanLabel = !scannerRunning && !active && !assignment && device.occupied
+              ? "In use by a mission" : sdrScanLabel(device, assignment, scannerOwned);
             const pill = active
               ? `<span class="sdr-assignment-chips">${sdrProtocolChips(assignment)}<span class="legend-pill">${scanLabel}</span></span>`
               : inferredChips
@@ -5293,6 +5330,9 @@
           metrics.fm.textContent = Number(protocolDetections("FM") || 0).toLocaleString();
           metrics.lfmf.textContent = Number(protocolDetections("LFMF") || 0).toLocaleString();
           metrics.cellular.textContent = Number(protocolDetections("CELLULAR") || 0).toLocaleString();
+          // -120 dBFS is the "nothing measured yet" placeholder, not a reading.
+          const noise = Number(status.rssi_by_mode?.ble ?? status.noise_floor_dbfs ?? -120);
+          tidyDashboard({ rssi: bestRssi > -119.5, noise: noise > -119.5 });
           updateBtcTargetVisibility(Boolean((btcTargetMacInput.value || "").trim() || status.test_target));
           const visibleRows = applyLastSeenFilter(status.discovery_table || []);
           renderIdentityTable(visibleRows);

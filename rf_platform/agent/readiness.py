@@ -25,6 +25,19 @@ def _plan_parts(plan: dict[str, Any]) -> tuple[list[WorkflowSpec], PlaybookSpec 
     return [WorkflowSpec.model_validate(plan["spec"])], None
 
 
+def drone_capability(adapter: str | None) -> tuple[str, str]:
+    """(status, detail) for drone missions: the adapter plugin and the external detector it runs."""
+    import os
+    if not adapter:
+        return "fail", "the drone-rf adapter is not installed (pip install -e rf_platform/plugins/drone-rf)"
+    candidates = [os.getenv("DRONE_RF_DETECTOR"), "/opt/passive-shield/live_multiband_hop_detector_sender.py"]
+    found = next((c for c in candidates if c and Path(c).is_file()), None)
+    if not found:
+        return "fail", ("no drone detector on this host: the adapter runs an external detector (set "
+                        "DRONE_RF_DETECTOR to its script); RF Sentinel does not include one")
+    return "ok", f"detector {Path(found).name}"
+
+
 def check(plan: dict[str, Any], radio, mode: str, log_dir: Path, simulate: bool = False,
           cellular=None, classic=None) -> dict[str, Any]:
     """radio: an agent Radio/SimRadio. cellular/classic: optional capability callables (for tests)."""
@@ -61,6 +74,9 @@ def check(plan: dict[str, Any], radio, mode: str, log_dir: Path, simulate: bool 
                 from .core import plugin_path
                 cap = (classic or (lambda: classic_capability(devices, plugin_path(PROFILES["classic"].plugin))))()
                 add("Bluetooth Classic decoder", "ok" if cap["supported"] else "warn", cap["reason"])
+            if "drone" in sdr:
+                from .core import plugin_path
+                add("Drone detector", *drone_capability(plugin_path(PROFILES["drone"].plugin)))
     if "cellular" in protocols and not simulate:
         from rf_platform.cellular.survey import cellular_capability
         cap = (cellular or cellular_capability)()

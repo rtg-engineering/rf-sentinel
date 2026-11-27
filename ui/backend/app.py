@@ -8881,7 +8881,8 @@ AGENT_EVENTS_KEPT = 400   # recent workflow events per job (the dashboard polls 
 AGENT_STEPS_KEPT = 600
 agent_jobs_lock = threading.Lock()
 agent_admission_lock = threading.Lock()  # held across "is a run active?" and launching the next run
-AGENT_PROTOCOL_TAG = {"ble": "ble", "zigbee": "ieee802154", "tpms": "tpms", "classic": "btc", "cellular": "cellular"}
+AGENT_PROTOCOL_TAG = {"ble": "ble", "zigbee": "ieee802154", "tpms": "tpms", "classic": "btc", "cellular": "cellular",
+                      "drone": "drone"}
 _agent_broker = None
 
 

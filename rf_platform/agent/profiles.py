@@ -62,6 +62,15 @@ def _tpms_key(event):
     return event.get("sensor_id") or event.get("id") or event.get("device_id_hex")
 
 
+def _drone_key(event):
+    return event.get("key") or event.get("track_id")
+
+
+def drone_band(command: str) -> str:
+    """5.8 GHz (video/telemetry downlinks) by default; 2.4 GHz when the request names it or the controller."""
+    return "2g4" if re.search(r"\b(2\.4|2400|controllers?|remotes?|uplink)\b", str(command).lower()) else "5g8"
+
+
 PROFILES = {
     # Classic is listed first so "bluetooth classic" picks it; a plain "bluetooth" request matches BLE and
     # adds Classic as a companion when the hardware supports it (see Task.companions).
@@ -92,6 +101,14 @@ PROFILES = {
                     "tpms_stack", (315_000_000, 433_920_000), 2_000_000,
                     ("tpms", "tpms_packet", "packet"), _tpms_key,
                     notes="Hops the known 315 MHz and 433.92 MHz TPMS bands."),
+    "drone": Profile("drone", "Drone RF links (external detector)",
+                     ("drone", "uav", "uas", "quadcopter", "dji", "ocusync"),
+                     "drone_rf", (5_745_500_000, 5_800_000_000, 5_835_500_000), 20_000_000,
+                     ("drone_detection", "drone_link"), _drone_key,
+                     notes="Runs the station's drone detector through this receiver: it hops the 5.8 GHz band "
+                           "(or 2.4 GHz for controllers) and reports confirmed drone links separately from "
+                           "drone-like links it could not confirm. Needs the detector installed on this host.",
+                     extra={"external": "drone detector"}),
 }
 
 ALIASES = {"bluetooth devices": "ble", "wifi": None}

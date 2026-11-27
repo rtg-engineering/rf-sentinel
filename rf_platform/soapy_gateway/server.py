@@ -186,6 +186,28 @@ def create_app(backend: SoapyBackend, token: str | None = None) -> Flask:
     def retune_stream(stream_id):
         return guarded(lambda: jsonify(stream_state(backend.retune_stream(stream_id, body()))))
 
+    @app.post("/streams/<stream_id>/capture")
+    def capture_stream(stream_id):
+        """Body {samples, center_freq_hz?, settle_us?, timeout_s?} -> the block as raw CS8 (interleaved int8 I/Q)."""
+        def run():
+            try:
+                session = backend.get(stream_id, "stream")
+            except KeyError as exc:
+                return fail(404, exc)
+            reader_attached(session)  # a capture client is a reader: the idle reaper must not stop its stream
+            try:
+                payload, meta = backend.capture_stream(stream_id, body())
+            except TimeoutError as exc:
+                return fail(504, exc)
+            except RuntimeError as exc:
+                return fail(409, exc)
+            finally:
+                reader_detached(session)
+            headers = {"X-Center-Freq-Hz": str(meta["center_freq_hz"]), "X-Sample-Rate-Sps": str(meta["sample_rate_sps"]),
+                       "X-Samples": str(meta["samples"]), "X-Sample-Format": "cs8"}
+            return app.response_class(payload, mimetype="application/octet-stream", headers=headers)
+        return guarded(run)
+
     @sock.route("/ws/iq/<stream_id>")
     def ws_iq(ws, stream_id):
         try:

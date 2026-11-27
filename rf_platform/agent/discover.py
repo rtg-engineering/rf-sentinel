@@ -85,7 +85,7 @@ BANDS: list[Band] = [
     Band(3700 * MHZ, 3980 * MHZ, "C-band 5G (n77)", "Verizon/AT&T 5G towers", "cellular"),
     Band(5150 * MHZ, 5350 * MHZ, "5 GHz UNII-1/2", "WiFi"),
     Band(5470 * MHZ, 5725 * MHZ, "5 GHz UNII-2e", "WiFi (with radar avoidance)"),
-    Band(5725 * MHZ, 5850 * MHZ, "5.8 GHz ISM / UNII-3", "WiFi, FPV video, drone links"),
+    Band(5725 * MHZ, 5850 * MHZ, "5.8 GHz ISM / UNII-3", "WiFi, FPV video, drone links", "drone"),
     Band(5850 * MHZ, 5925 * MHZ, "5.9 GHz C-V2X", "vehicle-to-everything"),
 ]
 
@@ -190,13 +190,14 @@ def summarise_bands(segments: list[dict[str, Any]], passes: int = 2) -> list[dic
 
 
 NAMES = {"ble": "Bluetooth LE", "classic": "Bluetooth Classic", "zigbee": "Zigbee", "tpms": "Tire-pressure sensors",
-         "cellular": "Cell-tower survey"}
+         "cellular": "Cell-tower survey", "drone": "Drone RF links"}
 FOLLOW_UP = {  # decoder profile -> the plain-language step the planner turns into a validated workflow
     "ble": "find bluetooth low energy devices for 30 seconds",
     "classic": "find bluetooth classic devices for 30 seconds",
     "zigbee": "listen for zigbee for 30 seconds",
     "tpms": "find tire sensors for 30 seconds",
     "cellular": "survey cell towers for 90 seconds",
+    "drone": "watch for drones for 60 seconds",
 }
 
 
@@ -210,7 +211,7 @@ def propose(bands: list[dict[str, Any]]) -> tuple[str | None, list[str]]:
                 wanted.append(profile)
                 why.append(f"{NAMES[profile]}: energy in {b['band']} "
                            f"({b['above_floor_db']:.0f} dB above the floor)")
-    order = [p for p in ("ble", "classic", "zigbee", "tpms", "cellular") if p in wanted]
+    order = [p for p in ("ble", "classic", "zigbee", "tpms", "drone", "cellular") if p in wanted]
     if not order:
         return None, []
     steps = [FOLLOW_UP[p] for p in order]

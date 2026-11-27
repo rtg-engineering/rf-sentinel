@@ -114,6 +114,74 @@ class OverflowingSoapy(FakeSoapy):
             return super().readStream(s, bufs, n, timeoutUs)
 
 
+class TaggingSoapy(FakeSoapy):
+    """Each sample's I value is the frequency it was taken at (MHz mod 100, in int8 steps), and the driver keeps
+    IN_FLIGHT samples of the old frequency buffered after a retune, the way real hardware does."""
+    IN_FLIGHT = 20_000
+
+    class Device(FakeSoapy.Device):
+        def setFrequency(self, d, c, freq):
+            self.stale = TaggingSoapy.IN_FLIGHT if self.freq else 0
+            self.stale_freq, self.freq = self.freq, freq
+
+        def readStream(self, s, bufs, n, timeoutUs=0):
+            n = min(n, 8192)
+            stale = getattr(self, "stale", 0)
+            freq = self.stale_freq if stale else self.freq
+            if stale:
+                n = min(n, stale)
+                self.stale = stale - n
+            bufs[0][:n] = np.complex64(((freq // 1_000_000) % 100) / 127)
+            time.sleep(n / self.rate / 8)
+            return _Result(n)
+
+
+def _tags(payload: bytes) -> set[int]:
+    return set(np.frombuffer(payload, dtype=np.int8)[0::2].tolist())
+
+
+class CaptureTest(unittest.TestCase):
+    """Tune-and-read blocks for hopping clients (the drone detector reads 30 ms per channel this way)."""
+
+    def setUp(self):
+        self.backend = SoapyBackend(TaggingSoapy)
+        self.client = create_app(self.backend, token="secret").test_client()
+        self.auth = {"Authorization": "Bearer secret"}
+        self.sid = self.backend.start_stream({"device_id": "bladerf:0", "center_freq_hz": 2_405_000_000,
+                                              "sample_rate_sps": 2_000_000}).id
+
+    def tearDown(self):
+        self.backend.stop_all()
+
+    def capture(self, **body):
+        return self.client.post(f"/streams/{self.sid}/capture", headers=self.auth, json=body)
+
+    def test_capture_after_retune_holds_only_new_frequency_samples_once_settled(self):
+        first = self.capture(samples=50_000)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.headers["X-Sample-Format"], "cs8")
+        self.assertEqual(_tags(first.data), {5})  # 2405 MHz
+        settled = self.capture(samples=50_000, center_freq_hz=2_421_000_000, settle_us=15_000)  # 30k samples > 20k stale
+        self.assertEqual(settled.headers["X-Center-Freq-Hz"], "2421000000")
+        self.assertEqual(len(settled.data), 100_000)
+        self.assertEqual(_tags(settled.data), {21})
+        unsettled = self.capture(samples=50_000, center_freq_hz=2_470_000_000)
+        self.assertEqual(_tags(unsettled.data), {21, 70})  # without settling, the driver's buffered samples leak in
+
+    def test_capture_same_frequency_does_not_retune_or_drop(self):
+        self.capture(samples=1_000, center_freq_hz=2_405_000_000, settle_us=1_000_000)
+        self.assertEqual(self.backend.get(self.sid).worker._gen, 0)
+
+    def test_capture_validates_and_keeps_stream_from_idle_reaper(self):
+        self.assertEqual(self.capture(samples=0).status_code, 400)
+        self.assertEqual(self.capture(samples=10, center_freq_hz=7_000_000_000).status_code, 400)
+        self.assertEqual(self.client.post("/streams/nope/capture", headers=self.auth, json={"samples": 10}).status_code, 404)
+        self.capture(samples=1_000)
+        session = self.backend.get(self.sid)
+        self.assertEqual(session.extra.get("readers"), 0)
+        self.assertGreater(session.extra["idle_since"], time.time() - 5)  # the capture counted as a read
+
+
 class ReceiverInstrumentationTest(unittest.TestCase):
     def test_overflows_and_samples_are_counted(self):
         backend = SoapyBackend(OverflowingSoapy)

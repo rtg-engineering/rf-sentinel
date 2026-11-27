@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drone-rf"
+version = "0.1.0"
+description = "RF Sentinel adapter for an external drone RF detector (the detector itself is not part of this package)"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+  "requests>=2.31",
+]
+
+[project.scripts]
+drone_rf = "drone_rf.cli:main"
+drone-rf = "drone_rf.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
