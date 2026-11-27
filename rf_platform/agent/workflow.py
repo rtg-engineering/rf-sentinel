@@ -24,11 +24,12 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .profiles import MAX_DURATION_S
 
-Protocol = Literal["ble", "classic", "zigbee", "tpms"]
+Protocol = Literal["ble", "classic", "zigbee", "tpms", "cellular"]
 FieldName = Literal["protocol", "label", "name", "manufacturer", "device_type", "device_class", "address",
-                    "rssi_dbfs", "count", "dwell_s", "new"]
+                    "rssi_dbfs", "count", "dwell_s", "new", "operator", "rat", "generation", "role"]
 Op = Literal["eq", "ne", "contains", "not_contains", "ge", "le"]
-TEXT_FIELDS = {"protocol", "label", "name", "manufacturer", "device_type", "device_class", "address"}
+TEXT_FIELDS = {"protocol", "label", "name", "manufacturer", "device_type", "device_class", "address", "operator",
+               "rat", "generation", "role"}
 NUMBER_FIELDS = {"rssi_dbfs", "count", "dwell_s"}
 MAX_RECORD_S = 10
 MAX_FOLLOW_UP_S = 300
@@ -118,6 +119,7 @@ class WorkflowSpec(BaseModel):
     collect: list[Protocol] = Field(min_length=1)
     duration_s: int = 60
     device_id: str | None = None
+    channel: int | None = Field(default=None, ge=11, le=26)  # Zigbee / 802.15.4 channel
     filters: list[Condition] = Field(default_factory=list)
     triggers: list[Trigger] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
@@ -133,24 +135,33 @@ class WorkflowSpec(BaseModel):
     @classmethod
     def _collect(cls, value: list[str]) -> list[str]:
         ordered = list(dict.fromkeys(value))
-        if len(ordered) > 1 and set(ordered) != {"ble", "classic"}:
-            raise ValueError("one protocol per run, except BLE together with Bluetooth Classic")
+        sdr = [p for p in ordered if p != "cellular"]
+        if len(sdr) > 1 and set(sdr) != {"ble", "classic"}:
+            raise ValueError("one SDR protocol per run (BLE with Bluetooth Classic counts as one), "
+                             "optionally together with the cellular modem")
         return ordered
 
-    def command(self) -> str:
-        """The bounded collection request the deterministic agent executes."""
-        protocols = set(self.collect)
+    def sdr_collect(self) -> list[str]:
+        return [p for p in self.collect if p != "cellular"]
+
+    def command(self, protocols: list[str] | None = None) -> str:
+        """The bounded collection request the deterministic agent executes (for one source group)."""
+        protocols = set(protocols if protocols is not None else (self.sdr_collect() or self.collect))
         what = ("bluetooth devices" if protocols == {"ble", "classic"} else "ble devices" if protocols == {"ble"}
                 else "bluetooth classic devices" if protocols == {"classic"} else
-                "zigbee" if protocols == {"zigbee"} else "tire sensors")
-        return f"find {what} for {self.duration_s} seconds" + (f" on {self.device_id}" if self.device_id else "")
+                "zigbee" if protocols == {"zigbee"} else "cell towers" if protocols == {"cellular"} else "tire sensors")
+        return (f"find {what} for {self.duration_s} seconds" + (f" on {self.device_id}" if self.device_id else "")
+                + (f" on channel {self.channel}" if self.channel and "zigbee" in protocols else ""))
 
     def summary(self) -> dict[str, Any]:
+        unit = (lambda text: text.replace(" dBFS", " dBm")) if self.collect == ["cellular"] else (lambda text: text)
         return {"find": f"{' + '.join(PROTOCOL_TITLES[p] for p in self.collect)} for {self.duration_s} s",
-                "filters": [c.describe() for c in self.filters], "triggers": [t.describe() for t in self.triggers]}
+                "filters": [unit(c.describe()) for c in self.filters],
+                "triggers": [unit(t.describe()) for t in self.triggers]}
 
 
-PROTOCOL_TITLES = {"ble": "BLE", "classic": "Bluetooth Classic", "zigbee": "Zigbee", "tpms": "TPMS"}
+PROTOCOL_TITLES = {"ble": "BLE", "classic": "Bluetooth Classic", "zigbee": "Zigbee", "tpms": "TPMS",
+                   "cellular": "Cellular (modem)"}
 
 
 # --------------------------------------------------------------------------------------------- planning
@@ -181,7 +192,7 @@ ACTION_PATTERNS: list[tuple[str, Callable[[re.Match], Action]]] = [
                       severity="critical" if (m.group(1) or m.group(3)) else "warning")),
     (rf"\b(?:record|capture|save)\s*(?:(\d+(?:\.\d+)?)\s*({UNIT_S})\s*)?(?:of\s+)?(?:iq|samples|evidence|it|the signal)?\b",
      lambda m: Action(kind="record_iq", seconds=_seconds(m.group(1), m.group(2)) if m.group(1) else 5)),
-    (rf"\b(?:scan|look|sweep|check|listen)\s+(?:for\s+)?(bluetooth classic|classic bluetooth|classic|br/edr|zigbee|tpms|tire sensors?|ble)"
+    (rf"\b(?:scan|look|sweep|check|listen|survey)\s+(?:for\s+|the\s+)?(bluetooth classic|classic bluetooth|classic|br/edr|zigbee|tpms|tire sensors?|ble|cell towers?|cellular|cells|lte|5g)"
      rf"(?:\s+devices)?(?:\s+for\s+(\d+(?:\.\d+)?)\s*({UNIT_S}))?",
      lambda m: Action(kind="start_scan", protocol=_protocol_word(m.group(1)),
                       seconds=_seconds(m.group(2), m.group(3)) if m.group(2) else 60)),
@@ -199,6 +210,7 @@ ACTION_PATTERNS: list[tuple[str, Callable[[re.Match], Action]]] = [
 def _protocol_word(word: str) -> str:
     word = word.lower()
     return ("classic" if "classic" in word or "br/edr" in word else "zigbee" if "zigbee" in word
+            else "cellular" if re.search(r"cell|lte|5g|tower", word)
             else "tpms" if "tpms" in word or "tire" in word else "ble")
 
 
@@ -224,11 +236,25 @@ def _conditions(text: str) -> list[Condition]:
     m = re.search(r"\bnamed [\"']?([\w\- ]+?)[\"']?(?:\s+(?:is|are|appears?|shows?|stronger|for|and|,)\b|$)", text)
     if m:
         found.append(Condition(field="name", op="contains", value=m.group(1).strip()))
-    if re.search(r"\b(?:new|unknown|unfamiliar|never seen)\b(?! (?:than|scan))|\banything new\b", text):
+    if re.search(r"\b(?:new|unfamiliar|never seen)\b(?! (?:than|scan|serving))|\bunknown\b(?! (?:operator|network|carrier|plmn))|\banything new\b", text):
         found.append(Condition(field="new", op="eq", value=True))
     m = re.search(rf"\b(?:seen|around|present|following|stays?|persists?|lingers?)\b[^.]*?\bfor (?:more than |over |at least )?(\d+(?:\.\d+)?)\s*({UNIT_S})", text)
     if m:
         found.append(Condition(field="dwell_s", op="ge", value=_seconds(m.group(1), m.group(2))))
+    carriers = {"at&t": "AT&T", "att": "AT&T", "firstnet": "FirstNet", "verizon": "Verizon", "t-mobile": "T-Mobile",
+                "tmobile": "T-Mobile", "dish": "Dish", "us cellular": "US Cellular"}
+    for word, operator in carriers.items():
+        if re.search(rf"(?<![\w&-]){re.escape(word)}(?![\w&-])", text):
+            found.append(Condition(field="operator", op="not_contains" if neg else "contains", value=operator))
+    if re.search(r"\bunknown (?:operator|network|carrier|plmn)\b|\bunrecognized (?:operator|network|carrier)\b", text):
+        found.append(Condition(field="operator", op="eq", value="unknown operator"))
+    for generation in ("2g", "3g", "4g", "5g"):
+        if re.search(rf"\b(?:downgrades?|drops?|falls?|fall back|switch(?:es)?) to {generation}\b|\b{generation} (?:cell|tower|cells|towers)\b", text):
+            found.append(Condition(field="generation", op="eq", value=generation.upper()))
+    if re.search(r"\b(?:gsm)\b", text):
+        found.append(Condition(field="generation", op="eq", value="2G"))
+    if re.search(r"\bserving cell (?:changes?|switches|is new)\b|\bnew serving cell\b|\bhands? ?over\b", text):
+        found.append(Condition(field="role", op="eq", value="serving"))
     m = re.search(r"\bseen (?:more than |at least )?(\d+) times\b", text)
     if m:
         found.append(Condition(field="count", op="ge", value=float(m.group(1))))
@@ -243,6 +269,15 @@ def _split_triggers(text: str) -> tuple[str, list[str]]:
 
 
 def _parse_trigger(clause: str) -> Trigger | None:
+    triggers = _parse_triggers(clause)
+    return triggers[0] if len(triggers) == 1 else (triggers or [None])[0] if not triggers else _OrTriggers(triggers)
+
+
+class _OrTriggers(list):
+    """Several triggers parsed from one clause ("if X or Y, alert"): each condition set gets the actions."""
+
+
+def _parse_triggers(clause: str) -> list[Trigger]:
     repeat = bool(re.match(r"(?:whenever|each time|every time)\b", clause))
     actions: list[Action] = []
     spans: list[tuple[int, int]] = []
@@ -256,15 +291,20 @@ def _parse_trigger(clause: str) -> Trigger | None:
                 continue
             spans.append((m.start(), m.end()))
     if not actions:
-        return None
+        return []
     first_action = min(a for a, _ in spans)
     condition_text = clause[:first_action]
+    order = sorted(range(len(actions)), key=lambda i: spans[i][0])
+    do = [actions[i] for i in order]
+    parts = [p for p in re.split(r"\bor\b", condition_text) if p.strip()]
+    groups = [_conditions(p) for p in parts]
+    if len(groups) > 1 and all(groups):
+        return [Trigger(when=g, do=do, repeat=repeat) for g in groups]
     when = _conditions(condition_text)
     if not when:
         # "if anything shows up" / "when something appears": any device in scope
         when = [Condition(field="count", op="ge", value=1)]
-    order = sorted(range(len(actions)), key=lambda i: spans[i][0])
-    return Trigger(when=when, do=[actions[i] for i in order], repeat=repeat)
+    return [Trigger(when=when, do=do, repeat=repeat)]
 
 
 def plan_deterministic(text: str) -> WorkflowSpec:
@@ -275,25 +315,71 @@ def plan_deterministic(text: str) -> WorkflowSpec:
     if re.search(r"\b(transmit|jam|spoof|replay|attack|inject|deauth|page)\b", lower):
         raise ValueError("RF Sentinel only receives. It will not transmit, jam, spoof, replay, or page devices.")
     main, trigger_clauses = _split_triggers(lower)
+    # A sentence boundary ends a rule: "if X, alert. Send an urgent alert if Y" - the second sentence's action
+    # leads the next condition rather than joining the first rule.
+    leads: dict[int, str] = {}
+    for index, clause in enumerate(trigger_clauses):
+        head, _, tail = clause.partition(". ")
+        if tail.strip():
+            trigger_clauses[index] = head
+            if index + 1 < len(trigger_clauses):
+                leads[index + 1] = tail.strip()
+            else:
+                main = f"{main}. {tail}"
+    # "if X, and alert me when Y": the trailing ", and <action>" belongs to the next (action-less) clause.
+    for index in range(len(trigger_clauses) - 1):
+        m = re.search(r",\s*and\s+([^,]+)$", trigger_clauses[index])
+        if m and not _parse_triggers(trigger_clauses[index + 1]) and _parse_triggers("x " + m.group(1)):
+            trigger_clauses[index + 1] = trigger_clauses[index + 1].rstrip(" .") + " " + m.group(1)
+            trigger_clauses[index] = trigger_clauses[index][: m.start()]
     triggers = []
-    for clause in trigger_clauses:
+    for index, clause in enumerate(trigger_clauses):
+        or_clause = clause.rstrip().endswith(" or")
+        clause = re.sub(r"\s+or$", "", clause.rstrip())
         trigger = _parse_trigger(clause)
+        if trigger is None and index > 0 and triggers and trigger_clauses[index - 1].rstrip().endswith(" or"):
+            # "... if X or if Y": Y shares X's actions
+            conditions = _conditions(clause)
+            trigger = Trigger(when=conditions, do=triggers[-1].do, repeat=triggers[-1].repeat) if conditions else None
+        if trigger is None and index in leads:
+            trigger = _parse_trigger(clause + " " + leads[index])
         if trigger is None:
-            # "<action> when <condition>": the action is the end of the preceding text ("... and stop when ...")
-            tail = re.split(r",|\band\b|\bthen\b", main)[-1]
+            # "<action> when <condition>": the action ends the preceding sentence ("... and stop when ...")
+            segments = re.split(r"[.;,]|\band\b|\bthen\b", main)
+            tail = segments[-1]
+            if len(segments) == 1 and re.search(r"\b(?:find|watch|monitor|survey|scan|look|listen|search|track|sweep)\b", tail):
+                tail = ""  # never consume the collection clause itself
             trigger = _parse_trigger(clause + " " + tail) if tail.strip() else None
             if trigger is not None:
-                main = main[: len(main) - len(tail)].rstrip(" ,").removesuffix(" and").removesuffix(" then")
-        if trigger is not None:
+                main = main[: len(main) - len(tail)].rstrip(" ,.;").removesuffix(" and").removesuffix(" then")
+        if trigger is None and or_clause and index + 1 < len(trigger_clauses):
+            # "if X or if Y, alert": X takes Y's actions
+            follow = _parse_trigger(re.sub(r"\s+or$", "", trigger_clauses[index + 1].rstrip()))
+            follow = follow[0] if isinstance(follow, _OrTriggers) else follow
+            conditions = _conditions(clause)
+            if follow and conditions:
+                trigger = Trigger(when=conditions, do=follow.do, repeat=follow.repeat)
+        if isinstance(trigger, _OrTriggers):
+            triggers.extend(trigger)
+        elif trigger is not None:
             triggers.append(trigger)
     trackers = bool(re.search(r"\b(?:trackers?|airtags?|tiles?|find my|smarttags?)\b", main))
-    implies_bluetooth = trackers or bool(re.search(
+    cellular_words = r"\b(?:cell|cells|cellular|towers?|lte|5g|4g|2g|3g|gsm|base stations?|carriers?|plmn|(?:unknown|unrecognized) (?:network|operator|carrier))\b"
+    implies_cellular = bool(re.search(cellular_words, main)) or (
+        not re.search(r"\b(bluetooth|ble|zigbee|tpms|tire|classic|trackers?|airtags?|beacons?)\b", main)
+        and bool(re.search(cellular_words, " ".join(trigger_clauses))))
+    if implies_cellular and not re.search(cellular_words, main):
+        main = f"survey cell towers {main}"
+    implies_bluetooth = (not implies_cellular) and trackers or bool(not implies_cellular and re.search(
         rf"\b(?:{'|'.join(VENDORS)}|phones?|watches|headphones|earbuds|beacons?|wearables?|devices?)\b", main))
     whole_duration = re.search(rf"\b(?:in|over|during|for) the next (\d+(?:\.\d+)?)\s*({UNIT_S})", lower)
     if whole_duration and not re.search(rf"\b\d+(?:\.\d+)?\s*{UNIT_S}\b", main):
         main = f"{main} for {_seconds(whole_duration.group(1), whole_duration.group(2))} seconds"
-    probe = main if re.search(r"\b(bluetooth|ble|btle|zigbee|802\.15\.4|thread|tpms|tire|tyre|classic|beacons?|airtags?)\b", main) \
-        else main if re.search(r"\bwi-?fi\b", main) else "find bluetooth devices " + main  # Bluetooth by default
+    probe = main if re.search(r"\b(bluetooth|ble|btle|zigbee|802\.15\.4|thread|tpms|tire|tyre|classic|beacons?|airtags?|cell|cells|cellular|towers?|lte|5g|4g|base stations?|carriers?)\b", main) \
+        else main if re.search(r"\bwi-?fi\b", main) else (
+            # Vendors and device kinds are identified from BLE advertisements; Classic only yields LAPs.
+            "find ble devices " if re.search(rf"\b(?:{'|'.join(VENDORS)}|phones?|watches|headphones|earbuds|wearables?)\b", main)
+            else "find bluetooth devices ") + main
     try:
         task = parse(re.sub(rf"\b\d+(?:\.\d+)?\s*{UNIT_S}\s+of\s+(?:iq|samples)", "", probe))
     except IntentError as exc:
@@ -301,24 +387,44 @@ def plan_deterministic(text: str) -> WorkflowSpec:
     collect = [task.profile.name, *task.companions]
     if trackers and task.profile.name == "ble":
         collect = ["ble"]  # trackers are BLE advertisers
+    mixed_bt = re.search(r"\b(?:bluetooth|ble|trackers?|airtags?|tiles?|beacons?|zigbee|tpms|tire)\b", main)
+    if task.profile.name != "cellular" and re.search(cellular_words, main) and mixed_bt:
+        collect = collect + ["cellular"]  # e.g. "watch for trackers and rogue cells": SDR + modem together
+    elif task.profile.name == "cellular" and mixed_bt:
+        rest = re.sub(cellular_words, " ", probe)
+        if trackers and not re.search(r"\b(?:bluetooth|ble|btle)\b", rest):
+            rest = "find ble devices " + rest  # trackers, AirTags and Tiles are BLE advertisers
+        other = parse(rest)
+        collect = [other.profile.name, *other.companions, "cellular"]
+        if trackers and other.profile.name == "ble":
+            collect = ["ble", "cellular"]
     filters = _conditions(main)
     notes = []
     if any(c.field == "rssi_dbfs" for c in filters + [w for t in triggers for w in t.when]):
-        notes.append("Signal strength is relative (dBFS at the receiver), not calibrated dBm.")
+        notes.append("For cells, signal is RSRP in dBm reported by the modem." if collect == ["cellular"] else
+                     "Signal strength is relative (dBFS at the receiver), not calibrated dBm.")
     if len(triggers) < len(trigger_clauses):
         notes.append("Some 'if/when' clauses had no action I recognise and were left out.")
     return WorkflowSpec(goal=raw, collect=collect, duration_s=task.duration_s, device_id=task.device_id,
+                        channel=task.channel if task.profile.name == "zigbee" else None,
                         filters=filters, triggers=triggers, notes=notes)
 
 
 PLANNER_INSTRUCTIONS = """\
 You turn an RF operator's request into a WorkflowSpec for RF Sentinel, a RECEIVE-ONLY RF monitoring system.
 
-- collect: protocols to receive. "ble", "classic" (Bluetooth Classic / BR/EDR), "zigbee", or "tpms". A plain
+- collect: protocols to receive. "ble", "classic" (Bluetooth Classic / BR/EDR), "zigbee", "tpms", or "cellular"
+  (cell towers via a cellular modem: fields operator, rat ("LTE", "5G NR", "3G WCDMA", "2G GSM"), generation
+  ("2G".."5G"), role ("serving", "neighbour", "scanned"); rssi_dbfs holds RSRP in dBm for cells). A plain
   "bluetooth" request means ["ble", "classic"]. Trackers, AirTags, Tiles and beacons are BLE.
-- duration_s: 5 to 600. Default 60 if not stated.
+- duration_s: 5 to 600. Default 30 if not stated.
 - filters: conditions a device must meet to be shown (all must hold).
-- triggers: "when <conditions> do <actions>". Conditions use the same fields. repeat=false fires once per device.
+- triggers: "when <conditions> do <actions>". Conditions use the same fields. repeat=false fires once per device;
+  "whenever", "each time" or "every time" mean repeat=true.
+- "watch for trackers" means a filter device_class eq "tracker"; "airtag" means label contains "AirTag"; text
+  conditions use contains unless the operator gives an exact value; keep the operator's capitalisation of names.
+- "when the serving cell changes" means a trigger when [role eq "serving"] (it fires once for each new serving
+  cell); it is not a filter.
 Condition fields: protocol, label (best identity, e.g. "AirTag", a local name or vendor), name, manufacturer,
 device_type (e.g. Phone, Watch), device_class ("tracker" or "beacon"), address, rssi_dbfs (relative, e.g. -60),
 count (detections so far), dwell_s (seconds between first and last sighting: use for "following me" /
@@ -326,6 +432,20 @@ count (detections so far), dwell_s (seconds between first and last sighting: use
 Operators: eq, ne, contains, not_contains (text); ge, le, eq, ne (numbers).
 Actions: alert(message, severity info|warning|critical), tag(label), record_iq(seconds <= 10),
 start_scan(protocol, seconds <= 300), extend(seconds), stop.
+Examples (request -> spec):
+- "watch for trackers for 5 minutes, only stronger than -60. if a tracker is seen for more than 2 minutes, send an
+  urgent alert and record 5 seconds of iq" -> collect ["ble"], duration_s 300, filters [device_class eq tracker,
+  rssi_dbfs ge -60], triggers [when [device_class eq tracker, dwell_s ge 120] do [alert critical, record_iq 5]]
+- "find bluetooth devices for 3 minutes. when a new device stronger than -45 appears, alert me" -> collect
+  ["ble", "classic"], duration_s 180, triggers [when [rssi_dbfs ge -45, new eq true] do [alert warning]]
+- "survey cell towers for 3 minutes. send an urgent alert if an unknown network appears or if a 2G cell shows up"
+  -> collect ["cellular"], duration_s 180, triggers [when [operator eq "unknown operator"] do [alert critical]],
+  [when [generation eq "2G"] do [alert critical]] ("or" means separate triggers sharing the actions)
+- "find apple devices for 1 minute" -> collect ["ble"] (vendors come from BLE advertisements), filters
+  [manufacturer contains "Apple"]
+- "watch for trackers and rogue cell towers for 2 minutes ..." -> collect ["ble", "cellular"] (one SDR protocol
+  group plus the cellular modem is allowed)
+Use exactly the values the operator gave; do not invent filters or triggers they did not ask for.
 Never plan transmitting, jamming, spoofing, replaying, or paging. If the request asks for that, return a spec
 that only receives and explain in notes. Keep the operator's wording in goal. Put assumptions in notes.
 """
@@ -390,6 +510,8 @@ def _plan_with_model(text: str, model: Any) -> WorkflowSpec:
 
     if re.search(r"\b(transmit|jam|spoof|replay|attack|inject|deauth|page)\b", text.lower()):
         raise ValueError("RF Sentinel only receives. It will not transmit, jam, spoof, replay, or page devices.")
+    if re.search(r"\bwi-?fi\b", text.lower()) and not re.search(r"\b(cell|cellular|lte|5g)\b", text.lower()):
+        raise ValueError("WiFi needs a monitor-mode WiFi adapter, not an SDR; it is not a workflow source.")
     return agent.run_sync(text, usage_limits=UsageLimits(request_limit=4)).output
 
 
@@ -421,6 +543,18 @@ def runs_dir() -> Path:
     return Path(os.getenv("RF_SENTINEL_AGENT_RUNS_DIR") or ".demo/agent-runs")
 
 
+CELL_FIELDS = {"operator", "rat", "generation", "role"}
+
+
+def filter_applies(condition: Condition, record: dict[str, Any], mixed: bool) -> bool:
+    """In a workflow that mixes SDR protocols with the cellular modem, a filter describes one side only:
+    cell fields filter cells; everything else (tracker kind, dBFS signal, name, ...) filters SDR devices."""
+    if not mixed:
+        return True
+    is_cell = record.get("protocol") == "cellular"
+    return (condition.field in CELL_FIELDS) == is_cell
+
+
 def known_devices_path(base: Path | None = None) -> Path:
     return (base or runs_dir()) / "known_devices.json"
 
@@ -443,6 +577,7 @@ class WorkflowEngine:
         self.follow_ups: list[dict[str, Any]] = []
         self._lock = threading.RLock()
         self._record_lock = threading.Lock()
+        self._trigger_conditions: dict[str, list[Condition]] = {}
         self.evidence: list[dict[str, Any]] = []
         self._threads: list[threading.Thread] = []
         self._started = time.time()
@@ -475,19 +610,31 @@ class WorkflowEngine:
                     "manufacturer": (manufacturer or {}).get("company_name", "") if isinstance(manufacturer, dict) else str(manufacturer or ""),
                     "device_type": event.get("device_type_detail") or event.get("device_type") or "",
                     "new": key not in self.known, "tags": [], "best_rssi_dbfs": None}
+                for field in ("operator", "rat", "generation", "role"):
+                    record[field] = event.get(field) or ""
+                if record["protocol"] == "cellular":
+                    record["manufacturer"] = record["operator"]
+                    record["device_type"] = record["rat"]
                 record["device_class"] = device_class(record)
             record["count"] += 1
             record["last_seen"] = now
+            if record["protocol"] == "cellular" and event.get("operator") and not str(event["operator"]).startswith(("unverified", "PLMN not")):
+                # A later full scan can resolve a cell first seen with an unverified PLMN.
+                record["operator"] = record["manufacturer"] = event["operator"]
+                record["label"] = event.get("identity") or record["label"]
             record["dwell_s"] = round(now - record["first_seen"], 1)
             rssi = event.get("rssi_dbfs")
             if isinstance(rssi, (int, float)):
                 record["rssi_dbfs"] = float(rssi)
                 best = record["best_rssi_dbfs"]
                 record["best_rssi_dbfs"] = float(rssi) if best is None else max(best, float(rssi))
+            if event.get("role") == "serving" or not record.get("role"):
+                record["role"] = event.get("role") or record.get("role", "")
             for field in ("channel", "center_freq_hz"):
                 if event.get(field) is not None:
                     record[field] = event[field]
-            in_scope = all(_matches(c, record) for c in self.spec.filters)
+            mixed = "cellular" in self.spec.collect and bool(self.spec.sdr_collect())
+            in_scope = all(_matches(c, record) for c in self.spec.filters if filter_applies(c, record, mixed))
             if in_scope and key not in self.matched:
                 self.matched.add(key)
                 self._emit("match", device=self._public(record))
@@ -500,6 +647,7 @@ class WorkflowEngine:
                 if last is not None and (not trigger.repeat or now - last < trigger.cooldown_s):
                     continue
                 self.fired[(index, key)] = now
+                self._trigger_conditions[key] = [c for c in trigger.when if not (c.field == "count" and c.value == 1)]
                 snapshot = self._public(record)
                 self._emit("trigger", trigger=index, rule=trigger.describe(), device=snapshot)
                 thread = threading.Thread(target=self._run_actions, args=(index, trigger, snapshot),
@@ -510,7 +658,8 @@ class WorkflowEngine:
     @staticmethod
     def _public(record: dict[str, Any]) -> dict[str, Any]:
         return {k: record.get(k) for k in ("key", "protocol", "label", "manufacturer", "device_type", "device_class",
-                                           "rssi_dbfs", "best_rssi_dbfs", "count", "dwell_s", "new", "tags", "channel")}
+                                           "rssi_dbfs", "best_rssi_dbfs", "count", "dwell_s", "new", "tags", "channel",
+                                           "operator", "rat", "generation", "role")}
 
     # actions --------------------------------------------------------------------------------
     def _run_actions(self, index: int, trigger: Trigger, device: dict[str, Any]) -> None:
@@ -531,13 +680,30 @@ class WorkflowEngine:
 
     def _do_alert(self, action: Action, device: dict[str, Any]) -> str:
         self.agent.gateway.authorize("raise_alert", {"device": device["key"], "severity": action.severity})
-        message = action.message or f"{device['label']} ({device['protocol']}) matched"
-        alert = {"t": round(time.time() - self._started, 1), "severity": action.severity, "message": message,
-                 "device": device}
+        reason = " and ".join(c.describe() for c in self._trigger_conditions.get(device["key"], []))
+        unit = "dBm" if device.get("protocol") == "cellular" else "dBFS"
+        reason = reason.replace(" dBFS", f" {unit}")
+        now = round(time.time() - self._started, 1)
         with self._lock:
+            # Several rules matching the same device at once become one alert with every reason.
+            recent = next((a for a in reversed(self.alerts) if a["device"]["key"] == device["key"]
+                           and now - a["t"] <= 2.0 and not action.message and not a.get("custom")
+                           and reason and reason not in a["reasons"]), None)
+            if recent is not None:
+                if reason and reason not in recent["reasons"]:
+                    recent["reasons"].append(reason)
+                    recent["message"] = f"{device['label']}: " + "; ".join(recent["reasons"])
+                if action.severity == "critical":
+                    recent["severity"] = "critical"
+                self._emit("alert", severity=recent["severity"], message=recent["message"], device=device, merged=True)
+                return recent["message"]
+            message = action.message or (f"{device['label']}: {reason}" if reason else f"{device['label']} matched")
+            alert = {"t": now, "severity": action.severity, "message": message, "device": device,
+                     "reasons": [reason] if reason else [], "custom": bool(action.message)}
             self.alerts.append(alert)
         self._emit("alert", severity=action.severity, message=message, device=device)
-        self.step(f"ALERT ({action.severity}): {message} - {device['label']}, {device.get('rssi_dbfs')} dBFS")
+        rssi = device.get("rssi_dbfs")
+        self.step(f"ALERT ({action.severity}): {message}" + (f" ({rssi:.0f} {unit})" if isinstance(rssi, (int, float)) else ""))
         return message
 
     def _do_tag(self, action: Action, device: dict[str, Any]) -> str:
@@ -560,6 +726,8 @@ class WorkflowEngine:
         return "collection ending"
 
     def _do_record_iq(self, action: Action, device: dict[str, Any]) -> str:
+        if device["protocol"] == "cellular":
+            raise RuntimeError("IQ capture applies to SDR detections; cells come from the modem, which has no IQ output")
         from .capabilities import CLASSIC_RATE_SPS
         from .radio import capture_iq
         freq = device.get("center_freq_hz") or {37: 2_402_000_000, 38: 2_426_000_000, 39: 2_480_000_000}.get(
@@ -582,14 +750,21 @@ class WorkflowEngine:
         params = {"device_id": receiver["id"], "center_freq_hz": int(freq), "seconds": action.seconds}
         self.agent.gateway.authorize("record_iq", params)
         gain = 46.0
-        data = capture_iq(self.agent.radio, receiver, int(freq), rate, gain, action.seconds)
+        if getattr(self.agent, "simulate", False):
+            import random
+            rng = random.Random(hash(device["key"]) & 0xFFFF)
+            n = int(min(action.seconds, 1.0) * rate) * 2  # a short synthetic noise file stands in for the capture
+            data = bytes((int(rng.gauss(0, 12)) & 0xFF) for _ in range(min(n, 400_000)))
+        else:
+            data = capture_iq(self.agent.radio, receiver, int(freq), rate, gain, action.seconds)
         self.evidence_dir.mkdir(parents=True, exist_ok=True)
         stem = f"{self.agent.gateway.run_id}-{re.sub(r'[^A-Za-z0-9]+', '', device['key'])[:24]}-{int(time.time())}"
         path = self.evidence_dir / f"{stem}.cs8"
         path.write_bytes(data)
         meta = {"format": "cs8", "device_id": receiver["id"], "center_freq_hz": int(freq), "sample_rate_sps": rate,
                 "gain_db": gain, "seconds": len(data) / 2 / rate, "sha256": hashlib.sha256(data).hexdigest(),
-                "trigger_device": device, "run_id": self.agent.gateway.run_id, "recorded_at": time.time()}
+                "trigger_device": device, "run_id": self.agent.gateway.run_id, "recorded_at": time.time(),
+                "simulated": bool(getattr(self.agent, "simulate", False))}
         path.with_suffix(".json").write_text(json.dumps(meta, indent=2) + "\n")
         with self._lock:
             self.evidence.append({"file": path.name, "path": str(path), "sha256": meta["sha256"],
@@ -603,7 +778,7 @@ class WorkflowEngine:
         profile = PROFILES[action.protocol]
         receiver = self.agent.radio.choose(profile.freqs_hz, profile.sample_rate_sps)
         what = {"ble": "ble devices", "classic": "bluetooth classic devices", "zigbee": "zigbee",
-                "tpms": "tire sensors"}[action.protocol]
+                "tpms": "tire sensors", "cellular": "cell towers"}[action.protocol]
         child = self.agent.child()
         label = PROTOCOL_TITLES[action.protocol]
         self.step(f"Starting a {label} scan on {receiver['id']} for {action.seconds:.0f} s (trigger on {device['label']})")
@@ -631,10 +806,56 @@ class WorkflowEngine:
                 pass
             return {"spec": self.spec.model_dump(), "summary": self.spec.summary(),
                     "matched": sorted(matched, key=lambda d: -(d["count"] or 0)),
+                    "all_devices": [self._public(r) for r in self.devices.values()],
                     "seen": len(self.devices), "alerts": self.alerts, "timeline": self.timeline,
                     "triggers_fired": sum(1 for e in self.timeline if e["kind"] == "trigger"),
                     "evidence": list(self.evidence),
                     "follow_up_scans": [{k: v for k, v in f.items() if k != "result_devices"} for f in self.follow_ups]}
+
+
+def narrative(result: dict[str, Any]) -> list[str]:
+    """Plain-language account of a finished workflow run, built only from the run's own records."""
+    wf = result.get("workflow") or {}
+    lines: list[str] = []
+    seen, matched = wf.get("seen", 0), len(wf.get("matched") or [])
+    what = (wf.get("summary") or {}).get("find", "")
+    prefix = "Simulated run. " if result.get("simulated") else ""
+    lines.append(f"{prefix}Collected {what} and saw {seen} device(s); {matched} matched the filters."
+                 if (wf.get("spec") or {}).get("filters") else f"{prefix}Collected {what} and saw {seen} device(s).")
+    new = [d for d in wf.get("all_devices") or [] if d.get("new")]
+    if wf.get("all_devices") is not None:
+        if new:
+            names = list(dict.fromkeys(d.get("label") or d.get("key") for d in new))
+            lines.append(f"{len(new)} device(s) not seen in any earlier run: {', '.join(names[:5])}{'…' if len(names) > 5 else ''}.")
+        elif seen:
+            lines.append("Every device had been seen in an earlier run.")
+    by_rule: dict[str, list[str]] = {}
+    for event in wf.get("timeline") or []:
+        if event["kind"] == "trigger":
+            by_rule.setdefault(event["rule"], []).append((event.get("device") or {}).get("label") or "?")
+    for rule, labels in by_rule.items():
+        unique = list(dict.fromkeys(labels))
+        lines.append(f"Rule fired {len(labels)}×: {rule.split(' → ')[0].replace('when ', 'when ')} "
+                     f"(on {', '.join(unique[:4])}{'…' if len(unique) > 4 else ''}).")
+    if not by_rule and (wf.get("spec") or {}).get("triggers"):
+        lines.append("No trigger conditions were met.")
+    alerts = wf.get("alerts") or []
+    if alerts:
+        critical = sum(1 for a in alerts if a["severity"] == "critical")
+        lines.append(f"{len(alerts)} alert(s) raised" + (f", {critical} critical." if critical else "."))
+    if wf.get("evidence"):
+        lines.append(f"{len(wf['evidence'])} IQ evidence file(s) captured, each with a SHA-256 sidecar.")
+    for follow in wf.get("follow_up_scans") or []:
+        lines.append(f"Follow-up {PROTOCOL_TITLES.get(follow['protocol'], follow['protocol'])} scan on "
+                     f"{follow['receiver']} found {follow['devices']} device(s).")
+    denied = [e for e in wf.get("timeline") or [] if e["kind"] == "action" and e.get("status") == "denied"]
+    if denied:
+        lines.append(f"{len(denied)} action(s) were not carried out because the operating mode does not allow them.")
+    if result.get("stop_reason") and not result.get("stopped"):
+        lines.append(f"Collection ended early: {result['stop_reason']}.")
+    elif result.get("stopped"):
+        lines.append("Stopped by the operator.")
+    return lines
 
 
 def run_workflow(agent, spec: WorkflowSpec, on_step: Callable[[str], None] = print,
@@ -653,11 +874,38 @@ def run_workflow(agent, spec: WorkflowSpec, on_step: Callable[[str], None] = pri
             on_detection(event)
         engine.observe(event)
 
-    result = agent.run(spec.command(), on_step=on_step, on_detection=observe, gain_db=gain_db)
+    cell_thread, cell_out = None, {}
+    if "cellular" in spec.collect and spec.sdr_collect():
+        # The modem needs no SDR: survey cells alongside the SDR collection, same gateway, stop and engine.
+        cell_agent = agent.child()
+
+        def survey():
+            try:
+                cell_out["result"] = cell_agent.run(spec.command(["cellular"]), on_step=lambda m: on_step(f"[Cellular] {m}"),
+                                                    on_detection=observe)
+            except Exception as exc:
+                cell_out["error"] = f"{type(exc).__name__}: {exc}"
+                on_step(f"[Cellular] not run: {exc}")
+        cell_thread = threading.Thread(target=survey, name="workflow-cellular", daemon=True)
+        cell_thread.start()
+    try:
+        result = agent.run(spec.command(), on_step=on_step, on_detection=observe, gain_db=gain_db)
+    finally:
+        if cell_thread is not None:
+            cell_agent.finish_early("primary collection ended")
+            cell_thread.join(timeout=60)
+    if cell_thread is not None:
+        cell = cell_out.get("result")
+        result["cellular"] = ({"devices": len(cell["devices"]), "receiver": cell["receiver"]} if cell
+                              else {"error": cell_out.get("error")})
+        if cell:
+            result["devices"] = result["devices"] + cell["devices"]
+            result["audit"] = result["audit"]  # shared gateway: the audit already holds both
     result["workflow"] = engine.finish()
     result["workflow"]["planner"] = planner or {"planner": "deterministic"}
     for follow in engine.follow_ups:
         result["devices"] = result["devices"] + follow["result_devices"]
+    result["workflow"]["narrative"] = narrative(result)
     tags = {k: v["tags"] for k, v in engine.devices.items() if v["tags"]}
     for device in result["devices"]:
         if device["key"] in tags:

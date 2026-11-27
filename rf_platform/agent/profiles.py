@@ -37,6 +37,10 @@ def _classic_key(event):
     return event.get("address") or event.get("bdaddr") or (f"LAP {event['lap']}" if event.get("lap") else None)
 
 
+def _cell_key(event):
+    return event.get("key")
+
+
 def _tpms_key(event):
     return event.get("sensor_id") or event.get("id") or event.get("device_id_hex")
 
@@ -60,6 +64,13 @@ PROFILES = {
                       "zigbee_802154", (2_425_000_000,), 4_000_000,
                       ("zigbee_frame", "802154_frame", "frame"), _zigbee_key, ("burst",),
                       notes="Listens on 802.15.4 channel 15 (2425 MHz) unless another channel is named.", extra={"channel": 15}),
+    "cellular": Profile("cellular", "Cellular network survey (modem)",
+                        ("cell tower", "cellular", "base station", "cell site", "lte", "5g", "4g", "nr cells",
+                         "mobile network", "carrier", "cell", "towers"),
+                        "rf_platform.cellular", (), 0, ("cell",), _cell_key,
+                        notes="Uses the cellular survey modem, not an SDR: serving and neighbour cells every few "
+                              "seconds and a full network scan about every 90 s.",
+                        extra={"source": "modem"}),
     "tpms": Profile("tpms", "Tire-pressure (TPMS) sensors", ("tpms", "tire", "tyre", "car", "vehicle"),
                     "tpms_stack", (315_000_000, 433_920_000), 2_000_000,
                     ("tpms", "tpms_packet", "packet"), _tpms_key,
@@ -90,10 +101,10 @@ def parse(command: str) -> Task:
         raise IntentError("Say what to look for, e.g. 'find bluetooth devices'.")
     if re.search(r"\b(transmit|jam|spoof|replay|attack|inject|deauth)\b", text):
         raise IntentError("RF Sentinel only receives. It will not transmit, jam, spoof, or replay.")
-    if re.search(r"\bwi-?fi\b", text):
+    if re.search(r"\bwi-?fi\b", text) and not re.search(r"\b(cell|cellular|lte|5g)\b", text):
         raise IntentError("WiFi needs a monitor-mode WiFi adapter, not an SDR. Supported here: "
                           + ", ".join(p.title for p in PROFILES.values()) + ".")
-    matches = [p for p in PROFILES.values() if any(k in text for k in p.keywords)]
+    matches = [p for p in PROFILES.values() if any(re.search(rf"\b{re.escape(k)}", text) for k in p.keywords)]
     if not matches:
         raise IntentError("I can look for: " + "; ".join(f"{p.title} ('{p.keywords[0]}')" for p in PROFILES.values()) + ".")
     profile = matches[0]
@@ -109,7 +120,7 @@ def parse(command: str) -> Task:
         duration = int(value * (3600 if unit.startswith("h") else 60 if unit.startswith("m") else 1))
     if not 5 <= duration <= MAX_DURATION_S:
         raise IntentError(f"Duration must be between 5 and {MAX_DURATION_S} seconds.")
-    device = re.search(r"\b((?:bladerf|hackrf|rtlsdr|airspy|sdrplay|lime|uhd|plutosdr):\d+)\b", text)
+    device = re.search(r"\b((?:bladerf|hackrf|rtlsdr|airspy|sdrplay|lime|uhd|plutosdr|sim):\d+)\b", text)
     channel = re.search(r"\bchannel\s+(\d{1,2})\b", text)
     return Task(profile, duration, device.group(1) if device else None,
                 int(channel.group(1)) if channel else None, command, companions)

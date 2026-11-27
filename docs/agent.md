@@ -39,9 +39,26 @@ Plan (deterministic)
   WHEN    when identity contains "AirTag" → scan Bluetooth Classic for 60 s
 ```
 
-In the dashboard, the **Agent workflows** panel does the same, in two steps:
-- **Plan** shows *Find / Keep / When → Do* cards and says which planner produced them.
-- **Run** shows live progress, the matching devices with their signal and tags, a timeline of matches, triggers and actions, and alerts.
+In the dashboard, the **Agent workflows** panel does the same:
+- **Plan** shows *Find / Keep / When → Do* cards and says which planner produced them. You can remove a filter or rule (×) and change the duration (− / +). The server re-validates every edit.
+- **Act** chooses **Autonomous** (act within bounds) or **Approve**. In Approve mode, each hardware action (starting a scan, recording IQ, extending the run) appears as an approval card. You approve or deny it under your name, and the decision goes into the audit.
+- **Run** shows live progress, a detections-per-second sparkline, per-protocol counts, an alert stack (critical alerts in red), the matching devices (alerted and tagged ones first), and a timeline of matches, rules and actions. When the run ends, a **What happened** summary appears. It is built only from the run's own records, and is also printed by the CLI and included in the report.
+- **Recent runs** lists earlier runs with *Report*, *View* and *Run again*. Reloading the page resumes a run in progress.
+
+**SDR + modem in one workflow.** A workflow can combine one SDR protocol group (BLE with Bluetooth Classic, or Zigbee, or TPMS) with the cellular modem, for example:
+
+> "Watch for trackers and rogue cell towers for 3 minutes. If an AirTag is seen for more than 1 minute, send an urgent alert. Send an urgent alert if an unknown network appears or if a 2G cell shows up."
+
+Filters are scoped per source. Cell fields (operator, RAT, generation, role) filter cells, and the other filters (tracker kind, dBFS signal, …) filter SDR devices. When several rules match the same device at the same moment, the result is one alert that lists every reason.
+
+**Simulation.** `rf-sentinel agent run "…" --simulate` (or `RF_SENTINEL_AGENT_SIMULATE=1`) replaces the receivers with two simulated ones. A scripted scenario plays out:
+- a crowd of phones and accessories;
+- a separated AirTag that appears and lingers;
+- a strong newcomer;
+- serving-cell changes;
+- a 2G cell on the test network PLMN 001-01.
+
+The gateway, approvals, workflow engine, evidence and reports are the real ones. Runs, reports and the UI are labelled **SIMULATED**. The dashboard's synthetic demo uses simulation for agent runs.
 
 **Planning.** A request becomes a typed `WorkflowSpec` (`rf_platform/agent/workflow.py`), made of three parts:
 
@@ -81,7 +98,7 @@ In `observe` mode, collect actions are denied; alerts and tags still work. In `a
 
 ## What it does
 
-1. **Understands the request.** Supported: Bluetooth Low Energy ("BLE", "beacons", "AirTag"), Bluetooth Classic ("bluetooth classic", "BR/EDR"), Zigbee / 802.15.4, and TPMS tire sensors. A plain "bluetooth" request covers both kinds of Bluetooth (see [Bluetooth Classic](#bluetooth-classic)). It understands durations ("for 2 minutes", up to 600 s), a receiver ("on bladerf:1"), and a Zigbee channel. Requests to transmit, jam, spoof, or replay are refused. WiFi needs a monitor-mode adapter, not an SDR, so the agent says so.
+1. **Understands the request.** Supported: Bluetooth Low Energy ("BLE", "beacons", "AirTag"), Bluetooth Classic ("bluetooth classic", "BR/EDR"), Zigbee / 802.15.4, TPMS tire sensors, and cell towers through a cellular modem ("cell towers", "LTE", "5G"). A plain "bluetooth" request covers both kinds of Bluetooth (see [Bluetooth Classic](#bluetooth-classic)). It understands durations ("for 2 minutes", up to 600 s), a receiver ("on bladerf:1"), and a Zigbee channel. Requests to transmit, jam, spoof, or replay are refused. WiFi needs a monitor-mode adapter, not an SDR, so the agent says so.
 2. **Chooses a receiver.** A free receiver whose tuning range and sample rate cover the band, from the IQ service. It uses the built-in SoapySDR service by default ([sdr.md](sdr.md)).
 3. **Level-based gain.** It measures received samples on every center frequency, then steps the gain to the highest value where the 99.9th-percentile magnitude is within 3 dB of -6 dBFS and under 0.1% of samples clip. The loudest channel decides, so the gain is safe everywhere.
 4. **Decoder-feedback gain.** While the decoder runs, the agent checks the decoder's own burst peaks every 8 s:
@@ -92,6 +109,38 @@ In `observe` mode, collect actions are denied; alerts and tags still work. In `a
 5. **Reports.** Detections are grouped per device: count, best RSSI, identity, manufacturer, and frame type. Each run writes `run.json`, `report.html`, and `checksums.sha256` under `.demo/agent-runs/<run>` (dashboard: `<log dir>/agent-runs`). Check the files with `sha256sum -c checksums.sha256`.
 
 Gain control is deterministic code; no model guesses gain values. Clipping is **measured** from received samples. Front-end overload is **inferred** from it.
+
+## Cellular survey (modem, not an SDR)
+
+A Quectel RM520N-GL cellular modem on USB adds cell-network awareness:
+- serving and neighbour cells every few seconds;
+- a full network scan (`AT+QSCAN`) about every 90 s;
+- for every cell: operator (from MCC-MNC), RAT (2G–5G NR), cell ID, PCI, ARFCN, TAC, and RSRP / RSRQ / SINR.
+
+```bash
+# The companion rm520n-survey service owns the modem (its own repo), on :5098 by default
+CELLULAR_SURVEY_PORT=/dev/ttyUSB3 python ui/backend/app.py          # in rm520n-survey
+rf-sentinel agent run "survey cell towers for 3 minutes"
+rf-sentinel agent run "Survey cell towers for 3 minutes. Send an urgent alert if an unknown network appears \
+  or if a 2G cell shows up, and alert me when the serving cell changes."
+```
+
+- **How it connects.** RF Sentinel reads cells from the survey service's HTTP API (`RF_SENTINEL_CELL_SURVEY_URL`, default `http://127.0.0.1:5098`), the same way it reads radios from the IQ service. `python -m rf_platform.cellular` is the adapter the agent runs; it emits one JSON `cell` event per observation.
+- **Capability check.** The agent confirms the service answers and sees a modem answering AT commands. If not, it says what's missing. If ModemManager is running, it may hold one AT port; use the other (`ttyUSB3` on the RM520N).
+- **Receive-only only without a SIM.** With no SIM the modem does not register on any network: it camps on cells and scans. **With a SIM inserted it registers like a phone, which transmits.** The capability result says so on every run.
+- **PLMN checks.**
+  - The full scan is treated as authoritative for a cell's network.
+  - A serving-cell report whose PLMN hasn't been confirmed by a scan is shown as *unverified PLMN*, not *unknown operator*. Some modem serving-cell reports carry a mis-parsed PLMN, and an "unknown network" trigger must not fire on that.
+  - Neighbour reports that carry no PLMN are shown as *PLMN not reported*.
+- **Workflow fields.** `operator`, `rat`, `generation` (2G–5G), and `role` (serving / neighbour / scanned). For cells, signal is RSRP in dBm.
+- **Rules-planner phrases:**
+  - carrier names ("only verizon");
+  - "unknown network/operator";
+  - "a 2G cell", "downgrades to 2G";
+  - "when the serving cell changes";
+  - "new cell stronger than -90".
+- **Dashboard.** Cells appear in the **Cellular** tab and the entity tables. RSRP (dBm) is kept separate from SDR dBFS health figures.
+- **Measured here.** With no SIM, a 2-minute run saw 24 cells across AT&T, FirstNet, Verizon and T-Mobile (LTE and 5G NR). It also saw 4 serving-cell changes while the SIM-less modem re-camped.
 
 ## Bluetooth Classic
 

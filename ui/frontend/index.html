@@ -1845,6 +1845,8 @@
       .wf-chip.classic { background: color-mix(in srgb, var(--btc-blue) 22%, var(--panel)); font-weight: 600; }
       .wf-chip.zigbee { background: color-mix(in srgb, var(--zigbee-purple) 18%, var(--panel)); color: var(--zigbee-purple); font-weight: 600; }
       .wf-chip.tpms { background: color-mix(in srgb, var(--gold) 20%, var(--panel)); font-weight: 600; }
+      .wf-chip.cellular { background: color-mix(in srgb, var(--cellular-magenta) 18%, var(--panel)); color: var(--cellular-magenta); font-weight: 600; }
+      .wf-dev .proto.cellular { background: var(--cellular-magenta); }
       .wf-rule { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center; padding: 8px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); margin-bottom: 6px; }
       .wf-rule .arrow { color: var(--wf-b); }
       .wf-rule .act { font-weight: 600; }
@@ -1897,6 +1899,86 @@
       @keyframes wf-glow { 50% { box-shadow: 0 0 22px color-mix(in srgb, var(--red) 55%, transparent); } }
       @media (prefers-reduced-motion: reduce) { .wf *, .wf { animation: none !important; transition: none !important; } }
 
+      /* ---- Workflow panel v2: modes, approvals, alert stack, sparkline, story, history ---- */
+      .wf-bell { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line);
+        background: var(--panel); color: var(--muted); cursor: pointer; }
+      .wf-bell[aria-pressed="true"] { color: #fff; border-color: transparent; background: linear-gradient(120deg, var(--wf-a), var(--wf-b)); }
+      .wf-saved:empty { display: none; }
+      .wf-saved button.preset { border-style: solid; color: var(--ink); background: color-mix(in srgb, var(--wf-b) 10%, var(--panel)); }
+      .wf-saved .preset-wrap { display: inline-flex; align-items: center; }
+      .wf-save { cursor: pointer; background: transparent; }
+      .wf-save:hover { color: var(--ink); border-color: var(--wf-b); }
+      .wf-error { border-color: color-mix(in srgb, var(--red) 50%, var(--line)); }
+      .wf-error-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+      .wf-badges { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+      .wf-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .wf-seg-label { font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-right: 2px; }
+      .wf-x { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-left: 4px; padding: 0; border: 0; border-radius: 50%;
+        background: transparent; color: var(--muted); cursor: pointer; }
+      .wf-x:hover { background: color-mix(in srgb, var(--red) 18%, transparent); color: var(--red); }
+      .wf-x .material-symbols-rounded { font-size: 15px; }
+      .wf-dur .wf-x:hover { background: color-mix(in srgb, var(--wf-b) 18%, transparent); color: var(--wf-b); }
+      .wf-rule { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; }
+      @media (max-width: 700px) {
+        .wf-prompt { flex-wrap: wrap; }
+        .wf-prompt textarea { flex-basis: calc(100% - 34px); min-height: 72px; }
+        .wf-prompt-actions { width: 100%; justify-content: stretch; }
+        .wf-prompt-actions .wf-btn { flex: 1; justify-content: center; }
+        .wf-rule { grid-template-columns: minmax(0, 1fr) auto; }
+        .wf-rule .arrow { display: none; }
+        .wf-rule > div:nth-of-type(2) { grid-column: 1 / -1; }
+        .wf-rule { position: relative; padding-right: 30px; }
+        .wf-rule > .wf-x { position: absolute; top: 8px; right: 6px; }
+        .wf-controls { gap: 6px; }
+        .wf { overflow-x: clip; }
+      }
+      .wf-sim { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 0.75rem; font-weight: 700;
+        letter-spacing: 0.06em; color: var(--gold); background: color-mix(in srgb, var(--gold) 16%, var(--panel)); border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent); }
+      .wf-sim .material-symbols-rounded { font-size: 15px; }
+      .wf-approval { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(120px, 180px) auto auto; gap: 10px; align-items: center;
+        padding: 10px 12px; border-radius: 12px; border: 1px solid var(--gold); background: color-mix(in srgb, var(--gold) 12%, var(--panel)); animation: wf-in 0.3s ease; }
+      .wf-approval > .material-symbols-rounded { color: var(--gold); }
+      .wf-approval input { min-height: 34px; }
+      @media (max-width: 760px) { .wf-approval { grid-template-columns: 1fr; } }
+      .wf-alerts { grid-column: 1 / -1; display: grid; gap: 6px; }
+      .wf-alert { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 12px; border-radius: 12px;
+        border: 1px solid var(--line); background: var(--panel); animation: wf-in 0.3s ease; }
+      .wf-alert.top { padding: 11px 14px; }
+      .wf-alert.critical { border-color: transparent; color: #fff; background: linear-gradient(120deg, var(--red), color-mix(in srgb, var(--red) 60%, var(--wf-c))); }
+      .wf-alert.critical.top { animation: wf-in 0.3s ease, wf-glow 2.2s ease-in-out infinite; }
+      .wf-alert.critical .small { color: inherit; opacity: 0.9; }
+      .wf-alert.warning { border-color: color-mix(in srgb, var(--gold) 60%, transparent); background: color-mix(in srgb, var(--gold) 12%, var(--panel)); }
+      .wf-alert.warning > .material-symbols-rounded { color: var(--gold); }
+      .wf-alert.info > .material-symbols-rounded { color: var(--wf-b); }
+      .wf-sev { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; opacity: 0.85; }
+      .wf-stats { grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.6fr); }
+      @media (max-width: 1100px) { .wf-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .wf-stat.wide { grid-column: 1 / -1; } }
+      .wf-mini { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+      .wf-mini .wf-chip { margin: 0; padding: 1px 7px; font-size: 0.72rem; }
+      .wf-spark { display: block; width: 100%; height: 36px; margin-top: 4px; }
+      .wf-spark-none { height: 36px; margin-top: 4px; border-bottom: 1px dashed var(--line); }
+      .wf-spark .line { fill: none; stroke: var(--wf-b); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+      .wf-spark .area { fill: color-mix(in srgb, var(--wf-b) 18%, transparent); stroke: none; }
+      .wf-story { grid-column: 1 / -1; border-color: color-mix(in srgb, var(--wf-c) 45%, var(--line)); }
+      .wf-story ul { margin: 0; padding-left: 18px; line-height: 1.6; }
+      .wf-timeline li.alert.critical::before { box-shadow: 0 0 0 6px color-mix(in srgb, var(--red) 30%, transparent); }
+      .wf-timeline li.alert.warning { color: var(--gold); }
+      .wf-timeline li.alert.warning::before { background: var(--gold); }
+      .wf-history { margin-top: 10px; }
+      .wf-history summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; display: flex; align-items: center; gap: 6px; }
+      .wf-history-list { display: grid; gap: 6px; margin-top: 8px; max-height: 300px; overflow: auto; }
+      .wf-run { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center; padding: 7px 10px;
+        border-radius: 10px; border: 1px solid var(--line); background: var(--panel); }
+      .wf-run .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .wf-run .sub { font-size: 0.78rem; color: var(--muted); }
+      .wf-run .wf-btn { padding: 4px 9px; font-weight: 500; font-size: 0.82rem; text-decoration: none; }
+      .wf-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+      .wf-dot.done { background: var(--green); }
+      .wf-dot.running, .wf-dot.awaiting_approval { background: var(--wf-b); box-shadow: 0 0 0 4px color-mix(in srgb, var(--wf-b) 25%, transparent); }
+      .wf-dot.error, .wf-dot.denied { background: var(--red); }
+      .wf-dot.stopped { background: var(--gold); }
+      @media (max-width: 760px) { .wf-run { grid-template-columns: auto minmax(0, 1fr); } .wf-run .wf-btn { grid-column: 2; justify-self: start; } }
+
       /* ---- Layout refresh: header (state + sweep controls) -> agent -> KPIs -> receivers | detections | most interesting ---- */
       .app { grid-template-rows: auto auto auto 1fr; }
       header { align-items: center; flex-wrap: wrap; }
@@ -1917,7 +1999,8 @@
       .wf { margin: 0; padding: 12px 14px; }
       .wf-plan[hidden], .wf-live[hidden] { display: none; }
       .wf-head { margin-bottom: 8px; }
-      .wf-plan { align-items: start; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.8fr); position: relative; }
+      .wf-plan { align-items: start; position: relative; }
+      @media (min-width: 901px) { .wf-plan { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.8fr); } }
       .wf-plan .wf-card { position: relative; }
       @media (min-width: 901px) {
         .wf-plan > .wf-card:nth-child(1)::after, .wf-plan > .wf-card:nth-child(2)::after {
@@ -2491,16 +2574,25 @@
               <span class="small">Say what to find, what to keep, and what to do when it shows up. Receive-only.</span>
             </div>
           </div>
-          <div class="wf-seg" role="radiogroup" aria-label="Planner">
-            <button type="button" data-planner="auto" class="on" title="Model when configured, rules otherwise">Auto</button>
-            <button type="button" data-planner="model" title="Model planner (falls back to rules)">Model</button>
-            <button type="button" data-planner="deterministic" title="Deterministic grammar">Rules</button>
+          <div class="wf-controls">
+            <span class="wf-seg-label">Plan</span>
+            <div class="wf-seg" id="wfPlannerSeg" role="radiogroup" aria-label="Planner">
+              <button type="button" data-planner="auto" title="Model when configured, rules otherwise">Auto</button>
+              <button type="button" data-planner="model" title="Model planner (falls back to rules)">Model</button>
+              <button type="button" data-planner="deterministic" title="Deterministic grammar">Rules</button>
+            </div>
+            <button type="button" class="wf-bell" id="wfBell" title="Desktop notifications for alerts while this tab is in the background" aria-pressed="false"><span class="material-symbols-rounded">notifications_off</span></button>
+            <span class="wf-seg-label">Act</span>
+            <div class="wf-seg" id="wfModeSeg" role="radiogroup" aria-label="Operating mode">
+              <button type="button" data-mode="passive-auto" title="Collect and act within bounds">Autonomous</button>
+              <button type="button" data-mode="approval-required" title="Every hardware action waits for your approval">Approve</button>
+            </div>
           </div>
         </div>
         <form id="wfForm" class="wf-prompt">
           <span class="material-symbols-rounded" aria-hidden="true">auto_awesome</span>
           <textarea id="wfText" rows="2" autocomplete="off" aria-label="Workflow request"
-            placeholder="Watch for bluetooth trackers for 5 minutes, only stronger than -60. If a tracker is seen for more than 2 minutes, alert me and record 5 seconds of IQ."></textarea>
+            placeholder="Describe the job, e.g. watch for trackers for 5 minutes; if one is seen for 2 minutes, send an urgent alert and record 5 seconds of IQ.  (Enter: plan · Ctrl+Enter: run)"></textarea>
           <div class="wf-prompt-actions">
             <button type="submit" id="wfPlanBtn" class="wf-btn ghost"><span class="material-symbols-rounded">account_tree</span>Plan</button>
             <button type="button" id="wfRunBtn" class="wf-btn primary"><span class="material-symbols-rounded">play_arrow</span>Run</button>
@@ -2512,9 +2604,16 @@
           <button type="button" data-ex="Find bluetooth devices for 3 minutes. When a new device stronger than -45 appears, alert me 'new device close by' and tag it as close.">New device nearby</button>
           <button type="button" data-ex="Look for apple devices for 2 minutes. If an AirTag appears, alert me and scan bluetooth classic for 60 seconds.">AirTag → Classic sweep</button>
           <button type="button" data-ex="Monitor zigbee for 5 minutes and stop when anything shows up.">Zigbee tripwire</button>
+          <button type="button" data-ex="Watch for trackers and rogue cell towers for 3 minutes. If an AirTag is seen for more than 1 minute, send an urgent alert. Send an urgent alert if an unknown network appears or if a 2G cell shows up.">Trackers + rogue cells</button>
+          <button type="button" data-ex="Survey cell towers for 3 minutes. Send an urgent alert if an unknown network appears or if a 2G cell shows up, and alert me when the serving cell changes.">Rogue cell watch</button>
         </div>
+        <div class="wf-examples wf-saved" id="wfSaved"></div>
         <div id="wfPlan" class="wf-plan" hidden></div>
         <div id="wfLive" class="wf-live" hidden></div>
+        <details class="wf-history" id="wfHistory">
+          <summary><span class="material-symbols-rounded">history</span>Recent runs</summary>
+          <div class="wf-history-list" id="wfHistoryList"></div>
+        </details>
       </section>
 
       <section class="kpi-strip" aria-label="RF health">
@@ -3640,6 +3739,69 @@
         return row?.protocol === "WIFI" && row?.wifi_role === "ap" && row?.ssid_visible === false;
       }
 
+
+      // In-place DOM updates for regions refreshed every poll: no flash, and hover, scroll, expanded rows and
+      // focused inputs survive. Identical HTML is skipped; elements are reused by data-entity-key / data-key / id,
+      // otherwise by position, and only changed attributes and text are written.
+      function morphNodeKey(node) {
+        return node.nodeType === 1 ? (node.getAttribute("data-entity-key") || node.getAttribute("data-key") || node.id || null) : null;
+      }
+
+      function morphNode(current, next) {
+        if (current.nodeType !== 1) {
+          if (current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
+          return;
+        }
+        const keepOpen = current.tagName === "DETAILS";
+        for (const attr of [...current.attributes]) {
+          if (!next.hasAttribute(attr.name) && !(keepOpen && attr.name === "open")) current.removeAttribute(attr.name);
+        }
+        for (const attr of [...next.attributes]) {
+          if (keepOpen && attr.name === "open") continue;
+          if (current.getAttribute(attr.name) !== attr.value) current.setAttribute(attr.name, attr.value);
+        }
+        if (/^(INPUT|SELECT|TEXTAREA)$/.test(current.tagName)) {
+          if (document.activeElement !== current && "value" in next && current.value !== next.value) current.value = next.value;
+          if (current.tagName !== "SELECT") return;
+        }
+        morphChildren(current, next);
+      }
+
+      function morphChildren(target, source) {
+        const keyed = new Map();
+        for (const node of target.childNodes) {
+          const key = morphNodeKey(node);
+          if (key) keyed.set(key, node);
+        }
+        const incoming = [...source.childNodes];
+        incoming.forEach((next, index) => {
+          const key = morphNodeKey(next);
+          const current = target.childNodes[index] || null;
+          let match = key ? keyed.get(key) : (current && !morphNodeKey(current) ? current : null);
+          if (match && (match.nodeType !== next.nodeType || match.nodeName !== next.nodeName)) match = null;
+          if (match) {
+            if (key) keyed.delete(key);
+            if (match !== current) target.insertBefore(match, current);
+            morphNode(match, next);
+          } else {
+            target.insertBefore(next, current);
+          }
+        });
+        while (target.childNodes.length > incoming.length) target.lastChild.remove();
+      }
+
+      function morphHtml(el, html) {
+        if (el.__morphHtml === html) return;
+        el.__morphHtml = html;
+        const template = document.createElement("template");
+        template.innerHTML = html;
+        morphChildren(el, template.content);
+      }
+
+      function enableMorph(...elements) {
+        elements.forEach((el) => Object.defineProperty(el, "morphHtml", { set(html) { morphHtml(el, String(html)); } }));
+      }
+
       function escapeHtml(value) {
         return String(value ?? "")
           .replaceAll("&", "&amp;")
@@ -3829,7 +3991,7 @@
             `;
           })
           .join("");
-        identityTableWrap.innerHTML = `
+        identityTableWrap.morphHtml = `
           <table class="identity-table">
             <thead>
               <tr>
@@ -3849,13 +4011,6 @@
             <tbody>${body}</tbody>
           </table>
         `;
-        identityTableWrap.querySelectorAll("th[data-sort]").forEach((th) => {
-          th.addEventListener("click", () => {
-            setTableSort(th.dataset.sort || "last_seen_at");
-            renderIdentityTable(rows);
-            applyEntityFocus();
-          });
-        });
       }
 
       function manufacturerGroupLabel(row) {
@@ -3998,7 +4153,7 @@
         const apCount = groups.filter((group) => group.key !== "unknown").length;
         const stationCount = groups.reduce((sum, group) => sum + group.stations.size, 0);
         if (!groups.length) {
-          identityTableWrap.innerHTML = `<div class="empty">No WiFi AP/station relationships yet</div>`;
+          identityTableWrap.morphHtml = `<div class="empty">No WiFi AP/station relationships yet</div>`;
           return;
         }
         const rowsHtml = groups.map((group, index) => {
@@ -4066,7 +4221,7 @@
             </details>
           `;
         }).join("");
-        identityTableWrap.innerHTML = `
+        identityTableWrap.morphHtml = `
           <div class="wifi-topology">
             <div class="wifi-topology-header">
               <div>
@@ -4180,7 +4335,9 @@
         }, new Map());
       }
 
+      let lastIdentityRows = [];
       function renderIdentityTable(rows) {
+        lastIdentityRows = rows;
         const filtered = activeDetectionTab === "ALL"
           ? rows
           : activeDetectionTab === "SUBGHZ"
@@ -4188,7 +4345,7 @@
             : rows.filter((row) => row.protocol === activeDetectionTab);
         const displayRows = activeDetectionTab === "BTC" ? mergeBtcRows(filtered) : filtered;
         if (!displayRows.length) {
-          identityTableWrap.innerHTML = `<div class="empty">No detections yet</div>`;
+          identityTableWrap.morphHtml = `<div class="empty">No detections yet</div>`;
           return;
         }
         if (activeDetectionTab === "WIFI" && detectionViewSelect.value === "wifi-map") {
@@ -4259,12 +4416,7 @@
             `;
           })
           .join("");
-        identityTableWrap.innerHTML = `<div class="detection-groups">${groupCards}</div>`;
-        identityTableWrap.querySelectorAll(".detection-group, .detection-subgroup").forEach((group) => {
-          group.addEventListener("toggle", () => {
-            detectionGroupOpen.set(group.dataset.group || "", group.open);
-          });
-        });
+        identityTableWrap.morphHtml = `<div class="detection-groups">${groupCards}</div>`;
       }
 
       function formatClassicStatus(status, candidateCount = 0) {
@@ -4401,10 +4553,10 @@
       function renderBleGroups(rows) {
         const groups = groupedBleManufacturers(rows).slice(0, 24);
         if (!groups.length) {
-          candidatesEl.innerHTML = `<div class="empty">No BTLE manufacturers yet</div>`;
+          candidatesEl.morphHtml = `<div class="empty">No BTLE manufacturers yet</div>`;
           return;
         }
-        candidatesEl.innerHTML = groups
+        candidatesEl.morphHtml = groups
           .map((group) => {
             const names = [...group.names].slice(0, 3);
             const macs = [...group.macs].slice(0, 3);
@@ -4452,10 +4604,10 @@
           .sort((a, b) => interestingScore(b) - interestingScore(a))
           .slice(0, 18);
         if (!interesting.length) {
-          candidatesEl.innerHTML = `<div class="empty">No RF entities yet</div>`;
+          candidatesEl.morphHtml = `<div class="empty">No RF entities yet</div>`;
           return;
         }
-        candidatesEl.innerHTML = interesting
+        candidatesEl.morphHtml = interesting
           .map((row) => {
             const type = fmtDeviceType(row);
             const manufacturer = fmtManufacturer(row);
@@ -4503,10 +4655,10 @@
               : rows.filter((row) => row.protocol === activeDetectionTab)
           ).slice(0, 24);
           if (!protocolRows.length) {
-            candidatesEl.innerHTML = `<div class="empty">No ${tabLabel} detections yet</div>`;
+            candidatesEl.morphHtml = `<div class="empty">No ${tabLabel} detections yet</div>`;
             return;
           }
-          candidatesEl.innerHTML = protocolRows
+          candidatesEl.morphHtml = protocolRows
             .map((row) => `
               <article class="${Number(row.detections || 0) > 1 ? "candidate good" : "candidate soft"} ${protocolClass(row.protocol)}"${followAttrs(row)}>
                 <div class="candidate-top">
@@ -4532,7 +4684,7 @@
         }
         candidatePanelTitle.textContent = "UAP Candidates";
         if (!candidates.length && !addresses.length) {
-          candidatesEl.innerHTML = `<div class="empty">No LAPs yet</div>`;
+          candidatesEl.morphHtml = `<div class="empty">No LAPs yet</div>`;
           return;
         }
         const candidateRows = groupedClassicCandidates(addresses, candidates)
@@ -4569,7 +4721,7 @@
                 ${uaps.length > 1 ? `<span class="chip">UAPs ${uaps.slice(0, 6).join(" ")}</span>` : ""}
                 ${candidate.group_count > 1 ? `<span class="chip">${candidate.group_count} merged</span>` : ""}
                 <span class="chip">${fmtFreq(candidate.center_freq_hz)}</span>
-                <span class="chip">${fmtDb(candidate.rssi_dbfs)} dBFS</span>
+                <span class="chip">${candidate.rsrp_dbm != null ? `RSRP ${fmtDb(candidate.rsrp_dbm)} dBm` : `${fmtDb(candidate.rssi_dbfs)} dBFS`}</span>
                 ${candidate.header_relaxed ? `<span class="chip">header ${candidate.header_perfect_triplets || 0}/18</span>` : ""}
                 ${candidate.repaired ? `<span class="chip">repair ${candidate.repair_distance || 0}</span>` : ""}
               </div>
@@ -4578,7 +4730,7 @@
           `;
           })
           .join("");
-        candidatesEl.innerHTML = candidateRows;
+        candidatesEl.morphHtml = candidateRows;
       }
 
       function renderBars(status) {
@@ -4864,7 +5016,7 @@
               </div>
             `);
           });
-        sdrAssignmentList.innerHTML = cards.length
+        sdrAssignmentList.morphHtml = cards.length
           ? cards.join("")
           : `<div class="sdr-assignment-empty">No SDR assignment data yet. Start a scan and RF Sentinel will show live radio roles here.</div>`;
       }
@@ -5700,7 +5852,7 @@
         new MutationObserver(() => { runState.title = runState.textContent; }).observe(runState, { childList: true, characterData: true, subtree: true });
       })();
 
-      // Agent workflows: plain language -> plan (find / filter / when -> do) -> live run with triggers.
+      // Agent workflows: plain language -> plan (find / keep / when -> do) -> live run with triggers.
       const wf = document.getElementById("wf");
       const wfForm = document.getElementById("wfForm");
       const wfText = document.getElementById("wfText");
@@ -5709,26 +5861,66 @@
       const wfStopBtn = document.getElementById("wfStopBtn");
       const wfPlanEl = document.getElementById("wfPlan");
       const wfLive = document.getElementById("wfLive");
-      const WF_PROTO = { ble: "BLE", classic: "Bluetooth Classic", zigbee: "Zigbee", tpms: "TPMS" };
+      const wfHistoryList = document.getElementById("wfHistoryList");
+      enableMorph(identityTableWrap, candidatesEl, sdrAssignmentList, wfLive, wfHistoryList);
+      const WF_PROTO = { ble: "BLE", classic: "Bluetooth Classic", zigbee: "Zigbee", tpms: "TPMS", cellular: "Cellular (modem)" };
       const WF_ICON = { alert: "notifications_active", tag: "sell", record_iq: "radio_button_checked", start_scan: "travel_explore",
         extend: "more_time", stop: "stop_circle" };
-      let wfPlanner = "auto";
+      const WF_MODE_LABEL = { "passive-auto": "Autonomous", "approval-required": "Approve actions", observe: "Observe only" };
+      const WF_ACTIVE = ["running", "awaiting_approval", "stopping"];
+      const wfStore = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+        set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode: fine */ } } };
+      let wfPlanner = wfStore.get("wf.planner", "auto");
+      let wfMode = ["passive-auto", "approval-required"].includes(wfStore.get("wf.mode", "")) ? wfStore.get("wf.mode") : "passive-auto";
       let wfPlanned = null;
       let wfPlannedText = "";
       let agentJobId = null;
       let agentTimer = null;
       let wfAlertsSeen = 0;
 
-      document.querySelectorAll(".wf-seg button").forEach((btn) => btn.addEventListener("click", () => {
-        wfPlanner = btn.dataset.planner;
-        document.querySelectorAll(".wf-seg button").forEach((b) => b.classList.toggle("on", b === btn));
-        wfPlanned = null;
-      }));
+      function wfSegment(selector, attr, value, onChange) {
+        document.querySelectorAll(selector).forEach((btn) => {
+          btn.classList.toggle("on", btn.dataset[attr] === value);
+          btn.addEventListener("click", () => {
+            document.querySelectorAll(selector).forEach((b) => b.classList.toggle("on", b === btn));
+            onChange(btn.dataset[attr]);
+          });
+        });
+      }
+      wfSegment("#wfPlannerSeg button", "planner", wfPlanner, (v) => { wfPlanner = v; wfStore.set("wf.planner", v); wfPlanned = null; });
+      wfSegment("#wfModeSeg button", "mode", wfMode, (v) => { wfMode = v; wfStore.set("wf.mode", v); });
+
+      // Desktop notifications (local Notification API only): opt-in, shown when the tab is in the background.
+      const wfBell = document.getElementById("wfBell");
+      function wfBellState() {
+        const on = "Notification" in window && Notification.permission === "granted" && wfStore.get("wf.notify", "0") === "1";
+        wfBell.setAttribute("aria-pressed", String(on));
+        wfBell.innerHTML = materialIcon(on ? "notifications_active" : "notifications_off");
+        wfBell.hidden = !("Notification" in window);
+        return on;
+      }
+      wfBell.addEventListener("click", async () => {
+        if (wfBellState()) { wfStore.set("wf.notify", "0"); wfBellState(); return; }
+        const permission = await Notification.requestPermission();
+        wfStore.set("wf.notify", permission === "granted" ? "1" : "0");
+        if (permission !== "granted") showToast("Desktop notifications are blocked for this site in the browser settings");
+        wfBellState();
+      });
+      wfBellState();
+      function wfNotify(alert) {
+        if (!document.hidden || !wfBellState()) return;
+        try {
+          new Notification(alert.severity === "critical" ? "RF Sentinel: critical alert" : "RF Sentinel alert",
+            { body: alert.message, tag: `${alert.t}|${alert.device?.key || ""}`, requireInteraction: alert.severity === "critical" });
+        } catch { /* some browsers only allow notifications from a service worker */ }
+      }
+
       document.querySelectorAll("#wfExamples button").forEach((btn) => btn.addEventListener("click", () => {
         wfText.value = btn.dataset.ex;
         wfForm.requestSubmit();
       }));
       wfText.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); wfRunBtn.click(); return; }
         if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); wfForm.requestSubmit(); }
       });
 
@@ -5738,20 +5930,29 @@
           extend: `Keep watching +${a.seconds} s`, stop: "Stop collection" }[a.kind];
       }
 
+      function wfDuration(seconds) {
+        return seconds >= 120 ? `${(seconds / 60).toFixed(seconds % 60 ? 1 : 0)} min` : `${seconds} s`;
+      }
+
       function renderPlan(planned) {
         const spec = planned.spec, summary = planned.summary;
+        const x = (attr, i, title) => `<button type="button" class="wf-x" data-${attr}="${i}" title="${title}" aria-label="${title}">${materialIcon("close")}</button>`;
         const find = spec.collect.map((p) => `<span class="wf-chip ${p}">${escapeHtml(WF_PROTO[p])}</span>`).join("")
-          + `<span class="wf-chip">${materialIcon("timer")} ${spec.duration_s >= 120 ? `${(spec.duration_s / 60).toFixed(spec.duration_s % 60 ? 1 : 0)} min` : `${spec.duration_s} s`}</span>`
+          + `<span class="wf-chip wf-dur"><button type="button" class="wf-x" data-duration="-1" title="Shorter" aria-label="Shorter">${materialIcon("remove")}</button>
+              ${materialIcon("timer")} ${wfDuration(spec.duration_s)}
+              <button type="button" class="wf-x" data-duration="1" title="Longer" aria-label="Longer">${materialIcon("add")}</button></span>`
           + (spec.device_id ? `<span class="wf-chip">${materialIcon("settings_input_antenna")} ${escapeHtml(spec.device_id)}</span>` : "");
-        const filters = summary.filters.length ? summary.filters.map((f) => `<span class="wf-chip">${materialIcon("filter_alt")} ${escapeHtml(f)}</span>`).join("")
+        const filters = summary.filters.length
+          ? summary.filters.map((f, i) => `<span class="wf-chip">${materialIcon("filter_alt")} ${escapeHtml(f)}${x("remove-filter", i, "Remove filter")}</span>`).join("")
           : `<span class="wf-note">Everything decoded</span>`;
         const rules = spec.triggers.length ? spec.triggers.map((t, i) => `
             <div class="wf-rule">
               <div>${summary.triggers[i].split(" → ")[0].replace(/^when /, "").split(" and ").map((c) => `<span class="wf-chip">${escapeHtml(c)}</span>`).join("")}</div>
               <span class="material-symbols-rounded arrow">arrow_forward</span>
               <div>${t.do.map((a) => `<span class="wf-chip act">${materialIcon(WF_ICON[a.kind])} ${escapeHtml(wfDescribeAction(a))}</span>`).join("")}
-                ${t.repeat ? `<span class="wf-note">every time</span>` : `<span class="wf-note">once per device</span>`}</div>
-            </div>`).join("") : `<span class="wf-note">No triggers: collect and report.</span>`;
+                <span class="wf-note">${t.repeat ? "every time" : "once per device"}</span></div>
+              ${x("remove-trigger", i, "Remove rule")}
+            </div>`).join("") : `<span class="wf-note">No rules: collect and report.</span>`;
         const badge = planned.planner === "model"
           ? `<span class="wf-badge model">${materialIcon("neurology")} Planned by ${escapeHtml(planned.model || "model")}</span>`
           : `<span class="wf-badge">${materialIcon("rule")} Planned by rules${planned.fallback_reason ? " (model unavailable)" : ""}</span>`;
@@ -5759,10 +5960,68 @@
           <div class="wf-card"><h4>${materialIcon("radar")} Find</h4>${find}</div>
           <div class="wf-card"><h4>${materialIcon("filter_alt")} Keep</h4>${filters}</div>
           <div class="wf-card"><h4>${materialIcon("bolt")} When → Do</h4>${rules}</div>
-          <div class="wf-meta">${badge}
+          <div class="wf-meta"><span class="wf-badges">${badge}${planned.edited ? `<span class="wf-badge">${materialIcon("edit")} edited</span>` : ""}
+            <button type="button" class="wf-badge wf-save" data-save="1" title="Save this plan as a one-click preset in this browser">${materialIcon("bookmark_add")} Save</button></span>
             <span class="wf-note">${(spec.notes || []).map(escapeHtml).join(" · ")}${planned.fallback_reason ? ` · model: ${escapeHtml(planned.fallback_reason)}` : ""}</span></div>`;
         wfPlanEl.hidden = false;
       }
+
+      async function wfEditPlan(mutate) {
+        if (!wfPlanned) return;
+        const spec = JSON.parse(JSON.stringify(wfPlanned.spec));
+        mutate(spec);
+        const response = await fetch("/api/agent/plan", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ spec, planner: { planner: wfPlanned.planner, model: wfPlanned.model, fallback_reason: wfPlanned.fallback_reason } }) });
+        const planned = await response.json();
+        if (!response.ok) { showToast(planned.error || "That change is not allowed"); return; }
+        wfPlanned = planned;
+        renderPlan(planned);
+      }
+
+      const wfSaved = document.getElementById("wfSaved");
+      function wfPresets() { try { return JSON.parse(wfStore.get("wf.presets", "[]")) || []; } catch { return []; } }
+      function wfRenderPresets() {
+        wfSaved.innerHTML = wfPresets().map((p, i) => `<span class="preset-wrap">
+            <button type="button" class="preset" data-preset="${i}" title="${escapeHtml(p.text)}">${materialIcon("bookmark")} ${escapeHtml(p.name)}</button>
+            <button type="button" class="wf-x" data-unpreset="${i}" title="Remove preset" aria-label="Remove preset">${materialIcon("close")}</button></span>`).join("");
+      }
+      wfSaved.addEventListener("click", (event) => {
+        const run = event.target.closest("[data-preset]"), remove = event.target.closest("[data-unpreset]");
+        const presets = wfPresets();
+        if (remove) { presets.splice(Number(remove.dataset.unpreset), 1); wfStore.set("wf.presets", JSON.stringify(presets)); wfRenderPresets(); return; }
+        if (!run) return;
+        const preset = presets[Number(run.dataset.preset)];
+        wfText.value = preset.text;
+        wfPlanned = preset.planned;
+        wfPlannedText = preset.text;
+        renderPlan(wfPlanned);
+      });
+      wfRenderPresets();
+
+      wfPlanEl.addEventListener("click", (event) => {
+        if (event.target.closest("[data-save]") && wfPlanned) {
+          const name = (prompt("Name this preset", wfPlanned.summary?.find || "My workflow") || "").trim();
+          if (!name) return;
+          const presets = wfPresets().filter((p) => p.name !== name);
+          presets.unshift({ name: name.slice(0, 40), text: wfText.value.trim(), planned: wfPlanned });
+          wfStore.set("wf.presets", JSON.stringify(presets.slice(0, 12)));
+          wfRenderPresets();
+          showToast(`Saved “${name}”`);
+          return;
+        }
+        const btn = event.target.closest("button.wf-x");
+        if (!btn) return;
+        if (btn.dataset.removeFilter !== undefined) wfEditPlan((s) => s.filters.splice(Number(btn.dataset.removeFilter), 1));
+        if (btn.dataset.removeTrigger !== undefined) wfEditPlan((s) => s.triggers.splice(Number(btn.dataset.removeTrigger), 1));
+        if (btn.dataset.duration !== undefined) {
+          const steps = [15, 30, 60, 120, 180, 300, 420, 600];
+          wfEditPlan((s) => {
+            const at = steps.findIndex((v) => v >= s.duration_s);
+            const index = Math.max(0, Math.min(steps.length - 1, (at < 0 ? steps.length - 1 : at) + Number(btn.dataset.duration)));
+            s.duration_s = steps[index] === s.duration_s && Number(btn.dataset.duration) > 0 ? steps[Math.min(index + 1, steps.length - 1)] : steps[index];
+          });
+        }
+      });
 
       async function wfPlan() {
         const text = wfText.value.trim();
@@ -5788,31 +6047,90 @@
         }
       }
 
+      function wfUnit(d) { return d?.protocol === "cellular" ? "dBm" : "dBFS"; }
+
       function wfDevice(d) {
-        const tags = [d.new ? `<span class="wf-tag new">new</span>` : "", ...(d.tags || []).map((t) => `<span class="wf-tag flag">${escapeHtml(t)}</span>`)].join("");
+        const tags = [d.alerted ? `<span class="wf-tag flag">alert</span>` : "", d.new ? `<span class="wf-tag new">new</span>` : "",
+          ...(d.tags || []).map((t) => `<span class="wf-tag flag">${escapeHtml(t)}</span>`)].join("");
         const rssi = d.best_rssi_dbfs ?? d.rssi_dbfs;
-        const width = rssi == null ? 0 : Math.max(4, Math.min(100, (Number(rssi) + 90) * 1.4));
-        return `<div class="wf-dev ${(d.tags || []).length ? "flagged" : ""}">
+        const cell = d.protocol === "cellular";
+        const width = rssi == null ? 0 : Math.max(4, Math.min(100, cell ? (Number(rssi) + 130) * 1.25 : (Number(rssi) + 90) * 1.4));
+        return `<div class="wf-dev ${(d.tags || []).length || d.alerted ? "flagged" : ""}" data-key="${escapeHtml(d.key)}">
             <span class="proto ${escapeHtml(d.protocol || "ble")}"></span>
             <div style="min-width:0"><div class="name">${escapeHtml(d.label || d.key)}${tags}</div>
-              <div class="sub">${escapeHtml([WF_PROTO[d.protocol] || d.protocol, d.manufacturer, d.device_type, d.device_class, `${d.count}× seen`, d.dwell_s ? `${Math.round(d.dwell_s)} s` : ""].filter(Boolean).join(" · "))}</div></div>
-            <div class="wf-rssi">${rssi == null ? "" : `${Number(rssi).toFixed(0)} dBFS`}<i style="width:${width}%"></i></div>
+              <div class="sub">${escapeHtml([WF_PROTO[d.protocol] || d.protocol, d.manufacturer, d.device_type, d.device_class, d.role && cell ? d.role : "", `${d.count}× seen`, d.dwell_s ? `${Math.round(d.dwell_s)} s` : ""].filter(Boolean).join(" · "))}</div></div>
+            <div class="wf-rssi">${rssi == null ? "" : `${Number(rssi).toFixed(0)} ${wfUnit(d)}`}<i style="width:${width}%"></i></div>
           </div>`;
       }
 
       function wfTimelineItem(e) {
         const d = e.device || {};
+        if (e.kind === "action" && e.status === "done" && ["alert", "tag"].includes(e.action)) return "";  // the alert/tag itself is shown
         const text = {
           match: () => `${materialIcon("my_location")} Matched <strong>${escapeHtml(d.label || d.key)}</strong>`,
-          trigger: () => `${materialIcon("bolt")} Trigger fired on <strong>${escapeHtml(d.label || d.key)}</strong>: ${escapeHtml(e.rule)}`,
-          action: () => `${materialIcon(WF_ICON[e.action] || "task_alt")} ${escapeHtml(e.action.replace("_", " "))} ${escapeHtml(e.status)}${e.detail ? `: ${escapeHtml(String(e.detail).split("/").pop())}` : ""}`,
-          alert: () => `${materialIcon("notifications_active")} ${escapeHtml(e.message)} · ${escapeHtml(d.label || "")}`,
+          trigger: () => `${materialIcon("bolt")} Rule fired on <strong>${escapeHtml(d.label || d.key)}</strong><div class="small">${escapeHtml(e.rule)}</div>`,
+          action: () => `${materialIcon(WF_ICON[e.action] || "task_alt")} ${escapeHtml(e.action.replace("_", " "))} ${escapeHtml(e.status)}${e.detail ? `<div class="small">${escapeHtml(String(e.detail).split("/").pop())}</div>` : ""}`,
+          alert: () => `${materialIcon("notifications_active")} ${escapeHtml(e.message)}`,
         }[e.kind];
-        return text ? `<li class="${e.kind} ${e.status || ""}"><span class="t">${Number(e.t).toFixed(1)}s</span>${text()}</li>` : "";
+        const key = [e.t, e.kind, e.action || "", d.key || e.device_key || "", e.merged ? "m" : ""].join("|");
+        return text ? `<li class="${e.kind} ${e.status || ""} ${e.severity || ""}" data-key="${escapeHtml(key)}"><span class="t">${Number(e.t).toFixed(1)}s</span>${text()}</li>` : "";
       }
 
+      function wfSparkline(activity, seconds) {
+        if (!activity?.length) return `<div class="wf-spark-none"></div>`;
+        const span = Math.max(seconds, activity[activity.length - 1][0] + 1, 10);
+        const max = Math.max(...activity.map((a) => a[1]), 1);
+        const pts = activity.map(([t, n]) => `${((t / span) * 300).toFixed(1)},${(34 - (n / max) * 30).toFixed(1)}`).join(" ");
+        const last = activity[activity.length - 1];
+        return `<svg class="wf-spark" viewBox="0 0 300 36" preserveAspectRatio="none" role="img" aria-label="Detections per second">
+            <polyline points="0,34 ${pts} ${((last[0] / span) * 300).toFixed(1)},34" class="area"></polyline>
+            <polyline points="${pts}" class="line"></polyline></svg>`;
+      }
+
+      function wfApprovals(job) {
+        const pending = job.pending_approvals || [];
+        if (!pending.length) return "";
+        const operator = wfStore.get("wf.operator", "");
+        return pending.map((p) => `
+          <div class="wf-approval" data-key="${escapeHtml(p.action_id)}">
+            ${materialIcon("approval_delegation")}
+            <div><strong>Approval needed: ${escapeHtml(p.tool.replaceAll("_", " "))}</strong>
+              <span class="wf-note"> · expires in ${Math.max(0, Math.round(p.expires_at - Date.now() / 1000))} s</span>
+              <div class="small">${escapeHtml(Object.entries(p.params || {}).map(([k, v]) => `${k} ${typeof v === "object" ? JSON.stringify(v) : v}`).join(" · "))}</div></div>
+            <input type="text" class="wf-operator" placeholder="Operator name" value="${escapeHtml(operator)}" aria-label="Operator name">
+            <button type="button" class="wf-btn primary" data-approve="${escapeHtml(p.action_id)}">${materialIcon("check")}Approve</button>
+            <button type="button" class="wf-btn ghost" data-deny="${escapeHtml(p.action_id)}">${materialIcon("block")}Deny</button>
+          </div>`).join("");
+      }
+
+      wfLive.addEventListener("click", async (event) => {
+        const sim = event.target.closest("[data-simulate]");
+        if (sim) {
+          const job = await (await fetch(`/api/agent/jobs/${encodeURIComponent(sim.dataset.simulate)}`)).json();
+          const response = await fetch("/api/agent/run", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ command: job.command, workflow: job.workflow, mode: job.mode, simulate: true, planner: job.planner }) });
+          const started = await response.json();
+          if (!response.ok) { showToast(started.error || "Could not start the simulation"); return; }
+          agentJobId = started.job_id; wfAlertsSeen = 0; renderAgent(started);
+          clearInterval(agentTimer); agentTimer = setInterval(pollAgent, 1000); wfLoadHistory();
+          return;
+        }
+        const btn = event.target.closest("[data-approve],[data-deny]");
+        if (!btn || !agentJobId) return;
+        const operator = btn.parentElement.querySelector(".wf-operator")?.value.trim();
+        if (!operator) { showToast("Enter your name: approvals are recorded against a named operator"); return; }
+        wfStore.set("wf.operator", operator);
+        const approve = btn.dataset.approve !== undefined;
+        const response = await fetch(`/api/agent/jobs/${agentJobId}/${approve ? "approve" : "deny"}`, { method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action_id: btn.dataset.approve || btn.dataset.deny, operator, reason: approve ? "approved in dashboard" : "denied in dashboard" }) });
+        const result = await response.json();
+        showToast(response.ok ? `${result.action_id}: ${result.decision} by ${result.operator}` : (result.error || "Approval failed"));
+        pollAgent();
+      });
+
       function renderAgent(job) {
-        const running = ["running", "awaiting_approval", "stopping"].includes(job.status);
+        const running = WF_ACTIVE.includes(job.status);
         wf.classList.toggle("running", running);
         wfRunBtn.disabled = running;
         wfStopBtn.hidden = !running;
@@ -5822,43 +6140,104 @@
         const matchedMap = new Map();
         events.forEach((e) => { if (e.device?.key) matchedMap.set(e.device.key, { ...(matchedMap.get(e.device.key) || {}), ...e.device }); });
         (workflow.matched || []).forEach((d) => matchedMap.set(d.key, d));
-        const matched = [...matchedMap.values()].sort((a, b) => (b.count || 0) - (a.count || 0));
         const alerts = job.alerts || [];
+        const alerted = new Set(alerts.map((a) => a.device?.key));
+        const rank = (d) => (alerted.has(d.key) ? 2 : 0) + ((d.tags || []).length ? 1 : 0);
+        const matched = [...matchedMap.values()].map((d) => ({ ...d, alerted: alerted.has(d.key) }))
+          .sort((a, b) => rank(b) - rank(a) || (b.count || 0) - (a.count || 0));
         const triggers = events.filter((e) => e.kind === "trigger").length;
         const spec = job.workflow || {};
         const elapsed = ((job.finished_at || Date.now() / 1000) - job.started_at);
         const extended = (job.steps || []).reduce((sum, s) => { const m = /Extended collection by (\d+)/.exec(s.message); return sum + (m ? Number(m[1]) : 0); }, 0);
         const total = (spec.duration_s || 60) + extended + 10;
         const pct = running ? Math.min(98, (elapsed / total) * 100) : 100;
-        const latestAlert = alerts[alerts.length - 1];
+        const byProtocol = matched.reduce((acc, d) => { acc[d.protocol] = (acc[d.protocol] || 0) + 1; return acc; }, {});
         const statusText = { running: "Running", awaiting_approval: "Waiting for operator approval", stopping: "Stopping…", done: "Complete",
           stopped: "Stopped", denied: "Denied", error: "Error" }[job.status] || job.status;
+        const alertStack = alerts.slice(-3).reverse().map((a, i) => `
+            <div class="wf-alert ${escapeHtml(a.severity)} ${i === 0 ? "top" : ""}" data-key="${escapeHtml(`${a.t}|${a.device?.key || ""}`)}">
+              ${materialIcon(a.severity === "critical" ? "warning" : "notifications_active")}
+              <div><strong>${escapeHtml(a.message)}</strong>
+                <div class="small">${escapeHtml(a.device?.label || "")}${a.device?.rssi_dbfs != null ? ` · ${Number(a.device.rssi_dbfs).toFixed(0)} ${wfUnit(a.device)}` : ""} · ${Number(a.t).toFixed(1)} s</div></div>
+              <span class="wf-sev">${escapeHtml(a.severity)}</span>
+            </div>`).join("");
+        const story = (workflow.narrative || []).map((line) => `<li>${escapeHtml(line)}</li>`).join("");
         wfLive.hidden = false;
-        wfLive.innerHTML = `
+        wfLive.morphHtml = `
           <div class="wf-status"><span class="wf-pulse ${running ? "" : "idle"}"></span><strong>${escapeHtml(statusText)}</strong>
-            <span class="small">${escapeHtml(job.summary?.find || "")} · ${Math.round(elapsed)} s · ${escapeHtml(job.mode)} mode</span>
+            ${job.simulated ? `<span class="wf-sim">${materialIcon("science")} SIMULATED</span>` : ""}
+            <span class="small">${escapeHtml(job.summary?.find || "")} · ${Math.round(elapsed)} s · ${escapeHtml(WF_MODE_LABEL[job.mode] || job.mode)}</span>
             <div class="wf-progress"><span style="width:${pct}%"></span></div>
             ${job.report_dir ? `<a class="wf-badge" href="/api/agent/jobs/${encodeURIComponent(job.job_id)}/report" target="_blank" rel="noopener">${materialIcon("verified")} Verifiable report</a>` : ""}</div>
-          ${latestAlert ? `<div class="wf-alert-banner">${materialIcon("notifications_active")}<div><strong>${escapeHtml(latestAlert.message)}</strong>
-            <div class="small" style="color:inherit;opacity:.9">${escapeHtml(latestAlert.device?.label || "")} · ${latestAlert.device?.rssi_dbfs != null ? `${Number(latestAlert.device.rssi_dbfs).toFixed(0)} dBFS · ` : ""}${Number(latestAlert.t).toFixed(1)} s</div></div></div>` : ""}
+          ${wfApprovals(job)}
+          ${alertStack ? `<div class="wf-alerts">${alertStack}</div>` : ""}
           <div class="wf-stats">
             <div class="wf-stat"><span>Devices seen</span><strong>${workflow.seen ?? new Set(events.map((e) => e.device?.key).filter(Boolean)).size}</strong></div>
-            <div class="wf-stat"><span>Matched</span><strong>${matched.length}</strong></div>
-            <div class="wf-stat"><span>Triggers</span><strong>${triggers}</strong></div>
+            <div class="wf-stat"><span>Matched</span><strong>${matched.length}</strong>
+              <div class="wf-mini">${Object.entries(byProtocol).map(([p, n]) => `<span class="wf-chip ${escapeHtml(p)}">${escapeHtml(WF_PROTO[p] || p)} ${n}</span>`).join("")}</div></div>
+            <div class="wf-stat"><span>Rules fired</span><strong>${triggers}</strong></div>
             <div class="wf-stat ${alerts.length ? "hot" : ""}"><span>Alerts</span><strong>${alerts.length}</strong></div>
+            <div class="wf-stat wide"><span>Detections / s</span>${wfSparkline(job.activity, spec.duration_s || 60)}</div>
           </div>
+          ${story ? `<div class="wf-card wf-story"><h4>${materialIcon("summarize")} What happened</h4><ul>${story}</ul></div>` : ""}
           <div class="wf-card"><h4>${materialIcon("devices")} Matching devices</h4>
             <div class="wf-list">${matched.length ? matched.map(wfDevice).join("") : `<div class="wf-empty">${running ? "Listening…" : "No device matched the filters."}</div>`}</div></div>
           <div class="wf-card"><h4>${materialIcon("timeline")} Live timeline</h4>
             ${events.length ? `<ul class="wf-timeline">${events.slice(-80).reverse().map(wfTimelineItem).join("")}</ul>` : `<div class="wf-empty">${running ? "Waiting for the first match…" : "Nothing matched."}</div>`}</div>
-          ${job.error ? `<div class="wf-card" style="grid-column:1/-1"><strong>${escapeHtml(job.error)}</strong></div>` : ""}
-          <details class="wf-steps" ${running && !events.length ? "open" : ""}><summary>Agent steps (${(job.steps || []).length}) · gain, receivers, approvals, actions</summary>
+          ${job.error ? `<div class="wf-card wf-error" style="grid-column:1/-1"><strong>${escapeHtml(job.error)}</strong>
+            ${!job.simulated && /no attached receiver|not delivering samples|receiver is busy|every suitable receiver|not available|not reopening|iq service .* is not running|connection refused/i.test(job.error)
+              ? `<div class="wf-error-actions"><span class="wf-note">No usable receiver right now.</span>
+                 <button type="button" class="wf-btn ghost" data-simulate="${escapeHtml(job.job_id)}">${materialIcon("science")}Run this plan as a simulation</button></div>` : ""}</div>` : ""}
+          <details class="wf-steps"><summary>Agent steps (${(job.steps || []).length}) · receivers, gain, approvals, actions</summary>
             <ol>${(job.steps || []).map((s) => `<li><span class="small">${Number(s.t).toFixed(1)} s</span> ${escapeHtml(s.message)}</li>`).join("")}</ol></details>`;
         if (alerts.length > wfAlertsSeen) {
-          alerts.slice(wfAlertsSeen).forEach((a) => showToast(`Alert: ${a.message}${a.device?.label ? ` (${a.device.label})` : ""}`));
+          alerts.slice(wfAlertsSeen).forEach((a) => { showToast(`${a.severity === "critical" ? "Critical alert" : "Alert"}: ${a.message}`); wfNotify(a); });
           wfAlertsSeen = alerts.length;
         }
       }
+
+      function wfAgo(seconds) {
+        const s = Math.max(0, Date.now() / 1000 - seconds);
+        return s < 90 ? `${Math.round(s)} s ago` : s < 5400 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
+      }
+
+      async function wfLoadHistory() {
+        try {
+          const jobs = await (await fetch("/api/agent/jobs")).json();
+          wfHistoryList.morphHtml = jobs.length ? jobs.map((j) => {
+            const devices = (j.result?.devices || []).length;
+            return `<div class="wf-run" data-key="${escapeHtml(j.job_id)}">
+                <span class="wf-dot ${escapeHtml(j.status)}"></span>
+                <div style="min-width:0"><div class="name">${escapeHtml(j.command)}</div>
+                  <div class="sub">${escapeHtml([j.summary?.find, WF_MODE_LABEL[j.mode] || j.mode, `${devices} device(s)`, `${(j.alerts || []).length} alert(s)`, wfAgo(j.started_at)].filter(Boolean).join(" · "))}
+                    ${j.simulated ? `<span class="wf-tag">simulated</span>` : ""}</div></div>
+                ${j.report_dir ? `<a class="wf-btn ghost" href="/api/agent/jobs/${encodeURIComponent(j.job_id)}/report" target="_blank" rel="noopener">${materialIcon("description")}Report</a>` : ""}
+                <button type="button" class="wf-btn ghost" data-view="${escapeHtml(j.job_id)}">${materialIcon("visibility")}View</button>
+                <button type="button" class="wf-btn ghost" data-rerun="${escapeHtml(j.job_id)}">${materialIcon("replay")}Run again</button>
+              </div>`;
+          }).join("") : `<div class="wf-empty">No runs yet.</div>`;
+          wfHistoryList.__jobs = new Map(jobs.map((j) => [j.job_id, j]));
+        } catch { /* history is optional */ }
+      }
+
+      wfHistoryList.addEventListener("click", (event) => {
+        const btn = event.target.closest("[data-rerun],[data-view]");
+        const job = btn && wfHistoryList.__jobs?.get(btn.dataset.rerun || btn.dataset.view);
+        if (!job) return;
+        if (btn.dataset.view) {
+          agentJobId = job.job_id;
+          wfAlertsSeen = (job.alerts || []).length;
+          renderAgent(job);
+          wf.scrollIntoView({ behavior: "smooth", block: "start" });
+          return;
+        }
+        wfText.value = job.command;
+        wfPlanned = { spec: job.workflow, summary: job.summary, planner: job.planner?.planner || "deterministic",
+          model: job.planner?.model, fallback_reason: job.planner?.fallback_reason };
+        wfPlannedText = job.command;
+        renderPlan(wfPlanned);
+        wf.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
 
       async function pollAgent() {
         if (!agentJobId) return;
@@ -5866,10 +6245,11 @@
           const response = await fetch(`/api/agent/jobs/${agentJobId}`);
           const job = await response.json();
           renderAgent(job);
-          if (!["running", "awaiting_approval", "stopping"].includes(job.status)) {
+          if (!WF_ACTIVE.includes(job.status)) {
             clearInterval(agentTimer);
             agentTimer = null;
             pollStatus();
+            wfLoadHistory();
           }
         } catch (err) {
           showToast(err.message || "Agent status unavailable");
@@ -5883,12 +6263,12 @@
 
       wfRunBtn.addEventListener("click", async () => {
         const text = wfText.value.trim();
-        if (!text) return;
-        const planned = (wfPlanned && wfPlannedText === text) ? wfPlanned : await wfPlan();
+        if (!text && !wfPlanned) return;
+        const planned = (wfPlanned && (wfPlannedText === text || wfPlanned.edited)) ? wfPlanned : await wfPlan();
         if (!planned) return;
         try {
           const response = await fetch("/api/agent/run", { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ command: text, workflow: planned.spec,
+            body: JSON.stringify({ command: text, workflow: planned.spec, mode: wfMode,
               planner: { planner: planned.planner, model: planned.model, fallback_reason: planned.fallback_reason } }) });
           const job = await response.json();
           if (!response.ok) throw new Error(job.error || `Request failed (${response.status})`);
@@ -5897,6 +6277,7 @@
           renderAgent(job);
           clearInterval(agentTimer);
           agentTimer = setInterval(pollAgent, 1000);
+          wfLoadHistory();
         } catch (err) {
           showToast(err.message);
         }
@@ -5905,6 +6286,18 @@
       wfStopBtn.addEventListener("click", async () => {
         if (agentJobId) await fetch(`/api/agent/jobs/${agentJobId}/stop`, { method: "POST" });
       });
+
+      // Resume a run already in progress (e.g. after a reload, or one started from the CLI) and show history.
+      (async () => {
+        await wfLoadHistory();
+        const active = [...(wfHistoryList.__jobs?.values() || [])].find((j) => WF_ACTIVE.includes(j.status));
+        if (active) {
+          agentJobId = active.job_id;
+          wfAlertsSeen = (active.alerts || []).length;
+          renderAgent(active);
+          agentTimer = setInterval(pollAgent, 1000);
+        }
+      })();
 
       // Read-only Analyst: findings cite entities; clicking one opens its row in the detections table.
       const analystOverlay = document.getElementById("analystOverlay");
@@ -6118,6 +6511,18 @@
       lfmfInput.addEventListener("change", () => applyProtocolSelection({ commit: false }));
       cellularInput.addEventListener("change", () => applyProtocolSelection({ commit: false }));
       identityTableWrap.addEventListener("contextmenu", handleFollowContextMenu);
+      identityTableWrap.addEventListener("click", (event) => {
+        const th = event.target.closest("th[data-sort]");
+        if (!th || !identityTableWrap.contains(th)) return;
+        setTableSort(th.dataset.sort || "last_seen_at");
+        renderIdentityTable(lastIdentityRows);
+        applyEntityFocus();
+      });
+      // "toggle" does not bubble; listen in the capture phase.
+      identityTableWrap.addEventListener("toggle", (event) => {
+        const group = event.target;
+        if (group.matches?.(".detection-group, .detection-subgroup")) detectionGroupOpen.set(group.dataset.group || "", group.open);
+      }, true);
       candidatesEl.addEventListener("contextmenu", handleFollowContextMenu);
       document.addEventListener("click", handleFollowClick);
       document.addEventListener("click", (event) => {

@@ -29,6 +29,7 @@ SoapySDR with Python bindings (`python3-soapysdr`), plus the module for your rad
 - **Open devices are reused** between streams. Opening a bladeRF takes several seconds; after the first open, a new stream delivers samples within about a second.
 
 - **Receiver health is reported per stream.** `GET /streams` includes `receiver.driver_path` (`libbladerf` or `soapysdr`), `receiver.samples_received`, and `receiver.overflows`. Overflows are driver-reported overruns, so they count samples that were lost.
+- **Reopen backoff.** After a receiver fails to open or stops delivering samples, the service waits 2, 4, 8 … up to 60 s before reopening it, and reports why in the meantime. Reopening a wedged bladeRF in a tight loop was seen to drive the USB host into a reset storm. The first chunk a receiver delivers clears its backoff.
 - **A failed receiver releases its device.** If a stream stops delivering samples for 5 s (a USB error or an unplugged radio), it fails with the driver error, its handle is closed, and it no longer owns the device. The next stream reopens the radio without needing `replace_existing`.
 
 ## bladeRF: native receive path

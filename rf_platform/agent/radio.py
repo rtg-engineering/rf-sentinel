@@ -63,7 +63,11 @@ class Radio:
         return {"Authorization": f"Bearer {self.token}"} if self.token else {}
 
     def devices(self) -> list[dict[str, Any]]:
-        response = requests.get(f"{self.base_url}/devices", headers=self.headers, timeout=30)
+        try:
+            response = requests.get(f"{self.base_url}/devices", headers=self.headers, timeout=30)
+        except requests.ConnectionError:
+            raise RuntimeError(f"The IQ service at {self.base_url} is not running, so no receiver is available. "
+                               "Start the dashboard outside demo mode (or rf-sentinel-soapy-gateway).") from None
         response.raise_for_status()
         return response.json()
 

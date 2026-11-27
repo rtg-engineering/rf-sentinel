@@ -1,0 +1,702 @@
+{
+ "about": "Plain-language workflow requests and the plan each must produce. Reviewed by hand; used to test the rules planner and to score model planners (scripts/evaluate_planner.py).",
+ "cases": [
+  {
+   "text": "find bluetooth devices",
+   "collect": [
+    "ble",
+    "classic"
+   ],
+   "duration_s": 30,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": []
+  },
+  {
+   "text": "find ble devices for 2 minutes",
+   "collect": [
+    "ble"
+   ],
+   "duration_s": 120,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": []
+  },
+  {
+   "text": "find bluetooth classic devices for 90 seconds",
+   "collect": [
+    "classic"
+   ],
+   "duration_s": 90,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": []
+  },
+  {
+   "text": "watch for trackers for 5 minutes",
+   "collect": [
+    "ble"
+   ],
+   "duration_s": 300,
+   "device_id": null,
+   "channel": null,
+   "filters": [
+    [
+     "device_class",
+     "eq",
+     "tracker"
+    ]
+   ],
+   "triggers": []
+  },
+  {
+   "text": "look for airtags for 3 minutes, only stronger than -60",
+   "collect": [
+    "ble"
+   ],
+   "duration_s": 180,
+   "device_id": null,
+   "channel": null,
+   "filters": [
+    [
+     "label",
+     "contains",
+     "AirTag"
+    ],
+    [
+     "rssi_dbfs",
+     "ge",
+     -60.0
+    ]
+   ],
+   "triggers": []
+  },
+  {
+   "text": "find apple devices for 1 minute",
+   "collect": [
+    "ble"
+   ],
+   "duration_s": 60,
+   "device_id": null,
+   "channel": null,
+   "filters": [
+    [
+     "manufacturer",
+     "contains",
+     "Apple"
+    ]
+   ],
+   "triggers": []
+  },
+  {
+   "text": "find bluetooth devices for 2 minutes, ignore apple devices",
+   "collect": [
+    "ble",
+    "classic"
+   ],
+   "duration_s": 120,
+   "device_id": null,
+   "channel": null,
+   "filters": [
+    [
+     "manufacturer",
+     "not_contains",
+     "Apple"
+    ]
+   ],
+   "triggers": []
+  },
+  {
+   "text": "watch for trackers for 10 minutes. if a tracker is seen for more than 5 minutes, send an urgent alert and record 5 seconds of iq",
+   "collect": [
+    "ble"
+   ],
+   "duration_s": 600,
+   "device_id": null,
+   "channel": null,
+   "filters": [
+    [
+     "device_class",
+     "eq",
+     "tracker"
+    ]
+   ],
+   "triggers": [
+    {
+     "when": [
+      [
+       "device_class",
+       "eq",
+       "tracker"
+      ],
+      [
+       "dwell_s",
+       "ge",
+       300.0
+      ]
+     ],
+     "do": [
+      "alert",
+      "record_iq"
+     ],
+     "severity": "critical",
+     "repeat": false
+    }
+   ]
+  },
+  {
+   "text": "find bluetooth devices for 3 minutes. when a new device stronger than -45 appears, alert me 'new device close by' and tag it as close",
+   "collect": [
+    "ble",
+    "classic"
+   ],
+   "duration_s": 180,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": [
+    {
+     "when": [
+      [
+       "new",
+       "eq",
+       true
+      ],
+      [
+       "rssi_dbfs",
+       "ge",
+       -45.0
+      ]
+     ],
+     "do": [
+      "alert",
+      "tag"
+     ],
+     "severity": "warning",
+     "repeat": false
+    }
+   ]
+  },
+  {
+   "text": "alert me if a new device stronger than -40 shows up in the next 3 minutes",
+   "collect": [
+    "ble",
+    "classic"
+   ],
+   "duration_s": 180,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": [
+    {
+     "when": [
+      [
+       "new",
+       "eq",
+       true
+      ],
+      [
+       "rssi_dbfs",
+       "ge",
+       -40.0
+      ]
+     ],
+     "do": [
+      "alert"
+     ],
+     "severity": "warning",
+     "repeat": false
+    }
+   ]
+  },
+  {
+   "text": "find ble devices for 60 seconds. whenever a phone is seen 5 times, alert me",
+   "collect": [
+    "ble"
+   ],
+   "duration_s": 60,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": [
+    {
+     "when": [
+      [
+       "count",
+       "ge",
+       5.0
+      ],
+      [
+       "device_type",
+       "contains",
+       "Phone"
+      ]
+     ],
+     "do": [
+      "alert"
+     ],
+     "severity": "warning",
+     "repeat": true
+    }
+   ]
+  },
+  {
+   "text": "find ble devices for 2 minutes. if an airtag appears, scan bluetooth classic for 60 seconds",
+   "collect": [
+    "ble"
+   ],
+   "duration_s": 120,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": [
+    {
+     "when": [
+      [
+       "label",
+       "contains",
+       "AirTag"
+      ]
+     ],
+     "do": [
+      "start_scan"
+     ],
+     "severity": null,
+     "repeat": false
+    }
+   ]
+  },
+  {
+   "text": "find ble devices for 2 minutes and stop when an airtag shows up",
+   "collect": [
+    "ble"
+   ],
+   "duration_s": 120,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": [
+    {
+     "when": [
+      [
+       "label",
+       "contains",
+       "AirTag"
+      ]
+     ],
+     "do": [
+      "stop"
+     ],
+     "severity": null,
+     "repeat": false
+    }
+   ]
+  },
+  {
+   "text": "monitor zigbee for 10 minutes and stop when anything shows up",
+   "collect": [
+    "zigbee"
+   ],
+   "duration_s": 600,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": [
+    {
+     "when": [
+      [
+       "count",
+       "ge",
+       1.0
+      ]
+     ],
+     "do": [
+      "stop"
+     ],
+     "severity": null,
+     "repeat": false
+    }
+   ]
+  },
+  {
+   "text": "listen for zigbee on channel 25 for 2 minutes",
+   "collect": [
+    "zigbee"
+   ],
+   "duration_s": 120,
+   "device_id": null,
+   "channel": 25,
+   "filters": [],
+   "triggers": []
+  },
+  {
+   "text": "find tire sensors for 3 minutes",
+   "collect": [
+    "tpms"
+   ],
+   "duration_s": 180,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": []
+  },
+  {
+   "text": "survey cell towers for 3 minutes",
+   "collect": [
+    "cellular"
+   ],
+   "duration_s": 180,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": []
+  },
+  {
+   "text": "watch cellular for 5 minutes, only verizon",
+   "collect": [
+    "cellular"
+   ],
+   "duration_s": 300,
+   "device_id": null,
+   "channel": null,
+   "filters": [
+    [
+     "operator",
+     "contains",
+     "Verizon"
+    ]
+   ],
+   "triggers": []
+  },
+  {
+   "text": "survey lte for 2 minutes. alert me if an unknown network appears or if a 2g cell shows up",
+   "collect": [
+    "cellular"
+   ],
+   "duration_s": 120,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": [
+    {
+     "when": [
+      [
+       "operator",
+       "eq",
+       "unknown operator"
+      ]
+     ],
+     "do": [
+      "alert"
+     ],
+     "severity": "warning",
+     "repeat": false
+    },
+    {
+     "when": [
+      [
+       "generation",
+       "eq",
+       "2G"
+      ]
+     ],
+     "do": [
+      "alert"
+     ],
+     "severity": "warning",
+     "repeat": false
+    }
+   ]
+  },
+  {
+   "text": "Survey cell towers for 3 minutes. Send an urgent alert if an unknown network appears or if a 2G cell shows up, and alert me when the serving cell changes.",
+   "collect": [
+    "cellular"
+   ],
+   "duration_s": 180,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": [
+    {
+     "when": [
+      [
+       "operator",
+       "eq",
+       "unknown operator"
+      ]
+     ],
+     "do": [
+      "alert"
+     ],
+     "severity": "critical",
+     "repeat": false
+    },
+    {
+     "when": [
+      [
+       "generation",
+       "eq",
+       "2G"
+      ]
+     ],
+     "do": [
+      "alert"
+     ],
+     "severity": "critical",
+     "repeat": false
+    },
+    {
+     "when": [
+      [
+       "role",
+       "eq",
+       "serving"
+      ]
+     ],
+     "do": [
+      "alert"
+     ],
+     "severity": "warning",
+     "repeat": false
+    }
+   ]
+  },
+  {
+   "text": "if a 2G cell or an unknown network appears in the next 5 minutes, send an urgent alert",
+   "collect": [
+    "cellular"
+   ],
+   "duration_s": 300,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": [
+    {
+     "when": [
+      [
+       "generation",
+       "eq",
+       "2G"
+      ]
+     ],
+     "do": [
+      "alert"
+     ],
+     "severity": "critical",
+     "repeat": false
+    },
+    {
+     "when": [
+      [
+       "operator",
+       "eq",
+       "unknown operator"
+      ]
+     ],
+     "do": [
+      "alert"
+     ],
+     "severity": "critical",
+     "repeat": false
+    }
+   ]
+  },
+  {
+   "text": "monitor lte for 2 minutes and alert me when the serving cell changes",
+   "collect": [
+    "cellular"
+   ],
+   "duration_s": 120,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": [
+    {
+     "when": [
+      [
+       "role",
+       "eq",
+       "serving"
+      ]
+     ],
+     "do": [
+      "alert"
+     ],
+     "severity": "warning",
+     "repeat": false
+    }
+   ]
+  },
+  {
+   "text": "watch for trackers and rogue cell towers for 2 minutes. if an airtag is seen for more than 30 seconds, send an urgent alert. send an urgent alert if an unknown network appears or if a 2G cell shows up",
+   "collect": [
+    "ble",
+    "cellular"
+   ],
+   "duration_s": 120,
+   "device_id": null,
+   "channel": null,
+   "filters": [
+    [
+     "device_class",
+     "eq",
+     "tracker"
+    ]
+   ],
+   "triggers": [
+    {
+     "when": [
+      [
+       "dwell_s",
+       "ge",
+       30.0
+      ],
+      [
+       "label",
+       "contains",
+       "AirTag"
+      ]
+     ],
+     "do": [
+      "alert"
+     ],
+     "severity": "critical",
+     "repeat": false
+    },
+    {
+     "when": [
+      [
+       "operator",
+       "eq",
+       "unknown operator"
+      ]
+     ],
+     "do": [
+      "alert"
+     ],
+     "severity": "critical",
+     "repeat": false
+    },
+    {
+     "when": [
+      [
+       "generation",
+       "eq",
+       "2G"
+      ]
+     ],
+     "do": [
+      "alert"
+     ],
+     "severity": "critical",
+     "repeat": false
+    }
+   ]
+  },
+  {
+   "text": "find zigbee and lte cells for 60 seconds",
+   "collect": [
+    "zigbee",
+    "cellular"
+   ],
+   "duration_s": 60,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": []
+  },
+  {
+   "text": "find bluetooth devices for 2 minutes. if a beacon is seen, tag it as beacon",
+   "collect": [
+    "ble",
+    "classic"
+   ],
+   "duration_s": 120,
+   "device_id": null,
+   "channel": null,
+   "filters": [],
+   "triggers": [
+    {
+     "when": [
+      [
+       "device_class",
+       "eq",
+       "beacon"
+      ]
+     ],
+     "do": [
+      "tag"
+     ],
+     "severity": null,
+     "repeat": false
+    }
+   ]
+  },
+  {
+   "text": "watch for trackers for 3 minutes. if a tracker is seen for more than 1 minute, keep watching 2 minutes and alert me",
+   "collect": [
+    "ble"
+   ],
+   "duration_s": 180,
+   "device_id": null,
+   "channel": null,
+   "filters": [
+    [
+     "device_class",
+     "eq",
+     "tracker"
+    ]
+   ],
+   "triggers": [
+    {
+     "when": [
+      [
+       "device_class",
+       "eq",
+       "tracker"
+      ],
+      [
+       "dwell_s",
+       "ge",
+       60.0
+      ]
+     ],
+     "do": [
+      "extend",
+      "alert"
+     ],
+     "severity": "warning",
+     "repeat": false
+    }
+   ]
+  },
+  {
+   "text": "find bluetooth devices for 30 seconds on bladerf:1",
+   "collect": [
+    "ble",
+    "classic"
+   ],
+   "duration_s": 30,
+   "device_id": "bladerf:1",
+   "channel": null,
+   "filters": [],
+   "triggers": []
+  },
+  {
+   "text": "jam the airtag",
+   "refused": true
+  },
+  {
+   "text": "replay the packet from that tile",
+   "refused": true
+  },
+  {
+   "text": "watch wifi for 2 minutes",
+   "refused": true
+  }
+ ]
+}

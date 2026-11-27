@@ -55,6 +55,14 @@ def show_job(job: dict, steps_from: int = 0) -> int:
     return len(job.get("steps", []))
 
 
+def print_story(result) -> None:
+    story = (result.get("workflow") or {}).get("narrative") or []
+    if story:
+        print("\nWhat happened")
+        for line in story:
+            print(f"  · {line}")
+
+
 def print_devices(result: dict) -> None:
     devices = result.get("devices") or []
     if not devices:
@@ -94,6 +102,7 @@ def follow(server: Server, job_id: str, as_json: bool) -> int:
             print(f"\n{job['status']}: {job['error']}")
         if job.get("result"):
             print_devices(job["result"])
+            print_story(job["result"])
             print(f"\nRun {job_id} ({job['result']['run_id']}) · report: {server.url}/api/agent/jobs/{job_id}/report")
     return 0 if job["status"] in ("done", "stopped") else 1
 
@@ -117,7 +126,7 @@ def run_local(args) -> int:
     from .gateway import PermissionDenied
     from .profiles import IntentError
     from .report import save
-    if not os.getenv("SDR_GATEWAY_BASE_URL"):
+    if not os.getenv("SDR_GATEWAY_BASE_URL") and not args.simulate:
         sdr = configure()
         if not sdr.get("available", True):
             print(f"error: SoapySDR is unavailable: {sdr.get('error')}", file=sys.stderr)
@@ -127,7 +136,7 @@ def run_local(args) -> int:
         planned = plan(" ".join(args.request), args.planner)
         if not args.json:
             print_plan(planned)
-        result = run_workflow(Agent(mode=args.mode), WorkflowSpec.model_validate(planned["spec"]),
+        result = run_workflow(Agent(mode=args.mode, simulate=args.simulate or None), WorkflowSpec.model_validate(planned["spec"]),
                               on_step=lambda m: None if args.json else print(f"• {m}", flush=True),
                               gain_db=args.gain, planner={k: planned[k] for k in ("planner", "model", "fallback_reason")})
     except (IntentError, PermissionDenied, ValueError) as exc:
@@ -141,6 +150,7 @@ def run_local(args) -> int:
         print(json.dumps(result, indent=2, default=str))
     else:
         print_devices(result)
+        print_story(result)
         print(f"\nRun {result['run_id']}: {folder / 'report.html'}")
     return 0
 
@@ -161,6 +171,8 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--detach", action="store_true", help="Start the run and print its id")
     run.add_argument("--json", action="store_true")
     run.add_argument("--local", action="store_true", help="Run in this process instead of the service")
+    run.add_argument("--simulate", action="store_true",
+                     help="Use simulated receivers and a scripted scenario (no radio; everything labelled SIMULATED)")
     run.add_argument("--planner", choices=["auto", "model", "deterministic"], default="deterministic",
                      help="Who turns the request into a plan (model needs RF_SENTINEL_PLANNER_MODEL or a login)")
     plan_cmd = sub.add_parser("plan", parents=[common], help="Show the plan for a request without running it")
@@ -187,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
                               timeout=180)
         if not args.json:
             print_plan(planned)
-        body = {"command": " ".join(args.request), "source": "cli", "workflow": planned["spec"],
+        body = {"command": " ".join(args.request), "source": "cli", "workflow": planned["spec"], "simulate": args.simulate,
                 "planner": {k: planned[k] for k in ("planner", "model", "fallback_reason")}}
         if args.mode:
             body["mode"] = args.mode

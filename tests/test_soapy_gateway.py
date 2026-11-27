@@ -246,7 +246,16 @@ class BackendTest(unittest.TestCase):
         self.assertIn("driver read error -2", session.worker.error)
         self.assertNotIn("bladerf:0", self.backend._handles)  # next stream reopens the device
         session.worker._thread.join(2)
-        # The failed session no longer owns the receiver: a new stream starts without replace_existing.
+        # Reopening right away is refused (backoff protects the USB host from reset storms) ...
+        self.assertGreater(self.backend.backoff_remaining("bladerf:0"), 0)
+        early = self.backend.start_stream({"device_id": "bladerf:0", "center_freq_hz": 2_402_000_000,
+                                           "sample_rate_sps": 2_000_000})
+        early.worker._thread.join(2)
+        self.assertIn("not reopening", early.worker.error)
+        # ... and once the backoff has passed, the failed sessions no longer own the receiver: a new stream
+        # starts without replace_existing and the success clears the backoff.
+        count, _ = self.backend._failures["bladerf:0"]
+        self.backend._failures["bladerf:0"] = (count, time.monotonic() - 120)
         recovered = self.backend.start_stream({"device_id": "bladerf:0", "center_freq_hz": 2_402_000_000,
                                                "sample_rate_sps": 2_000_000})
         deadline = time.time() + 5
@@ -255,6 +264,7 @@ class BackendTest(unittest.TestCase):
         self.assertGreater(recovered.worker.samples_received, 0)
         self.assertEqual(session.status, "stopped")
         self.assertEqual(self.backend.devices()[0]["occupied_id"], recovered.id)
+        self.assertEqual(self.backend.backoff_remaining("bladerf:0"), 0.0)
 
     def test_cs8_conversion_clips_and_scales(self):
         out = np.frombuffer(cf32_to_cs8(np.array([1 + 1j, -2 - 0.5j, 0.5j], dtype=np.complex64)), dtype=np.int8)

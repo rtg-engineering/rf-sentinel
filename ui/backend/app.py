@@ -4070,6 +4070,30 @@ def _scanner_json_to_events(source: str, payload: dict[str, Any]) -> list[dict[s
             }
         ]
 
+    if kind == "cell":
+        # A cell reported by the cellular survey modem (not SDR spectrum): keyed by cell identity.
+        rsrp = payload.get("rsrp_dbm")
+        detail_bits = [payload.get("operator"), payload.get("rat"), f"PLMN {payload.get('plmn')}" if payload.get("plmn") else "",
+                       f"cell {payload.get('cell_id')}" if payload.get("cell_id") else "",
+                       f"PCI {payload.get('pci')}" if payload.get("pci") is not None else "",
+                       f"ARFCN {payload.get('arfcn')}" if payload.get("arfcn") else "",
+                       f"TAC {payload.get('tac')}" if payload.get("tac") else "", payload.get("role"),
+                       f"RSRP {rsrp:.0f} dBm" if isinstance(rsrp, (int, float)) else "",
+                       f"SINR {payload['sinr_db']:.0f} dB" if isinstance(payload.get("sinr_db"), (int, float)) else ""]
+        return [{
+            "kind": "cellular_signal", "protocol": "CELLULAR", "seen_at": now, "link": payload.get("key"),
+            "identity": payload.get("identity") or payload.get("key"), "mac": payload.get("key"),
+            "detail": " · ".join(str(b) for b in detail_bits if b), "device_type": payload.get("rat") or "Cellular",
+            "device_type_detail": f"{payload.get('role') or 'cell'} cell (modem survey)",
+            # RSRP (dBm from the modem) is kept out of the SDR dBFS fields so receiver health stays in one unit.
+            "rssi_dbfs": None, "last_rssi_dbfs": None, "rsrp_dbm": rsrp, "rsrq_db": payload.get("rsrq_db"),
+            "sinr_db": payload.get("sinr_db"), "technology": payload.get("rat"), "likely_operator": payload.get("operator"),
+            "decoded_plmn": payload.get("plmn"), "decoded_plmn_source": "modem " + str(payload.get("source") or ""),
+            "decoded_mcc": payload.get("mcc"), "decoded_mnc": payload.get("mnc"), "cell_id": payload.get("cell_id"),
+            "pci": payload.get("pci"), "arfcn": payload.get("arfcn"), "tac": payload.get("tac"),
+            "classification": "Cell heard by the survey modem", "passive_only": True, "content_decoded": False,
+        }]
+
     if protocol in {"cellular awareness", "cellular"} or source_protocol == "cellular":
         frequency_hz = payload.get("frequency_hz") or payload.get("center_freq_hz")
         frequency_mhz = payload.get("frequency_mhz")
@@ -4996,6 +5020,9 @@ def _upsert_discovery_row(event: dict[str, Any]) -> None:
         row = {
             "key": f"cellular:{frequency_hz or identity}:{event.get('link') or 'unknown'}",
             "protocol": "CELLULAR",
+            "rsrp_dbm": event.get("rsrp_dbm"),
+            "pci": event.get("pci"),
+            "cell_id": event.get("cell_id"),
             "identity": identity,
             "mac": str(frequency_hz or identity),
             "detail": str(event.get("detail") or "Passive cellular spectrum awareness"),
@@ -8719,7 +8746,7 @@ def analyst_report():
 # path as scanner output, so they appear in the normal detections table.
 agent_jobs: dict[str, dict[str, Any]] = {}
 agent_jobs_lock = threading.Lock()
-AGENT_PROTOCOL_TAG = {"ble": "ble", "zigbee": "ieee802154", "tpms": "tpms", "classic": "btc"}
+AGENT_PROTOCOL_TAG = {"ble": "ble", "zigbee": "ieee802154", "tpms": "tpms", "classic": "btc", "cellular": "cellular"}
 _agent_broker = None
 
 
@@ -8740,6 +8767,18 @@ def _agent_ingest(protocol: str, payload: dict[str, Any]) -> None:
         event.setdefault("scanner_source", source)
     if events:
         _append_detections(events, [])
+
+
+def _agent_detection(job: dict[str, Any], spec, event: dict[str, Any]) -> None:
+    """Ingest an agent detection into the dashboard and count it in the run's per-second activity series."""
+    _agent_ingest(event.get("agent_profile") or spec.collect[0], event)
+    second = int(time.time() - job["started_at"])
+    activity = job["activity"]
+    if activity and activity[-1][0] == second:
+        activity[-1][1] += 1
+    else:
+        activity.append([second, 1])
+        del activity[:-600]
 
 
 def _agent_running() -> dict[str, Any] | None:
@@ -8766,11 +8805,26 @@ def agent_policy():
     return jsonify({"ceiling": server_ceiling(), "modes": list(MODES), "tools": TOOLS, "never": sorted(NEVER)})
 
 
+def agent_simulated(requested: bool) -> bool:
+    return requested or os.getenv("RF_SENTINEL_AGENT_SIMULATE", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 @app.post("/api/agent/plan")
 def agent_plan():
     """Plain language -> a validated workflow plan (find / filter / when->do). Nothing runs."""
-    from rf_platform.agent.workflow import plan
+    from pydantic import ValidationError
+    from rf_platform.agent.workflow import WorkflowSpec, plan
     body = request.get_json(silent=True) or {}
+    if isinstance(body.get("spec"), dict):
+        # An edited plan: validate it (bounds included) and return its summary, keeping who planned it.
+        try:
+            spec = WorkflowSpec.model_validate(body["spec"])
+        except (ValueError, ValidationError) as exc:
+            return jsonify({"error": str(exc)[:500]}), 400
+        planner_info = body.get("planner") if isinstance(body.get("planner"), dict) else {}
+        return jsonify({"spec": spec.model_dump(), "summary": spec.summary(), "edited": True,
+                        "planner": planner_info.get("planner", "deterministic"), "model": planner_info.get("model"),
+                        "fallback_reason": planner_info.get("fallback_reason")})
     text = str(body.get("text") or body.get("command") or "").strip()
     planner = str(body.get("planner") or "auto")
     if planner not in ("auto", "model", "deterministic"):
@@ -8789,8 +8843,8 @@ def agent_run():
     from rf_platform.agent.workflow import WorkflowSpec, plan_deterministic, run_workflow
     body = request.get_json(silent=True) or {}
     command = str(body.get("command") or "").strip()
-    if RF_SENTINEL_DEMO_MODE:
-        return jsonify({"error": "The agent needs live receivers; this dashboard is running the synthetic demo."}), 409
+    # The synthetic demo has no radios: agent runs there use simulated receivers and say so everywhere.
+    simulate = bool(body.get("simulate")) or RF_SENTINEL_DEMO_MODE
     try:
         # A confirmed plan is re-validated here: a client (or model) cannot exceed the schema's bounds.
         spec = WorkflowSpec.model_validate(body["workflow"]) if body.get("workflow") else plan_deterministic(command)
@@ -8808,11 +8862,13 @@ def agent_run():
     job = {"job_id": job_id, "command": command, "profile": spec.collect[0], "mode": mode,
            "source": str(body.get("source") or "dashboard")[:20], "status": "running", "started_at": time.time(),
            "steps": [], "result": None, "error": None, "workflow": spec.model_dump(), "summary": spec.summary(),
-           "planner": planner_info, "events": [], "alerts": []}
+           "planner": planner_info, "events": [], "alerts": [], "simulated": agent_simulated(simulate),
+           "activity": []}
     gateway = AgentGateway(mode, job_id, _agent_approvals(),
                            on_pending=lambda p: job["steps"].append({"t": round(time.time() - job["started_at"], 1),
                                                                      "message": f"Approval needed for {p['tool']} {p['params']} (action {p['action_id']})"}))
-    agent = Agent(_gateway_base(), os.getenv("SDR_GATEWAY_API_TOKEN", ""), gateway=gateway, run_id=job_id)
+    agent = Agent(_gateway_base(), os.getenv("SDR_GATEWAY_API_TOKEN", ""), gateway=gateway, run_id=job_id,
+                  simulate=simulate or None)
     job["agent"] = agent
     with agent_jobs_lock:
         agent_jobs[job_id] = job
@@ -8822,10 +8878,14 @@ def agent_run():
             def on_event(event):
                 job["events"].append(event)
                 if event["kind"] == "alert":
-                    job["alerts"].append(event)
+                    key = (event.get("device") or {}).get("key")
+                    if event.get("merged") and job["alerts"] and (job["alerts"][-1].get("device") or {}).get("key") == key:
+                        job["alerts"][-1] = event  # several rules matched at once: one alert, every reason
+                    else:
+                        job["alerts"].append(event)
             job["result"] = run_workflow(
                 agent, spec, on_step=lambda m: job["steps"].append({"t": round(time.time() - job["started_at"], 1), "message": m}),
-                on_detection=lambda e: _agent_ingest(e.get("agent_profile") or spec.collect[0], e), on_event=on_event,
+                on_detection=lambda e: _agent_detection(job, spec, e), on_event=on_event,
                 gain_db=float(gain) if gain is not None else None, planner=planner_info,
                 base_dir=RF_SENTINEL_LOG_DIR / "agent-runs")
             from rf_platform.agent.report import save
@@ -8844,11 +8904,48 @@ def agent_run():
     return jsonify(_agent_public(job))
 
 
+def _saved_agent_runs(limit: int = 20, exclude: set[str] | None = None) -> list[dict[str, Any]]:
+    """Finished runs from their saved reports, shaped like jobs, so history survives dashboard restarts."""
+    from datetime import datetime
+    folder = RF_SENTINEL_LOG_DIR / "agent-runs"
+    out: list[dict[str, Any]] = []
+    try:
+        candidates = sorted(folder.glob("RUN-*/run.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    except OSError:
+        return out
+    for path in candidates:
+        if len(out) >= limit:
+            break
+        try:
+            result = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if exclude and result.get("run_id") in exclude:
+            continue
+        workflow = result.get("workflow") or {}
+        try:
+            started = datetime.fromisoformat(str(result.get("started_at"))).timestamp()
+        except ValueError:
+            started = path.stat().st_mtime
+        out.append({"job_id": f"saved-{result.get('run_id')}", "run_id": result.get("run_id"), "saved": True,
+                    "command": (workflow.get("spec") or {}).get("goal") or result.get("command"),
+                    "profile": result.get("profile"), "mode": result.get("mode"), "source": "saved",
+                    "status": "stopped" if result.get("stopped") else "done", "started_at": started,
+                    "finished_at": started + float(result.get("elapsed_s") or 0), "steps": result.get("steps") or [],
+                    "result": result, "error": None, "workflow": workflow.get("spec"), "summary": workflow.get("summary"),
+                    "planner": workflow.get("planner"), "events": workflow.get("timeline") or [],
+                    "alerts": workflow.get("alerts") or [], "simulated": bool(result.get("simulated")), "activity": [],
+                    "report_dir": str(path.parent), "pending_approvals": []})
+    return out
+
+
 @app.get("/api/agent/jobs")
 def agent_jobs_list():
     with agent_jobs_lock:
         jobs = sorted(agent_jobs.values(), key=lambda j: -j["started_at"])[:20]
-    return jsonify([_agent_public(j) for j in jobs])
+    live = [_agent_public(j) for j in jobs]
+    saved = _saved_agent_runs(exclude={j.get("run_id") for j in jobs if j.get("run_id")})
+    return jsonify(sorted(live + saved, key=lambda j: -j["started_at"])[:20])
 
 
 @app.get("/api/agent/jobs/<job_id>")
@@ -8860,6 +8957,10 @@ def agent_job(job_id: str):
 @app.get("/api/agent/jobs/<job_id>/report")
 def agent_job_report(job_id: str):
     job = _agent_job(job_id)
+    if job is None and re.fullmatch(r"saved-RUN-[0-9a-f]{12}", job_id):
+        report = RF_SENTINEL_LOG_DIR / "agent-runs" / job_id[len("saved-"):] / "report.html"
+        if report.is_file() and report.parent.parent == RF_SENTINEL_LOG_DIR / "agent-runs":
+            return Response(report.read_text(), mimetype="text/html")
     if job is None or not job.get("report_dir"):
         return Response("No report for this run yet.", status=404, mimetype="text/plain")
     return Response((Path(job["report_dir"]) / "report.html").read_text(), mimetype="text/html")

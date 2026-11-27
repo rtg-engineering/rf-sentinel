@@ -149,11 +149,12 @@ class RxWorker:
 
     def __init__(self, soapy: Any, device: Device, center_hz: int, rate_sps: int, lna_db: float = 16,
                  vga_db: float = 20, amp: bool = False, bandwidth_hz: int | None = None,
-                 max_samples: int | None = None, opener=None, on_failure=None):
+                 max_samples: int | None = None, opener=None, on_failure=None, on_success=None):
         self.soapy, self.device = soapy, device
         # Opening some devices (e.g. bladeRF) takes seconds; the backend reuses an open handle.
         self._open = opener or (lambda: soapy.Device(device.kwargs))
         self._on_failure = on_failure
+        self._on_success = on_success
         self.center_hz, self.rate_sps = int(center_hz), int(rate_sps)
         self.gains = (lna_db, vga_db, amp)
         self.bandwidth_hz = bandwidth_hz
@@ -217,6 +218,8 @@ class RxWorker:
                     self._seq += 1
                     self._ring.append((self._seq, payload, self.center_hz))
                     self._cond.notify_all()
+                if not received and self._on_success:
+                    self._on_success()  # the device delivers again: clear its failure backoff
                 received += filled
                 self.samples_received = received
                 if self.max_samples and received >= self.max_samples:
@@ -295,12 +298,31 @@ class SoapyBackend:
         self._devices: dict[str, Device] = {}
         self._owners: dict[str, tuple[str, str]] = {}
         self._handles: dict[str, Any] = {}
+        self._failures: dict[str, tuple[int, float]] = {}
         self.sessions: dict[str, Session] = {}
 
     def _failure_handler(self, device: Device):
         def drop_handle():
             self._handles.pop(device.id, None)
+            self._record_failure(device.id)
         return drop_handle
+
+    def _success_handler(self, device: Device):
+        def delivered():
+            self._failures.pop(device.id, None)
+        return delivered
+
+    def _record_failure(self, device_id: str) -> None:
+        count, _ = self._failures.get(device_id, (0, 0.0))
+        self._failures[device_id] = (count + 1, time.monotonic())
+
+    def backoff_remaining(self, device_id: str) -> float:
+        """Seconds until a failed device may be reopened. Reopening a wedged radio in a tight loop can drive
+        the USB host into a reset storm (seen with bladeRF), so consecutive failures back off 2, 4, 8 ... 60 s."""
+        count, when = self._failures.get(device_id, (0, 0.0))
+        if not count:
+            return 0.0
+        return max(0.0, min(60.0, 2.0 ** count) - (time.monotonic() - when))
 
     def _open_handle(self, driver: str, kwargs: dict[str, str]) -> Any:
         """bladeRF goes through libbladeRF directly (continuous stream; see bladerf_native); others via SoapySDR."""
@@ -313,7 +335,15 @@ class SoapyBackend:
         def open_device():
             handle = self._handles.get(device.id)
             if handle is None:
-                handle = self._open_handle(device.driver, device.kwargs)
+                wait = self.backoff_remaining(device.id)
+                if wait > 0:
+                    raise RuntimeError(f"{device.id} failed recently; not reopening for {wait:.0f} s "
+                                       "(protects the USB host from reset storms)")
+                try:
+                    handle = self._open_handle(device.driver, device.kwargs)
+                except Exception:
+                    self._record_failure(device.id)
+                    raise
                 self._handles[device.id] = handle
             return handle
         return open_device
@@ -403,7 +433,8 @@ class SoapyBackend:
             int(config["duration_seconds"]) * int(config["sample_rate_sps"]) if config.get("duration_seconds") else None)
         worker = RxWorker(self.soapy, device, config["center_freq_hz"], config["sample_rate_sps"],
                           config.get("lna_gain_db", 16), config.get("vga_gain_db", 20), bool(config.get("amp_enable")),
-                          config.get("baseband_filter_hz"), max_samples, opener=self._opener(device), on_failure=self._failure_handler(device))
+                          config.get("baseband_filter_hz"), max_samples, opener=self._opener(device), on_failure=self._failure_handler(device),
+                          on_success=self._success_handler(device))
         session = Session(sid, "stream", dict(config), worker)
         with self._lock:
             self.sessions[sid] = session
@@ -431,7 +462,8 @@ class SoapyBackend:
         sid = f"sweep-{uuid.uuid4().hex[:12]}"
         self._claim(device.id, "sweep", sid, False)
         worker = RxWorker(self.soapy, device, centers[0], rate, config.get("lna_gain_db", 16),
-                          config.get("vga_gain_db", 20), bool(config.get("amp_enable")), opener=self._opener(device), on_failure=self._failure_handler(device))
+                          config.get("vga_gain_db", 20), bool(config.get("amp_enable")), opener=self._opener(device), on_failure=self._failure_handler(device),
+                          on_success=self._success_handler(device))
         session = Session(sid, "sweep", dict(config), worker,
                           {"samples": deque(maxlen=4096), "engine": engine, "centers": centers, "usable": usable})
         threading.Thread(target=self._sweep_loop, args=(session, rate), daemon=True).start()
@@ -482,7 +514,8 @@ class SoapyBackend:
         self._claim(device.id, "iq_sweep", sid, False)
         worker = RxWorker(self.soapy, device, centers[0], rate, config.get("lna_gain_db", 16),
                           config.get("vga_gain_db", 20), bool(config.get("amp_enable")), config.get("baseband_filter_hz"),
-                          opener=self._opener(device), on_failure=self._failure_handler(device))
+                          opener=self._opener(device), on_failure=self._failure_handler(device),
+                          on_success=self._success_handler(device))
         session = Session(sid, "iq_sweep", dict(config), worker,
                           {"centers": centers, "point_index": 0, "stream_id": f"{sid}-stream", "cursor": 0})
         session.extra["cursor"] = worker.cursor()

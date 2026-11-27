@@ -89,6 +89,10 @@ class ModelPlannerTest(unittest.TestCase):
         self.assertIn("model unavailable", planned["fallback_reason"])
         with self.assertRaisesRegex(ValueError, "only receives"):
             plan("jam everything", "model", model=FunctionModel(good))
+        # Unsupported sources are refused deterministically too, before the model is asked.
+        from rf_platform.agent.workflow import _plan_with_model
+        with self.assertRaisesRegex(ValueError, "WiFi"):
+            _plan_with_model("watch wifi for 2 minutes", FunctionModel(good))
 
 
 class FakeAgent:
@@ -252,8 +256,105 @@ class PlanEndpointTest(unittest.TestCase):
         self.assertEqual(len(ok.get_json()["summary"]["triggers"]), 2)
         self.assertEqual(self.client.post("/api/agent/plan", json={"text": "jam it"}).status_code, 400)
         bad = {"collect": ["ble"], "duration_s": 99999}
-        self.assertEqual(self.client.post("/api/agent/run", json={"workflow": bad}).status_code, 409)  # demo mode first
+        self.assertEqual(self.client.post("/api/agent/run", json={"workflow": bad}).status_code, 400)  # re-validated
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SimulationTest(unittest.TestCase):
+    """Simulated receivers drive the real agent, workflow engine, gateway and reports, and say so."""
+
+    def test_simulated_tracker_and_rogue_cell_scenarios(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"RF_SENTINEL_AGENT_RUNS_DIR": temp}):
+            agent = core.Agent(simulate=True)
+            spec = plan_deterministic("find ble devices for 12 seconds. if an airtag is seen for more than 4 seconds, "
+                                      "send an urgent alert and tag it as follower")
+            result = run_workflow(agent, spec, on_step=lambda m: None)
+            self.assertTrue(result["simulated"])
+            self.assertEqual(result["receiver"], "sim:0")
+            alert = result["workflow"]["alerts"][0]
+            self.assertEqual((alert["severity"], alert["device"]["label"]), ("critical", "AirTag"))
+            from rf_platform.agent.report import _render
+            self.assertIn("SIMULATED RUN", _render(result))
+            cells = run_workflow(core.Agent(simulate=True), plan_deterministic(
+                "survey cell towers for 14 seconds. send an urgent alert if an unknown network appears or if a 2G cell shows up"),
+                on_step=lambda m: None)
+            alerts = cells["workflow"]["alerts"]
+            self.assertEqual(len(alerts), 1)  # one rogue cell, two matching rules: one merged alert
+            self.assertEqual(len(alerts[0]["reasons"]), 2)
+            self.assertEqual(alerts[0]["device"]["key"], "2G GSM:0F00001")
+
+    def test_companion_gets_the_second_simulated_receiver(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"RF_SENTINEL_AGENT_RUNS_DIR": temp}):
+            result = core.Agent(simulate=True).run("find bluetooth devices for 5 seconds", on_step=lambda m: None)
+        self.assertEqual((result["receiver"], result["companion"]["receiver"]), ("sim:0", "sim:1"))
+        self.assertEqual({d["protocol"] for d in result["devices"]}, {"ble", "classic"})
+
+
+class MixedSourceTest(unittest.TestCase):
+    MIXED = ("watch for trackers and rogue cell towers for 14 seconds. if an airtag is seen for more than 4 seconds, "
+             "send an urgent alert. send an urgent alert if an unknown network appears or if a 2G cell shows up")
+
+    def test_planning_and_bounds(self):
+        spec = plan_deterministic(self.MIXED)
+        self.assertEqual(spec.collect, ["ble", "cellular"])
+        self.assertEqual([t.when[0].field for t in spec.triggers], ["label", "operator", "generation"])
+        self.assertTrue(all(t.do[0].severity == "critical" for t in spec.triggers))
+        self.assertEqual(plan_deterministic("find zigbee and lte cells for 60 seconds").collect, ["zigbee", "cellular"])
+        with self.assertRaises(ValueError):
+            WorkflowSpec(collect=["zigbee", "tpms", "cellular"])  # still one SDR group
+
+    def test_filters_are_scoped_per_source(self):
+        spec = WorkflowSpec(collect=["ble", "cellular"], filters=[
+            Condition(field="device_class", op="eq", value="tracker"), Condition(field="rssi_dbfs", op="ge", value=-60),
+            Condition(field="operator", op="contains", value="Verizon")])
+        engine = WorkflowEngine(spec, FakeAgent(), lambda m: None, evidence_dir=Path(tempfile.mkdtemp()))
+        engine.observe(detection("AT", label="AirTag", rssi=-50))                       # tracker, strong: kept
+        engine.observe(detection("PH", label="Pixel", rssi=-50))                        # not a tracker: dropped
+        engine.observe({"agent_key": "LTE:1", "agent_profile": "cellular", "identity": "Verizon · LTE",
+                        "operator": "Verizon", "rat": "LTE", "rssi_dbfs": -95.0})       # dBm cell, Verizon: kept
+        engine.observe({"agent_key": "LTE:2", "agent_profile": "cellular", "identity": "AT&T · LTE",
+                        "operator": "AT&T", "rat": "LTE", "rssi_dbfs": -80.0})          # not Verizon: dropped
+        self.assertEqual(engine.matched, {"AT", "LTE:1"})
+
+    def test_simulated_mixed_run(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"RF_SENTINEL_AGENT_RUNS_DIR": temp}):
+            result = run_workflow(core.Agent(simulate=True), plan_deterministic(self.MIXED), on_step=lambda m: None)
+        self.assertEqual(result["cellular"]["receiver"], "sim:cellmodem")
+        keys = {a["device"]["key"] for a in result["workflow"]["alerts"]}
+        self.assertEqual(keys, {"5A:11:00:00:00:A7", "2G GSM:0F00001"})
+        self.assertEqual({d.get("protocol") for d in result["devices"]}, {"ble", "cellular"})
+
+
+class HistoryAndErrorsTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from tests.test_validation_harness import BackendValidationTest
+        BackendValidationTest.setUpClass()
+        cls.harness, cls.backend, cls.client = BackendValidationTest, BackendValidationTest.backend, BackendValidationTest.client
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.harness.tearDownClass()
+
+    def test_saved_runs_appear_in_history_and_reports_are_served(self):
+        from rf_platform.agent.report import save
+        result = run_workflow(core.Agent(simulate=True), plan_deterministic("find ble devices for 5 seconds"),
+                              on_step=lambda m: None)
+        folder = save(result, self.backend.RF_SENTINEL_LOG_DIR / "agent-runs")
+        jobs = self.client.get("/api/agent/jobs").get_json()
+        saved = next(j for j in jobs if j.get("run_id") == result["run_id"])
+        self.assertTrue(saved["saved"] and saved["simulated"])
+        self.assertEqual(saved["summary"]["find"], "BLE for 5 s")
+        report = self.client.get(f"/api/agent/jobs/{saved['job_id']}/report")
+        self.assertEqual(report.status_code, 200)
+        self.assertIn("SIMULATED RUN", report.get_data(as_text=True))
+        self.assertEqual(self.client.get("/api/agent/jobs/saved-RUN-..%2F..%2Fx/report").status_code, 404)
+        self.assertTrue(folder.exists())
+
+    def test_iq_service_down_is_explained(self):
+        from rf_platform.agent.radio import Radio
+        with self.assertRaisesRegex(RuntimeError, "IQ service at http://127.0.0.1:9 is not running"):
+            Radio("http://127.0.0.1:9", "").devices()
