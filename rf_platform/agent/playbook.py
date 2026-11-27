@@ -545,6 +545,9 @@ def plan_any(text: str, planner: str = "auto", model: Any = None, utc_offset_min
         # Checked by code before any planner: a model would quietly plan only the parts it can do.
         raise ValueError("WiFi needs a monitor-mode WiFi adapter, not an SDR, so it is not available here. "
                          "Ask again without WiFi to run the rest (Bluetooth, Zigbee, TPMS, cell towers).")
+    from .discover import is_discovery, plan_discovery
+    if is_discovery(text) and not is_multistep(text):
+        return plan_discovery(text)
     if not is_multistep(text):
         out = plan(text, planner, model)
         out["explain"] = explain(out)

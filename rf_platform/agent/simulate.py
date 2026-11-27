@@ -54,6 +54,24 @@ class SimRadio:
             raise RuntimeError("Every simulated receiver is busy")
         return pool[0]
 
+    # Simulated power sweep: one scripted pass every 4 s (see rf_platform.agent.discover.simulated_samples).
+    def start_sweep(self, device, start_hz, stop_hz, gain_db=30.0) -> str:
+        import time as _time
+        self._sweep = {"start": _time.time(), "range": (int(start_hz), int(stop_hz))}
+        return "sim-sweep"
+
+    def sweep_samples(self, sweep_id) -> list[dict[str, Any]]:
+        import time as _time
+        from .discover import simulated_samples
+        passes = int((_time.time() - self._sweep["start"]) // 4)
+        out = []
+        for k in range(max(0, passes - 3), passes):  # like the service's bounded buffer: recent passes only
+            out += simulated_samples(*self._sweep["range"], pass_index=k)
+        return out
+
+    def stop_sweep(self, sweep_id) -> None:
+        pass
+
 
 def _apple(status: int, separated: bool) -> dict[str, Any]:
     length = "19" if separated else "02"

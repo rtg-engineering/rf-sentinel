@@ -28,6 +28,8 @@ def _plan_parts(plan: dict[str, Any]) -> tuple[list[WorkflowSpec], PlaybookSpec 
 def check(plan: dict[str, Any], radio, mode: str, log_dir: Path, simulate: bool = False,
           cellular=None, classic=None) -> dict[str, Any]:
     """radio: an agent Radio/SimRadio. cellular/classic: optional capability callables (for tests)."""
+    if plan.get("discovery"):
+        return _check_discovery(radio, log_dir, simulate)
     specs, book = _plan_parts(plan)
     protocols = sorted({p for s in specs for p in s.collect})
     sdr = [p for p in protocols if p != "cellular"]
@@ -88,5 +90,33 @@ def check(plan: dict[str, Any], radio, mode: str, log_dir: Path, simulate: bool 
         add("Alert delivery", "ok" if d["enabled"] else ("warn" if long_run else "ok"),
             f"alerts also go to {d['host']} ({d['min_severity']} and above)" if d["enabled"] else
             "dashboard only (set RF_SENTINEL_ALERT_WEBHOOK to get alerts away from this screen)")
+    worst = "fail" if any(c["status"] == "fail" for c in checks) else "warn" if any(c["status"] == "warn" for c in checks) else "ok"
+    return {"ok": worst != "fail", "status": worst, "checks": checks}
+
+
+def _check_discovery(radio, log_dir: Path, simulate: bool) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    add = lambda name, status, detail: checks.append({"name": name, "status": status, "detail": detail})  # noqa: E731
+    if simulate:
+        add("Receivers", "ok", "Simulated receivers (no radio is used)")
+    else:
+        try:
+            devices = radio.devices()
+            wide = [d for d in devices if d.get("max_sample_rate_sps", 0) >= 20_000_000]
+            free = [d for d in wide if not d.get("occupied")]
+            add("IQ service", "ok", f"{len(devices)} receiver(s)")
+            if not wide:
+                add("Wideband receiver", "fail", "a sweep needs a receiver with at least 20 MS/s")
+            else:
+                span = max(wide, key=lambda d: d.get("freq_max_hz", 0) - d.get("freq_min_hz", 0))
+                add("Sweep range", "ok" if free else "warn",
+                    f"{span['freq_min_hz'] / 1e6:.0f} MHz–{span['freq_max_hz'] / 1e9:.1f} GHz on "
+                    + (", ".join(d["id"] for d in free) if free else "busy receivers only"))
+        except Exception as exc:
+            add("IQ service", "fail", str(exc))
+    try:
+        add("Disk space", "ok", f"{shutil.disk_usage(log_dir if log_dir.exists() else log_dir.parent).free / 1024 ** 3:.1f} GB free")
+    except OSError as exc:
+        add("Disk space", "warn", f"could not check: {exc}")
     worst = "fail" if any(c["status"] == "fail" for c in checks) else "warn" if any(c["status"] == "warn" for c in checks) else "ok"
     return {"ok": worst != "fail", "status": worst, "checks": checks}

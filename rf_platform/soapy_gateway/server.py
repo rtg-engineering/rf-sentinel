@@ -14,6 +14,7 @@ import hmac
 import json
 import os
 import threading
+import time
 from typing import Any
 
 from flask import Flask, jsonify, request
@@ -54,6 +55,51 @@ def _planned_sweep(backend: SoapyBackend, plan: dict[str, Any]) -> dict[str, Any
     return {"device_id": device.id, "start_freq_hz": start, "stop_freq_hz": stop,
             "bin_width_hz": int(plan.get("bin_width_hz", 100_000)), "lna_gain_db": plan.get("lna_gain_db", 16),
             "vga_gain_db": plan.get("vga_gain_db", 20), "amp_enable": bool(plan.get("amp_enable"))}
+
+
+_readers_lock = threading.Lock()
+
+
+def reader_attached(session) -> None:
+    with _readers_lock:
+        session.extra["readers"] = session.extra.get("readers", 0) + 1
+
+
+def reader_detached(session) -> None:
+    with _readers_lock:
+        session.extra["readers"] = max(0, session.extra.get("readers", 0) - 1)
+        if not session.extra["readers"]:
+            session.extra["idle_since"] = time.time()
+
+
+def reap_idle_streams(backend: SoapyBackend, idle_s: float, now: float | None = None) -> list[str]:
+    """Stop streams nobody has read for idle_s seconds. A client that dies without stopping its stream (killed by
+    its parent, crashed) would otherwise hold the receiver until this service restarts."""
+    now = time.time() if now is None else now
+    stopped = []
+    for session in backend.list("stream"):
+        with _readers_lock:
+            if session.extra.get("readers", 0):
+                continue
+            since = session.extra.setdefault("idle_since", now)  # never read yet: count from the first sweep
+        if now - since >= idle_s:
+            try:
+                backend.stop(session.id)
+                stopped.append(session.id)
+            except KeyError:
+                pass
+    return stopped
+
+
+class RedactToken:
+    """Websocket clients pass the API token as ?token= (browsers cannot set headers there); keep it out of the log."""
+
+    def filter(self, record) -> bool:
+        import re
+        message = record.getMessage()
+        if "token=" in message:
+            record.msg, record.args = re.sub(r"token=[^&\s\"]+", "token=***", message), ()
+        return True
 
 
 def create_app(backend: SoapyBackend, token: str | None = None) -> Flask:
@@ -149,6 +195,7 @@ def create_app(backend: SoapyBackend, token: str | None = None) -> Flask:
             return
         keep = request.args.get("keep", "").lower() in ("1", "true", "yes")
         cursor = session.worker.cursor(request.args.get("start", "latest"))
+        reader_attached(session)
         try:
             while True:
                 cursor, chunk = session.worker.read(cursor, timeout_s=1.0)
@@ -159,6 +206,7 @@ def create_app(backend: SoapyBackend, token: str | None = None) -> Flask:
         except Exception:
             pass
         finally:
+            reader_detached(session)
             if not keep:
                 try:
                     backend.stop(stream_id)
@@ -250,10 +298,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--include-non-rf", action="store_true", help="Also list non-RF SoapySDR devices (e.g. audio)")
     args = parser.parse_args(argv)
     from werkzeug.serving import make_server
+    import faulthandler
+    import logging
+    # A crash in native code (libbladeRF / SoapySDR via ctypes) kills the process without a Python traceback;
+    # this prints every thread's stack to stderr on SIGSEGV/SIGABRT/SIGBUS so the log says where it happened.
+    faulthandler.enable(all_threads=True)
+    logging.getLogger("werkzeug").addFilter(RedactToken())
     backend = SoapyBackend(include_non_rf=args.include_non_rf)
     print(f"rf-sentinel-soapy-gateway on http://{args.host}:{args.port} "
           f"({len(backend.refresh_devices())} SoapySDR receiver(s))", flush=True)
     server = make_server(args.host, args.port, create_app(backend), threaded=True)
+    idle_s = float(os.getenv("RF_SENTINEL_STREAM_IDLE_S", "30"))
+
+    def reaper():
+        while True:
+            time.sleep(5)
+            for sid in reap_idle_streams(backend, idle_s):
+                print(f"stopped {sid}: no reader for {idle_s:.0f} s", flush=True)
+    if idle_s > 0:
+        threading.Thread(target=reaper, name="idle-stream-reaper", daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

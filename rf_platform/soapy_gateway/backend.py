@@ -270,6 +270,12 @@ class RxWorker:
         self._stop.set()
         self._thread.join(join_s)
 
+    def release(self) -> None:
+        """Drop buffered samples once the stream is stopped: a stopped stream must not keep its ring in memory."""
+        with self._cond:
+            self._ring.clear()
+            self._cond.notify_all()
+
 
 @dataclass
 class Session:
@@ -563,12 +569,25 @@ class SoapyBackend:
         if session is None or session.extra.get("stopped"):
             raise KeyError(f"Unknown session {session_id}")
         session.extra["stopped"] = True
+        session.extra["stopped_at"] = time.time()
         if session.worker:
             session.worker.stop()
+            session.worker.release()
         with self._lock:
             for device_id, owner in list(self._owners.items()):
                 if owner[1] == session_id:
                     del self._owners[device_id]
+            self._prune()
+
+    STOPPED_KEPT_S = 60.0
+
+    def _prune(self) -> None:
+        """Forget sessions stopped more than a minute ago. Every stopped session used to stay in this table with its
+        worker for the life of the service: an agent run starts a stream every few seconds, so a standing watch grew
+        the process by gigabytes until it died (found with scripts/soak_iq_service.py, about 12 MB per stream)."""
+        cutoff = time.time() - self.STOPPED_KEPT_S
+        for sid in [sid for sid, s in self.sessions.items() if s.extra.get("stopped") and s.extra.get("stopped_at", 0) < cutoff]:
+            del self.sessions[sid]
 
     def release_handles(self) -> None:
         """Close idle device handles (none may be streaming)."""

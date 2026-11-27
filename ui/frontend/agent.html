@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RF Sentinel Agent</title>
+<meta name="description" content="Tell RF Sentinel what to find. It plans the mission, runs the receivers, and reports with evidence. Receive-only.">
+<style>
+:root {
+  --bg: #05080d; --bg2: #0a1018; --panel: rgba(16, 24, 34, 0.72); --panel-solid: #101822; --line: rgba(148, 170, 196, 0.16);
+  --ink: #e9f0f7; --muted: #8fa1b5; --faint: #5c6d80; --a: #8b5cf6; --b: #22d3ee; --c: #34d399;
+  --warn: #f5a524; --bad: #f2555a; --ok: #34d399; --glow: 0 0 0 1px rgba(139, 92, 246, .25), 0 20px 60px rgba(34, 211, 238, .08);
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) { --bg: #f4f6fa; --bg2: #eef1f6; --panel: rgba(255, 255, 255, .82); --panel-solid: #fff;
+    --line: rgba(20, 40, 70, .12); --ink: #0f1722; --muted: #52637a; --faint: #8a99ad; --glow: 0 0 0 1px rgba(139, 92, 246, .18), 0 20px 50px rgba(34, 80, 160, .08); }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+body { min-height: 100vh; background:
+  radial-gradient(1200px 600px at 15% -10%, rgba(139, 92, 246, .16), transparent 60%),
+  radial-gradient(900px 500px at 100% 0%, rgba(34, 211, 238, .10), transparent 60%), var(--bg); }
+a { color: var(--b); }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 18px 16px 80px; }
+header.top { display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .01em; }
+.brand svg { width: 30px; height: 30px; }
+.brand small { display: block; font-weight: 500; color: var(--muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+.chip b { color: var(--ink); font-weight: 600; }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+.chip button { all: unset; cursor: pointer; color: var(--b); }
+.switch { cursor: pointer; user-select: none; }
+.switch input { accent-color: var(--a); }
+.hero { margin: 54px 0 22px; text-align: center; }
+.hero h1 { font-size: clamp(30px, 5.4vw, 54px); line-height: 1.05; margin: 0 0 12px; letter-spacing: -.02em; }
+.hero h1 span { background: linear-gradient(100deg, var(--a), var(--b) 60%, var(--c)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero p { color: var(--muted); max-width: 640px; margin: 0 auto; font-size: 16.5px; }
+.prompt { position: relative; margin: 30px auto 0; max-width: 860px; border-radius: 20px; padding: 2px;
+  background: linear-gradient(120deg, rgba(139, 92, 246, .65), rgba(34, 211, 238, .55), rgba(52, 211, 153, .45)); box-shadow: var(--glow); }
+.prompt.busy { animation: pulse 2.2s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 1px rgba(139, 92, 246, .5), 0 0 60px rgba(139, 92, 246, .35); } }
+.prompt-inner { background: var(--panel-solid); border-radius: 18px; padding: 16px 16px 12px; text-align: left; }
+.prompt textarea { width: 100%; min-height: 76px; resize: none; border: 0; outline: 0; background: transparent; color: var(--ink);
+  font: 500 19px/1.5 inherit; font-family: inherit; }
+.prompt textarea::placeholder { color: var(--faint); }
+.prompt-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.hint { color: var(--faint); font-size: 12.5px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; border: 0; cursor: pointer; border-radius: 12px; padding: 10px 16px;
+  font: 600 14.5px inherit; font-family: inherit; color: #fff; background: linear-gradient(120deg, var(--a), #6d5cf6 40%, var(--b));
+  box-shadow: 0 8px 24px rgba(139, 92, 246, .35); transition: transform .15s ease, opacity .2s; }
+.btn:hover { transform: translateY(-1px); }
+.btn:disabled { opacity: .45; cursor: default; transform: none; }
+.btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); box-shadow: none; }
+.btn svg { width: 16px; height: 16px; }
+.examples { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 16px auto 0; max-width: 900px; }
+.examples button { all: unset; cursor: pointer; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel);
+  color: var(--muted); font-size: 13px; transition: color .15s, border-color .15s; }
+.examples button:hover { color: var(--ink); border-color: rgba(139, 92, 246, .6); }
+.card { margin: 22px auto 0; max-width: 1000px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 18px;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); animation: rise .45s cubic-bezier(.2, .8, .2, 1); }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+.card[hidden] { display: none; }
+.eyebrow { font-size: 11.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.say { font-size: 19px; line-height: 1.55; margin: 8px 0 14px; min-height: 1.5em; }
+.say .caret, .typed-caret { display: inline-block; width: 2px; height: 1.1em; vertical-align: -3px; background: var(--b); margin-left: 2px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.steps { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.step { border: 1px solid var(--line); border-radius: 14px; padding: 12px; background: rgba(255, 255, 255, .02); position: relative; overflow: hidden; }
+.step .n { font: 600 11px var(--mono); color: var(--muted); letter-spacing: .1em; }
+.step h4 { margin: 4px 0 6px; font-size: 15px; }
+.step .k { font-size: 12.5px; color: var(--muted); }
+.step .k b { color: var(--ink); font-weight: 600; }
+.step.running { border-color: rgba(34, 211, 238, .6); }
+.step.running::after { content: ""; position: absolute; left: 0; bottom: 0; height: 2px; width: 40%; background: linear-gradient(90deg, transparent, var(--b), transparent);
+  animation: scan 1.4s linear infinite; }
+@keyframes scan { from { left: -40%; } to { left: 100%; } }
+.step.done { border-color: rgba(52, 211, 153, .45); }
+.step.skipped, .step.error { opacity: .55; }
+.step .st { position: absolute; top: 10px; right: 10px; font-size: 11px; color: var(--muted); }
+.ready { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 0; }
+.ready .chip.ok .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.ready .chip.warn .dot { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+.ready .chip.fail .dot { background: var(--bad); box-shadow: 0 0 8px var(--bad); }
+.actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+.live-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.live-head h3 { margin: 0; font-size: 18px; display: flex; align-items: center; gap: 10px; }
+.live-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--b); box-shadow: 0 0 14px var(--b); animation: blink 1.2s ease-in-out infinite; }
+.live-dot.done { background: var(--ok); box-shadow: 0 0 12px var(--ok); animation: none; }
+.live-dot.error { background: var(--bad); box-shadow: 0 0 12px var(--bad); animation: none; }
+.counters { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 14px 0; }
+.counter { border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; }
+.counter span { display: block; font-size: 11px; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+.counter strong { font-size: 26px; font-variant-numeric: tabular-nums; }
+.grid2 { display: grid; grid-template-columns: 1.1fr .9fr; gap: 14px; }
+@media (max-width: 820px) { .grid2 { grid-template-columns: 1fr; } }
+.feed { font: 12.5px/1.6 var(--mono); background: rgba(0, 0, 0, .35); border: 1px solid var(--line); border-radius: 14px; padding: 12px;
+  height: 300px; overflow: auto; color: #b9c7d6; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .feed { background: #0d1520; } }
+.feed div { animation: rise .3s ease; white-space: pre-wrap; word-break: break-word; }
+.feed .t { color: #5f7690; margin-right: 8px; }
+.feed .hl { color: #7ee7f7; }
+.feed .warn { color: #f7c56b; }
+.devices { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow: auto; }
+.dev { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; animation: rise .35s ease; }
+.dev .ic { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-size: 11px; font-weight: 700;
+  background: linear-gradient(135deg, rgba(139, 92, 246, .35), rgba(34, 211, 238, .25)); color: var(--ink); flex: none; }
+.dev .ic.cell { background: linear-gradient(135deg, rgba(52, 211, 153, .35), rgba(34, 211, 238, .2)); }
+.dev .ic.alert { background: linear-gradient(135deg, rgba(242, 85, 90, .55), rgba(245, 165, 36, .35)); }
+.dev .nm { flex: 1; min-width: 0; }
+.dev .nm b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dev .nm small { color: var(--muted); font-family: var(--mono); font-size: 11.5px; }
+.dev .lv { font: 600 12px var(--mono); color: var(--muted); }
+.alerts { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.alert { border-radius: 12px; padding: 9px 12px; border: 1px solid rgba(242, 85, 90, .5); background: rgba(242, 85, 90, .08); animation: rise .3s ease; }
+.alert.warning { border-color: rgba(245, 165, 36, .55); background: rgba(245, 165, 36, .08); }
+.alert b { text-transform: uppercase; font-size: 11px; letter-spacing: .1em; margin-right: 6px; }
+canvas.spec { width: 100%; height: 230px; display: block; border-radius: 14px; border: 1px solid var(--line); background: rgba(0, 0, 0, .3); }
+.bands { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; margin-top: 12px; }
+.band { border: 1px solid var(--line); border-radius: 12px; padding: 9px 11px; font-size: 13px; animation: rise .35s ease; }
+.band b { display: block; font-size: 13.5px; }
+.band .m { color: var(--muted); font-size: 12px; }
+.band .tag { float: right; font-size: 10.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.band .tag.dec { border-color: rgba(52, 211, 153, .55); color: var(--c); }
+.story { margin: 10px 0 0; padding-left: 18px; }
+.story li { margin: 4px 0; }
+.sim { border: 1px solid rgba(245, 165, 36, .55); color: var(--warn); }
+.ask { display: flex; gap: 8px; margin-top: 14px; }
+.ask input { flex: 1; min-width: 0; border-radius: 12px; border: 1px solid var(--line); background: transparent; color: var(--ink); padding: 10px 12px; font: inherit; }
+.qa { margin-top: 10px; border-left: 2px solid var(--a); padding: 4px 0 4px 12px; }
+.qa .q { color: var(--muted); font-size: 13px; }
+.qa .src { font: 11.5px var(--mono); color: var(--faint); }
+.foot { text-align: center; color: var(--faint); font-size: 12.5px; margin-top: 40px; }
+.signin { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, .6); backdrop-filter: blur(6px); z-index: 10; }
+.signin[hidden] { display: none; }
+.signin form { background: var(--panel-solid); border: 1px solid var(--line); border-radius: 18px; padding: 20px; width: min(440px, 92vw); }
+.signin input { width: 100%; margin: 10px 0; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: transparent; color: var(--ink); font: inherit; }
+.muted { color: var(--muted); }
+.err { color: var(--bad); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b5cf6"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs>
+        <circle cx="16" cy="16" r="3.4" fill="url(#g)"/><path d="M9.5 9.5a9 9 0 0 0 0 13M22.5 9.5a9 9 0 0 1 0 13M5.5 5.5a14.5 14.5 0 0 0 0 21M26.5 5.5a14.5 14.5 0 0 1 0 21" fill="none" stroke="url(#g)" stroke-width="2" stroke-linecap="round"/></svg>
+      <div>RF Sentinel <small>Agent</small></div>
+    </div>
+    <div class="chips">
+      <span class="chip"><span class="dot"></span>Receive-only</span>
+      <span class="chip" id="rxChip">Receivers <b id="rxCount">…</b></span>
+      <span class="chip" id="whoChip" hidden></span>
+      <label class="chip switch"><input type="checkbox" id="maskToggle"> Mask identifiers</label>
+      <a class="chip" href="/">Dashboard</a>
+    </div>
+  </header>
+
+  <section class="hero">
+    <h1>Tell it what to find.<br><span>It runs the airwaves for you.</span></h1>
+    <p>Describe the mission in plain words. RF Sentinel plans it, checks it can run here, drives the receivers, and reports back with evidence. It only ever listens.</p>
+    <div class="prompt" id="prompt">
+      <div class="prompt-inner">
+        <textarea id="q" rows="2" aria-label="What should RF Sentinel do?" placeholder=""></textarea>
+        <div class="prompt-row">
+          <span class="hint">Enter to plan · nothing runs until you press Run</span>
+          <button class="btn" id="planBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4z"/></svg>Plan</button>
+        </div>
+      </div>
+    </div>
+    <div class="examples" id="examples"></div>
+  </section>
+
+  <section class="card" id="planCard" hidden>
+    <div class="eyebrow">The plan <span class="chip" id="plannerChip"></span></div>
+    <div class="say" id="say"></div>
+    <div class="steps" id="planSteps"></div>
+    <div class="ready" id="ready"></div>
+    <div class="actions">
+      <button class="btn" id="runBtn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Run mission</button>
+      <button class="btn ghost" id="simBtn">Run on simulated receivers</button>
+      <span class="hint" id="planNote"></span>
+    </div>
+  </section>
+
+  <section class="card" id="liveCard" hidden>
+    <div class="live-head">
+      <h3><span class="live-dot" id="liveDot"></span><span id="liveTitle">Running</span></h3>
+      <div class="chips"><span class="chip sim" id="simChip" hidden>SIMULATED</span><span class="chip">Elapsed <b id="elapsed">0:00</b></span>
+        <button class="btn ghost" id="stopBtn">Stop</button></div>
+    </div>
+    <div class="steps" id="liveSteps" style="margin-top:12px"></div>
+    <div class="counters" id="counters"></div>
+    <div id="specWrap" hidden><canvas class="spec" id="spec" width="1940" height="460"></canvas><div class="bands" id="bands"></div></div>
+    <div class="grid2" style="margin-top:12px">
+      <div><div class="eyebrow" style="margin-bottom:6px">What the agent is doing</div><div class="feed" id="feed" aria-live="polite"></div></div>
+      <div><div class="eyebrow" style="margin-bottom:6px" id="sideTitle">Found</div><div class="devices" id="devices"></div><div class="alerts" id="alerts"></div></div>
+    </div>
+  </section>
+
+  <section class="card" id="resultCard" hidden>
+    <div class="eyebrow">What happened</div>
+    <ul class="story" id="story"></ul>
+    <div class="actions" id="resultActions"></div>
+    <form class="ask" id="askForm"><input id="askQ" placeholder="Ask about this run: “what alerted?” · “which trackers came back?” · “what was strongest?”" aria-label="Ask about this run"><button class="btn ghost">Ask</button></form>
+    <div id="answers"></div>
+  </section>
+
+  <div class="foot">Receive-only: RF Sentinel never transmits. Plans are validated by code before anything runs; every action is permission-checked and audited.</div>
+</div>
+
+<div class="signin" id="signin" hidden>
+  <form id="signinForm"><b>Sign in</b><div class="muted" style="font-size:13px">This system controls receivers. Use your operator token.</div>
+    <input type="password" id="token" placeholder="rfs_…" autocomplete="current-password"><div class="err" id="signinErr"></div>
+    <button class="btn">Sign in</button></form>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const params = new URLSearchParams(location.search);
+  const DEMO = params.get("demo") === "1";
+  const EXAMPLES = [
+    "What's on the air around me?",
+    "Sweep for bluetooth trackers for 30 seconds. If you find any, watch them for 30 seconds and send an urgent alert if one is still there after 15 seconds. Then survey cell towers for 90 seconds.",
+    "Find bluetooth classic devices for 60 seconds",
+    "Every 30 minutes for the next 4 hours, sweep for trackers for 1 minute and alert me when a new one appears.",
+    "Survey cell towers for 2 minutes and alert me if a 2G cell or an unknown network appears",
+  ];
+  let maskOn = DEMO || localGet("rfs.mask") === "1";
+  $("maskToggle").checked = maskOn;
+  let plan = null, jobId = null, timer = null, shownSteps = 0, seenDevices = new Map(), seenAlerts = 0, started = 0, lastJob = null;
+
+  function localGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+  function localSet(k, v) { try { localStorage.setItem(k, v); } catch { /* fine */ } }
+
+  async function api(path, body, method) {
+    const r = await fetch(path, { method: method || (body ? "POST" : "GET"), credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-RF-Sentinel": "1" }, body: body ? JSON.stringify(body) : undefined });
+    if (r.status === 401) { $("signin").hidden = false; throw new Error("Sign in first"); }
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    return data;
+  }
+
+  // --- identifier masking: stable aliases per kind (for recordings and screenshares) ---------------------------
+  const aliases = new Map(), counts = {};
+  function alias(key, proto) {
+    if (!maskOn || !key) return key;
+    if (!aliases.has(key)) {
+      const kind = proto === "cellular" ? "cell" : proto === "classic" ? "bt" : proto === "zigbee" ? "zb" : proto === "tpms" ? "tpms" : "ble";
+      counts[kind] = (counts[kind] || 0) + 1;
+      aliases.set(key, `${kind}-${String(counts[kind]).padStart(2, "0")}`);
+    }
+    return aliases.get(key);
+  }
+  function maskText(text) {
+    if (!maskOn) return text;
+    return String(text).replace(/\b(?:[0-9A-F]{2}:){5}[0-9A-F]{2}\b/gi, (m) => alias(m.toUpperCase(), "ble"))
+      .replace(/\[[0-9a-f]{6,}\.\.[0-9a-f]{6,}\]/gi, "[serial]").replace(/\(…[0-9A-F:]{5}\)/gi, "");
+  }
+  $("maskToggle").addEventListener("change", (e) => { maskOn = e.target.checked; localSet("rfs.mask", maskOn ? "1" : "0"); if (lastJob) render(lastJob, true); });
+
+  // --- header status ------------------------------------------------------------------------------------------
+  (async () => {
+    try {
+      const me = await (await fetch("/api/auth/me", { credentials: "same-origin" })).json();
+      if (me.operator) { $("whoChip").hidden = false; $("whoChip").innerHTML = `Signed in <b>${esc(me.operator.name)}</b>`; }
+      else if (me.auth === "required") $("signin").hidden = false;
+    } catch { /* older dashboard */ }
+    try {
+      const rd = await api("/api/agent/readiness", { plan: { discovery: { duration_s: 60 } } });
+      const iq = rd.checks.find((c) => c.name === "IQ service" || c.name === "Receivers");
+      const n = iq && /(\d+) receiver/.exec(iq.detail);
+      $("rxCount").textContent = iq && iq.name === "Receivers" ? "simulated" : n ? `${n[1]} online` : iq && iq.status === "fail" ? "offline" : "ready";
+    } catch { $("rxCount").textContent = "check"; }
+  })();
+  $("signinForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const r = await fetch("/api/auth/login", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-RF-Sentinel": "1" },
+      body: JSON.stringify({ token: $("token").value.trim() }) });
+    if (r.ok) location.reload(); else $("signinErr").textContent = "That token is not recognised.";
+  });
+
+  // --- prompt -------------------------------------------------------------------------------------------------
+  $("examples").innerHTML = EXAMPLES.map((x, i) => `<button data-i="${i}">${esc(x.length > 60 ? x.slice(0, 58) + "…" : x)}</button>`).join("");
+  $("examples").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { $("q").value = EXAMPLES[+b.dataset.i]; $("q").focus(); } });
+  let ph = 0, phChar = 0;
+  const placeholderTick = () => {
+    if (document.activeElement === $("q") || $("q").value) return;
+    const text = EXAMPLES[ph % EXAMPLES.length];
+    phChar = Math.min(phChar + 1, text.length);
+    $("q").placeholder = text.slice(0, phChar) + (phChar < text.length ? "▍" : "");
+    if (phChar === text.length) { setTimeout(() => { ph++; phChar = 0; }, 1800); }
+  };
+  if (!DEMO) setInterval(placeholderTick, 45);
+  $("q").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); doPlan(); } });
+  $("planBtn").addEventListener("click", doPlan);
+
+  async function typeInto(el, text, cps = 38) {
+    el.textContent = "";
+    for (let i = 0; i <= text.length; i++) {
+      el.innerHTML = esc(text.slice(0, i)) + '<span class="caret"></span>';
+      await new Promise((r) => setTimeout(r, 1000 / cps));
+    }
+    el.innerHTML = esc(text);
+  }
+
+  async function doPlan() {
+    const text = $("q").value.trim();
+    if (!text) return;
+    $("prompt").classList.add("busy");
+    $("planBtn").disabled = true;
+    try {
+      plan = await api("/api/agent/plan", { text, tz_offset_min: -new Date().getTimezoneOffset() });
+      showPlan(text);
+    } catch (err) {
+      $("planCard").hidden = false; $("say").innerHTML = `<span class="err">${esc(err.message)}</span>`; $("planSteps").innerHTML = ""; $("ready").innerHTML = "";
+      $("runBtn").disabled = true; $("simBtn").disabled = true;
+    } finally { $("prompt").classList.remove("busy"); $("planBtn").disabled = false; }
+  }
+
+  function stepCards(p) {
+    if (p.discovery) {
+      return [{ title: "Sweep 70 MHz – 6 GHz", lines: [["Find", `everything above the noise, ${p.discovery.duration_s} s`]] },
+              { title: "Name each band", lines: [["Explain", "US band plan: what is usually there"]] },
+              { title: "Propose a follow-up", lines: [["Then", "decode what RF Sentinel can"]] }];
+    }
+    const steps = p.playbook ? p.summary.steps : [p.summary];
+    return steps.map((s, i) => ({ title: s.title || (p.spec && p.spec.collect ? `Listen: ${p.spec.collect.join(" + ")}` : `Step ${i + 1}`),
+      lines: [["Find", s.find], s.gate ? ["If", s.gate] : null, s.focus ? ["Focus", s.focus] : null,
+              (s.filters || []).length ? ["Keep", s.filters.join("; ")] : null, (s.triggers || []).length ? ["When", s.triggers.join("; ")] : null].filter(Boolean) }));
+  }
+
+  async function showPlan(text) {
+    $("planCard").hidden = false; $("resultCard").hidden = true;
+    $("runBtn").disabled = false; $("simBtn").disabled = false;
+    $("plannerChip").textContent = plan.planner === "model" ? `Planned by ${plan.model || "model"} · checked by code` : plan.planner === "library" ? `Saved plan “${plan.library}”` : "Planned by rules";
+    $("planSteps").innerHTML = stepCards(plan).map((s, i) => `<div class="step"><div class="n">STEP ${i + 1}</div><h4>${esc(s.title)}</h4>
+      ${s.lines.map(([k, v]) => `<div class="k"><b>${esc(k)}</b> ${esc(v)}</div>`).join("")}</div>`).join("");
+    const repeat = plan.playbook && plan.playbook.repeat;
+    $("planNote").textContent = repeat ? `Standing watch: ${repeat.times} cycles` : "";
+    $("ready").innerHTML = '<span class="chip">Checking this setup…</span>';
+    $("planCard").scrollIntoView({ behavior: "smooth", block: "start" });
+    typeInto($("say"), plan.explain || "Plan ready.");
+    try {
+      const body = plan.discovery ? { discovery: plan.discovery } : plan.playbook ? { playbook: plan.playbook } : { spec: plan.spec };
+      const rd = await api("/api/agent/readiness", { plan: body });
+      $("ready").innerHTML = rd.checks.map((c) => `<span class="chip ${c.status}" title="${esc(c.detail)}"><span class="dot"></span>${esc(c.name)}</span>`).join("");
+      if (!rd.ok) $("planNote").textContent = "This setup cannot run it on real receivers right now; a simulated run still shows the flow.";
+    } catch (err) { $("ready").innerHTML = `<span class="chip warn"><span class="dot"></span>${esc(err.message)}</span>`; }
+  }
+
+  $("runBtn").addEventListener("click", () => run(false));
+  $("simBtn").addEventListener("click", () => run(true));
+  async function run(simulate) {
+    if (!plan) return;
+    const body = { command: $("q").value.trim(), simulate, source: "mission", planner: { planner: plan.planner, model: plan.model } };
+    if (plan.discovery) body.discovery = plan.discovery; else if (plan.playbook) body.playbook = plan.playbook; else body.workflow = plan.spec;
+    $("runBtn").disabled = true; $("simBtn").disabled = true;
+    try {
+      const job = await api("/api/agent/run", body);
+      start(job);
+    } catch (err) { $("planNote").textContent = err.message; $("runBtn").disabled = false; $("simBtn").disabled = false; }
+  }
+
+  // --- live ---------------------------------------------------------------------------------------------------
+  function start(job) {
+    jobId = job.job_id; shownSteps = 0; seenDevices = new Map(); seenAlerts = 0; started = Date.now(); aliases.clear();
+    Object.keys(counts).forEach((k) => delete counts[k]);
+    $("feed").innerHTML = ""; $("devices").innerHTML = ""; $("alerts").innerHTML = ""; $("bands").innerHTML = ""; $("answers").innerHTML = "";
+    $("liveCard").hidden = false; $("resultCard").hidden = true;
+    $("liveCard").scrollIntoView({ behavior: "smooth", block: "start" });
+    render(job);
+    clearInterval(timer);
+    timer = setInterval(poll, 700);
+  }
+  async function poll() {
+    try { render(await api(`/api/agent/jobs/${encodeURIComponent(jobId)}`)); } catch { /* transient */ }
+  }
+  $("stopBtn").addEventListener("click", () => jobId && api(`/api/agent/jobs/${encodeURIComponent(jobId)}/stop`, {}).catch(() => {}));
+
+  const fmtT = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  const hz = (f) => (f >= 1e9 ? `${(f / 1e9).toFixed(2)} GHz` : `${(f / 1e6).toFixed(f < 2e8 ? 1 : 0)} MHz`);
+
+  function render(job, rerender) {
+    lastJob = job;
+    const active = ["running", "stopping", "awaiting_approval"].includes(job.status);
+    $("simChip").hidden = !job.simulated;
+    $("liveDot").className = "live-dot" + (active ? "" : job.status === "done" ? " done" : " error");
+    $("liveTitle").textContent = active ? (job.kind === "discovery" ? "Listening across the spectrum" : "Mission running") :
+      job.status === "done" ? "Mission complete" : job.status === "stopped" ? "Stopped" : `Ended: ${job.error || job.status}`;
+    const t = job.finished_at ? job.finished_at - job.started_at : (Date.now() / 1000 - job.started_at);
+    $("elapsed").textContent = fmtT(Math.max(0, t));
+    $("stopBtn").hidden = !active;
+    // steps
+    if (job.kind === "playbook" && job.summary && job.summary.steps) {
+      $("liveSteps").innerHTML = job.summary.steps.map((s, i) => {
+        const st = (job.step_status || [])[i] || {};
+        return `<div class="step ${esc(st.status || "pending")}"><span class="st">${esc(st.status || "pending")}</span><div class="n">STEP ${i + 1}${job.cycle ? ` · CYCLE ${job.cycle.index + 1}/${job.cycle.total}` : ""}</div>
+          <h4>${esc(s.title)}</h4><div class="k">${esc(st.summary || st.reason || s.find)}</div></div>`;
+      }).join("");
+    } else { $("liveSteps").innerHTML = ""; }
+    // feed
+    const steps = job.steps || [];
+    if (rerender) { $("feed").innerHTML = ""; shownSteps = 0; }
+    for (; shownSteps < steps.length; shownSteps++) {
+      const s = steps[shownSteps];
+      const div = document.createElement("div");
+      const msg = maskText(s.message);
+      const cls = /saturat|weak|fail|error|denied|interrupted/i.test(msg) ? "warn" : /Done|Receiver:|found|Proposed|gain set|active segment/i.test(msg) ? "hl" : "";
+      div.innerHTML = `<span class="t">${fmtT(s.t)}</span><span class="${cls}">${esc(msg)}</span>`;
+      $("feed").appendChild(div);
+    }
+    $("feed").scrollTop = $("feed").scrollHeight;
+    if (job.kind === "discovery") renderDiscovery(job); else renderDevices(job, rerender);
+    // alerts
+    const alerts = job.alerts || [];
+    if (rerender) { $("alerts").innerHTML = ""; seenAlerts = 0; }
+    for (; seenAlerts < alerts.length; seenAlerts++) {
+      const a = alerts[seenAlerts];
+      const d = document.createElement("div");
+      d.className = `alert ${a.severity === "critical" ? "" : "warning"}`;
+      d.innerHTML = `<b>${esc(a.severity)}</b>${esc(maskText(a.message))}`;
+      $("alerts").prepend(d);
+    }
+    if (!active) { clearInterval(timer); timer = null; showResult(job); }
+  }
+
+  function renderDevices(job, rerender) {
+    $("specWrap").hidden = true;
+    $("sideTitle").textContent = "Found";
+    if (rerender) { $("devices").innerHTML = ""; seenDevices = new Map(); }
+    for (const e of job.events || []) {
+      if (!["match", "alert", "trigger"].includes(e.kind) || !e.device) continue;
+      const dv = e.device;
+      const prev = seenDevices.get(dv.key);
+      if (prev) { prev.querySelector(".lv").textContent = dv.best_rssi_dbfs != null ? `${Math.round(dv.best_rssi_dbfs)} ${dv.protocol === "cellular" ? "dBm" : "dBFS"}` : "";
+        if (e.kind === "alert") prev.querySelector(".ic").classList.add("alert"); continue; }
+      const el = document.createElement("div");
+      el.className = "dev";
+      const proto = dv.protocol || "";
+      el.innerHTML = `<div class="ic ${proto === "cellular" ? "cell" : ""} ${e.kind === "alert" ? "alert" : ""}">${esc(({ ble: "BLE", classic: "BT", cellular: "CELL", zigbee: "ZB", tpms: "TPMS" })[proto] || "RF")}</div>
+        <div class="nm"><b>${esc(maskText(dv.label || dv.key))}</b><small>${esc(alias(dv.key, proto))}${dv.device_class ? " · " + esc(dv.device_class) : ""}${dv.operator && proto === "cellular" ? "" : ""}</small></div>
+        <div class="lv">${dv.best_rssi_dbfs != null ? `${Math.round(dv.best_rssi_dbfs)} ${proto === "cellular" ? "dBm" : "dBFS"}` : ""}</div>`;
+      seenDevices.set(dv.key, el);
+      $("devices").prepend(el);
+    }
+    const result = job.result || {};
+    const devices = result.devices ? result.devices.length : seenDevices.size;
+    counters([["Devices", devices], ["Alerts", (job.alerts || []).length], ["Steps", (job.step_status || []).filter((s) => s.status === "done").length + (job.kind === "playbook" ? `/${(job.summary.steps || []).length}` : "")]]);
+  }
+
+  function counters(items) {
+    $("counters").innerHTML = items.map(([k, v]) => `<div class="counter"><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`).join("");
+  }
+
+  function renderDiscovery(job) {
+    $("specWrap").hidden = false;
+    $("sideTitle").textContent = job.result ? "Strongest bands" : "Strongest so far";
+    const sw = job.sweep || {};
+    const result = job.result;
+    counters([["Passes", result ? result.analysis.passes : sw.passes || 0], ["Active segments", result ? result.analysis.segments.length : sw.segments || 0],
+              ["Bands", result ? result.bands.length : "…"]]);
+    drawSpectrum(job.spectrum || [], result ? result.analysis.segments : (sw.top || []).map((t) => ({ peak_hz: t.peak_hz, band: t.band, above_floor_db: t.above_floor_db })));
+    const top = result ? result.bands.slice(0, 8) : [];
+    $("devices").innerHTML = (result ? top.map((b) => ({ name: b.band, sub: `${hz(b.lo_hz)} – ${hz(b.hi_hz)}${b.steady == null ? "" : b.steady ? " · steady" : " · intermittent"}`, db: b.above_floor_db, dec: b.decoder }))
+      : (sw.top || []).map((t) => ({ name: t.band || "Unidentified", sub: hz(t.peak_hz), db: t.above_floor_db }))).map((x) =>
+      `<div class="dev"><div class="ic">${x.dec ? "DEC" : "RF"}</div><div class="nm"><b>${esc(x.name)}</b><small>${esc(x.sub)}</small></div><div class="lv">+${Math.round(x.db)} dB</div></div>`).join("");
+    if (result) {
+      $("bands").innerHTML = result.bands.map((b) => `<div class="band"><span class="tag ${b.decoder ? "dec" : ""}">${b.decoder ? "can follow up" : "energy only"}</span>
+        <b>${esc(b.band)}</b><div class="m">${hz(b.lo_hz)} – ${hz(b.hi_hz)} · +${Math.round(b.above_floor_db)} dB${b.steady == null ? "" : b.steady ? " · steady" : " · intermittent"}</div>
+        <div class="m">${esc(b.usual || "")}</div></div>`).join("");
+    }
+  }
+
+  function drawSpectrum(spec, marks) {
+    const c = $("spec"), g = c.getContext("2d");
+    const W = c.width, H = c.height, pad = 34;
+    g.clearRect(0, 0, W, H);
+    if (!spec.length) { g.fillStyle = "#5c6d80"; g.font = "26px system-ui"; g.fillText("Sweeping…", 30, 60); return; }
+    const lo = Math.log10(spec[0][0]), hi = Math.log10(spec[spec.length - 1][0]);
+    const vals = spec.map((p) => p[2]), floors = spec.map((p) => p[3]);
+    const top = Math.max(...vals) + 4, bottom = Math.min(...floors) - 8;
+    const X = (f) => pad + (Math.log10(f) - lo) / (hi - lo) * (W - pad * 2);
+    const Y = (d) => H - pad - (d - bottom) / (top - bottom) * (H - pad * 2);
+    g.strokeStyle = "rgba(148,170,196,.12)"; g.lineWidth = 1; g.font = "20px ui-monospace, monospace"; g.fillStyle = "#6f8297";
+    for (const [f, label] of [[1e8, "100 MHz"], [3e8, "300 MHz"], [1e9, "1 GHz"], [2.4e9, "2.4 GHz"], [5e9, "5 GHz"]]) {
+      if (f < spec[0][0] || f > spec[spec.length - 1][0]) continue;
+      g.beginPath(); g.moveTo(X(f), pad / 2); g.lineTo(X(f), H - pad); g.stroke(); g.fillText(label, X(f) + 6, H - 10);
+    }
+    const grad = g.createLinearGradient(0, 0, W, 0);
+    grad.addColorStop(0, "#8b5cf6"); grad.addColorStop(.6, "#22d3ee"); grad.addColorStop(1, "#34d399");
+    g.beginPath(); spec.forEach((p, i) => { const x = X(p[0]), y = Y(p[2]); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.lineTo(X(spec[spec.length - 1][0]), H - pad); g.lineTo(X(spec[0][0]), H - pad); g.closePath();
+    const fill = g.createLinearGradient(0, pad, 0, H - pad); fill.addColorStop(0, "rgba(139,92,246,.35)"); fill.addColorStop(1, "rgba(34,211,238,0)");
+    g.fillStyle = fill; g.fill();
+    g.beginPath(); spec.forEach((p, i) => { const x = X(p[0]), y = Y(p[2]); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.strokeStyle = grad; g.lineWidth = 2.4; g.shadowColor = "rgba(34,211,238,.6)"; g.shadowBlur = 12; g.stroke(); g.shadowBlur = 0;
+    g.setLineDash([6, 6]); g.strokeStyle = "rgba(148,170,196,.45)"; g.lineWidth = 1.2; g.beginPath();
+    spec.forEach((p, i) => { const x = X(p[0]), y = Y(p[3]); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); g.setLineDash([]);
+    const placed = [];
+    for (const m of (marks || []).slice(0, 10)) {
+      const x = X(m.peak_hz || (m.lo_hz + m.hi_hz) / 2);
+      if (placed.some((p) => Math.abs(p - x) < 120)) continue;
+      placed.push(x);
+      const p = spec.reduce((best, q) => Math.abs(q[0] - (m.peak_hz || m.lo_hz)) < Math.abs(best[0] - (m.peak_hz || m.lo_hz)) ? q : best, spec[0]);
+      const y = Y(p[2]);
+      g.fillStyle = "#e9f0f7"; g.beginPath(); g.arc(x, y, 5, 0, 7); g.fill();
+      g.font = "600 19px system-ui"; g.fillStyle = "#e9f0f7";
+      const label = (m.band || "?").replace(/ downlink| \(.*?\)/g, "");
+      g.fillText(label, Math.min(W - g.measureText(label).width - 8, x + 8), Math.max(24, y - 12));
+    }
+  }
+
+  function showResult(job) {
+    const r = job.result;
+    if (!r) { if (job.error) { $("resultCard").hidden = false; $("story").innerHTML = `<li class="err">${esc(job.error)}</li>`; } return; }
+    $("resultCard").hidden = false;
+    const story = r.narrative || (r.workflow || {}).narrative || [];
+    $("story").innerHTML = story.map((l) => `<li>${esc(maskText(l))}</li>`).join("");
+    const acts = [];
+    if (job.report_dir) acts.push(`<a class="btn ghost" href="/api/agent/jobs/${encodeURIComponent(job.job_id)}/report" target="_blank" rel="noopener">Open the verifiable report</a>`);
+    if (job.proposal_plan) acts.push(`<button class="btn" id="followBtn">Run the proposed follow-up</button>`);
+    $("resultActions").innerHTML = acts.join("");
+    if (job.proposal_plan) $("followBtn").addEventListener("click", () => {
+      $("q").value = r.proposal; plan = job.proposal_plan; showPlan(r.proposal);
+    });
+    $("askForm").hidden = job.kind === "discovery";
+  }
+
+  $("askForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const q = $("askQ").value.trim();
+    if (!q || !jobId) return;
+    $("askQ").value = "";
+    const box = document.createElement("div"); box.className = "qa"; box.innerHTML = `<div class="q">${esc(q)}</div><div>Reading the run…</div>`;
+    $("answers").prepend(box);
+    try {
+      const out = await api(`/api/agent/jobs/${encodeURIComponent(jobId)}/ask`, { question: q });
+      box.innerHTML = `<div class="q">${esc(q)}</div><div>${esc(maskText(out.answer)).replace(/\n/g, "<br>")}</div>` +
+        (out.sources || []).map((s) => `<div class="src">${esc(maskText(s))}</div>`).join("") +
+        `<div class="src">${out.by === "model" ? `Answered by ${esc(out.model)}; every number tied to the record it came from` : "Answered from the run's records by code"}</div>`;
+    } catch (err) { box.innerHTML = `<div class="q">${esc(q)}</div><div class="err">${esc(err.message)}</div>`; }
+  });
+
+  // --- recording mode: /agent?demo=1&q=...&sim=1 types the request itself, plans, then runs -------------------
+  if (DEMO) {
+    (async () => {
+      const text = params.get("q") || EXAMPLES[0];
+      await new Promise((r) => setTimeout(r, 900));
+      const ta = $("q"); ta.focus();
+      for (let i = 0; i <= text.length; i++) { ta.value = text.slice(0, i); await new Promise((r) => setTimeout(r, 34 + Math.random() * 40)); }
+      await new Promise((r) => setTimeout(r, 500));
+      await doPlan();
+      await new Promise((r) => setTimeout(r, 2600 + (plan && plan.explain ? plan.explain.length * 26 : 0)));
+      if (plan) run(params.get("sim") === "1");
+    })();
+  }
+})();
+</script>
+</body>
+</html>
