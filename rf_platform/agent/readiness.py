@@ -15,6 +15,7 @@ from .profiles import PROFILES
 from .workflow import WorkflowSpec
 
 MIN_FREE_BYTES = 2 * 1024 ** 3
+FULL_SCAN_S = 75  # the modem's full scan took ~56 s live, plus the first quick poll and margin
 
 
 def _plan_parts(plan: dict[str, Any]) -> tuple[list[WorkflowSpec], PlaybookSpec | None]:
@@ -62,6 +63,14 @@ def check(plan: dict[str, Any], radio, mode: str, log_dir: Path, simulate: bool 
         from rf_platform.cellular.survey import cellular_capability
         cap = (cellular or cellular_capability)()
         add("Cellular modem", "ok" if cap["supported"] else "fail", cap["reason"])
+    short = [s.duration_s for s in specs if "cellular" in s.collect and s.duration_s < FULL_SCAN_S]
+    if short and not simulate:
+        # Measured on the RM520N-GL: the full scan (AT+QSCAN) holds the modem for about a minute. A shorter survey
+        # still lists serving and neighbour cells, but neighbours then have no operator (PLMN), so operator rules
+        # cannot judge them.
+        add("Cell survey length", "warn",
+            f"{min(short):.0f} s is shorter than the full network scan (about a minute): neighbour cells will be "
+            "listed without an operator; survey for 90 s or more to name them")
     try:
         free = shutil.disk_usage(log_dir if log_dir.exists() else log_dir.parent).free
         records_iq = any(a.kind == "record_iq" for s in specs for t in s.triggers for a in t.do)

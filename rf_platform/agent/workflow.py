@@ -636,10 +636,15 @@ class WorkflowEngine:
 
     def observe(self, event: dict[str, Any]) -> None:
         key = event.get("agent_key")
+        old = event.get("supersedes")
+        if key and old and old != key and self.focus is not None and old in self.focus:
+            self.focus.add(key)  # a focused cell, now known by its cell ID
         if not key or (self.focus is not None and key not in self.focus):
             return
         now = time.time()
         with self._lock:
+            if old and old != key and old in self.devices:
+                self._fold(old, key)
             record = self.devices.get(key)
             if record is None:
                 manufacturer = event.get("manufacturer")
@@ -694,6 +699,29 @@ class WorkflowEngine:
                                           name=f"workflow-trigger-{index}", daemon=True)
                 self._threads.append(thread)
                 thread.start()
+
+    def _fold(self, old: str, key: str) -> None:
+        """One physical cell seen under two keys (PCI-only, then named): keep one record, fired rules carry over."""
+        earlier = self.devices.pop(old)
+        record = self.devices.get(key)
+        if record is None:
+            self.devices[key] = {**earlier, "key": key, "new": earlier["new"] and key not in self.known}
+        else:
+            record["new"] = record["new"] and earlier["new"]
+            record["count"] += earlier["count"]
+            record["first_seen"] = min(record["first_seen"], earlier["first_seen"])
+            record["dwell_s"] = round(record["last_seen"] - record["first_seen"], 1)
+            if earlier.get("best_rssi_dbfs") is not None:
+                record["best_rssi_dbfs"] = max(earlier["best_rssi_dbfs"], record.get("best_rssi_dbfs") or -200.0)
+            record["tags"] = list(dict.fromkeys((record.get("tags") or []) + (earlier.get("tags") or [])))
+        if old in self.matched:
+            self.matched.discard(old)
+            self.matched.add(key)
+        for (index, fired_key), at in list(self.fired.items()):
+            if fired_key == old:
+                self.fired.setdefault((index, key), self.fired.pop((index, fired_key)))
+        if old in self._trigger_conditions:
+            self._trigger_conditions.setdefault(key, self._trigger_conditions.pop(old))
 
     @staticmethod
     def _public(record: dict[str, Any]) -> dict[str, Any]:
@@ -962,12 +990,14 @@ def run_workflow(agent, spec: WorkflowSpec, on_step: Callable[[str], None] = pri
         if cell:
             result["devices"] = result["devices"] + cell["devices"]
             result["audit"] = result["audit"]  # shared gateway: the audit already holds both
+    heard = len(result["devices"])
     if focus is not None:
         result["devices"] = [d for d in result["devices"] if d["key"] in engine.focus]
     result["workflow"] = engine.finish()
     result["workflow"]["planner"] = planner or {"planner": "deterministic"}
     if focus is not None:
         result["workflow"]["focus"] = sorted(engine.focus)
+        result["workflow"]["heard"] = heard  # everything decoded, focused on or not
     for follow in engine.follow_ups:
         result["devices"] = result["devices"] + follow["result_devices"]
     result["workflow"]["narrative"] = narrative(result)

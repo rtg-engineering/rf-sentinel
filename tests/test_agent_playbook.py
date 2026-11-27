@@ -113,6 +113,15 @@ class PlannerTest(unittest.TestCase):
                                         "find ble devices for 10 minutes. then survey cell towers for 5 minutes")
         with self.assertRaisesRegex(ValueError, "only receives"):
             plan_any("watch for trackers for 1 minute. then jam them", "deterministic")
+        # WiFi is refused by code for every planner, so a model cannot silently plan only the Bluetooth half.
+        class Model:  # would plan something if it were ever asked
+            pass
+        for planner in ("deterministic", "model"):
+            with self.assertRaisesRegex(ValueError, "monitor-mode WiFi"):
+                plan_any("look for wifi and bluetooth devices for 20 seconds. then survey cell towers for 30 seconds",
+                         planner, model=Model())
+            with self.assertRaisesRegex(ValueError, "monitor-mode WiFi"):
+                plan_any("scan wifi for 20 seconds", planner, model=Model())
         step = {"workflow": {"collect": ["ble"], "duration_s": 30}}
         with self.assertRaisesRegex(ValueError, "earlier step"):
             PlaybookSpec.model_validate({"steps": [step, {**step, "focus": "found", "focus_step": 1}]})

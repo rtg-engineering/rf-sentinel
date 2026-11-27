@@ -212,7 +212,7 @@ The probes are read-only: no receiver is opened. Run them before leaving a watch
 
 ## What it does
 
-1. **Understands the request.** Supported: Bluetooth Low Energy ("BLE", "beacons", "AirTag"), Bluetooth Classic ("bluetooth classic", "BR/EDR"), Zigbee / 802.15.4, TPMS tire sensors, and cell towers through a cellular modem ("cell towers", "LTE", "5G"). A plain "bluetooth" request covers both kinds of Bluetooth (see [Bluetooth Classic](#bluetooth-classic)). It understands durations ("for 2 minutes", up to 600 s), a receiver ("on bladerf:1"), and a Zigbee channel. Requests to transmit, jam, spoof, or replay are refused. WiFi needs a monitor-mode adapter, not an SDR, so the agent says so.
+1. **Understands the request.** Supported: Bluetooth Low Energy ("BLE", "beacons", "AirTag"), Bluetooth Classic ("bluetooth classic", "BR/EDR"), Zigbee / 802.15.4, TPMS tire sensors, and cell towers through a cellular modem ("cell towers", "LTE", "5G"). A plain "bluetooth" request covers both kinds of Bluetooth (see [Bluetooth Classic](#bluetooth-classic)). It understands durations ("for 2 minutes", up to 600 s), a receiver ("on bladerf:1"), and a Zigbee channel. Requests to transmit, jam, spoof, or replay are refused. WiFi needs a monitor-mode adapter, not an SDR, so the agent refuses any request that names WiFi, before any planner sees it. A model asked for "wifi and bluetooth" would otherwise quietly plan only the Bluetooth half.
 2. **Chooses a receiver.** A free receiver whose tuning range and sample rate cover the band, from the IQ service. It uses the built-in SoapySDR service by default ([sdr.md](sdr.md)).
 3. **Level-based gain.** It measures received samples on every center frequency, then steps the gain to the highest value where the 99.9th-percentile magnitude is within 3 dB of -6 dBFS and under 0.1% of samples clip. The loudest channel decides, so the gain is safe everywhere.
 4. **Decoder-feedback gain.** While the decoder runs, the agent checks the decoder's own burst peaks every 8 s:
@@ -246,6 +246,10 @@ rf-sentinel agent run "Survey cell towers for 3 minutes. Send an urgent alert if
   - The full scan is treated as authoritative for a cell's network.
   - A serving-cell report whose PLMN hasn't been confirmed by a scan is shown as *unverified PLMN*, not *unknown operator*. Some modem serving-cell reports carry a mis-parsed PLMN, and an "unknown network" trigger must not fire on that.
   - Neighbour reports that carry no PLMN are shown as *PLMN not reported*.
+- **One cell, one entry.** A neighbour report has only PCI and channel (ARFCN). The serving report and the full scan also carry the cell ID. Once a cell ID is known for a (RAT, PCI, ARFCN), every report of that cell uses one key. Its earlier PCI-only sightings are folded in, and a rule that already fired on it does not fire again. The same PCI on another channel is a different cell. In a live 90 s survey this took the count from 28 entries to 17 cells.
+- **Survey length.** The full scan holds the modem for about a minute (56 s measured), and it starts after the first quick poll.
+  - A survey shorter than that still lists serving and neighbour cells, but the neighbours have no operator, so operator rules ("unknown network", "only verizon") cannot judge them.
+  - **Ready?** warns when a cell step is shorter than 75 s. Survey for 90 s or more to name the neighbours.
 - **Workflow fields.** `operator`, `rat`, `generation` (2G–5G), and `role` (serving / neighbour / scanned). For cells, signal is RSRP in dBm.
 - **Rules-planner phrases:**
   - carrier names ("only verizon");

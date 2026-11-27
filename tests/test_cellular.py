@@ -134,3 +134,108 @@ class DashboardIngestTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AdapterOrderTest(unittest.TestCase):
+    def test_slow_full_scan_does_not_hold_back_the_first_serving_report(self):
+        """The full scan holds the modem ~1 min; a short survey must still report the serving cell at once."""
+        import contextlib
+        import io
+        import threading
+        import time
+        from rf_platform.cellular import __main__ as adapter
+
+        modem = threading.Lock()  # the survey service serialises AT commands like this
+
+        class Client:
+            def __init__(self, url):
+                pass
+
+            def scan(self):
+                with modem:
+                    return [observation("LTE", "310410", "18BBA08", role="serving")]
+
+            def qscan(self):
+                with modem:
+                    time.sleep(1.5)
+                    return []
+
+        handlers = {}
+        out = io.StringIO()
+        with patch.object(adapter, "SurveyClient", Client), \
+                patch.object(adapter.signal, "signal", lambda sig, fn: handlers.setdefault(sig, fn)), \
+                contextlib.redirect_stdout(out):
+            worker = threading.Thread(target=adapter.main, args=(["--url", "http://x", "--poll-s", "0.1"],))
+            started = time.monotonic()
+            worker.start()
+            while '"role": "serving"' not in out.getvalue() and time.monotonic() - started < 5:
+                time.sleep(0.02)
+            elapsed = time.monotonic() - started
+            handlers[adapter.signal.SIGTERM]()
+            worker.join(5)
+            with modem:  # let the background full scan finish while output is still captured
+                time.sleep(0.05)
+        self.assertIn('"role": "serving"', out.getvalue())
+        self.assertLess(elapsed, 1.0)
+
+
+class CellIdentityTest(unittest.TestCase):
+    """Live RM520N-GL capture: PCI 258 on EARFCN 67061 was listed by the neighbour poll (no cell ID) and by the full
+    scan as AT&T cell 18BBAE3; the run counted it twice. PCI 229 on 5780 is a different cell from 18C5310 on 5110."""
+
+    @staticmethod
+    def neighbour(pci, earfcn, rsrp=-100.0):
+        return {"role": "neighbor", "source": 'AT+QENG="neighbourcell"',
+                "identity": {"rat": "LTE", "plmn": "", "cell_id": "", "pci": pci, "earfcn": earfcn},
+                "signal": {"rsrp_dbm": rsrp}}
+
+    @staticmethod
+    def scanned(cell_id, pci, earfcn, plmn="310410", rsrp=-107.0):
+        return {"role": "scanned", "source": "AT+QSCAN=3,1",
+                "identity": {"rat": "LTE", "plmn": plmn, "cell_id": cell_id, "pci": pci, "earfcn": earfcn},
+                "signal": {"rsrp_dbm": rsrp}}
+
+    def test_neighbour_and_scan_of_one_cell_share_a_key(self):
+        known: dict = {}
+        before = normalise(self.neighbour(258, 67061), known)
+        self.assertEqual(before["key"], "LTE:PCI258@67061")
+        named = normalise(self.scanned("18BBAE3", 258, 67061), known)
+        self.assertEqual((named["key"], named["supersedes"]), ("LTE:18BBAE3", "LTE:PCI258@67061"))
+        after = normalise(self.neighbour(258, 67061), known)
+        self.assertEqual((after["key"], after["operator"]), ("LTE:18BBAE3", "AT&T"))
+        self.assertNotIn("supersedes", after)
+        other = normalise(self.neighbour(229, 5780), known)  # same PCI elsewhere is another cell
+        self.assertEqual(other["key"], "LTE:PCI229@5780")
+
+    def test_workflow_counts_one_cell_and_alerts_once(self):
+        from rf_platform.agent.workflow import WorkflowEngine, WorkflowSpec
+
+        class Agent:
+            simulate, _stop = True, __import__("threading").Event()
+
+        spec = WorkflowSpec.model_validate({"collect": ["cellular"], "duration_s": 30, "triggers": [
+            {"when": [{"field": "operator", "op": "contains", "value": "AT&T"}],
+             "do": [{"kind": "tag", "label": "att"}]}]})
+        with tempfile.TemporaryDirectory() as temp:
+            engine = WorkflowEngine(spec, Agent(), lambda m: None, base_dir=Path(temp))
+            known: dict = {}
+            for obs in (self.neighbour(258, 67061), self.scanned("18BBAE3", 258, 67061), self.neighbour(258, 67061),
+                        self.scanned("18BBAE3", 258, 67061)):
+                event = normalise(obs, known)
+                event.update(agent_key=event["key"], agent_profile="cellular")
+                engine.observe(event)
+            out = engine.finish()
+        self.assertEqual([d["key"] for d in out["all_devices"]], ["LTE:18BBAE3"])
+        self.assertEqual(out["all_devices"][0]["count"], 4)
+        self.assertEqual(out["triggers_fired"], 1)
+
+    def test_agent_record_folds_the_pci_only_sighting(self):
+        from rf_platform.agent.profiles import PROFILES
+        detections: dict = {}
+        known: dict = {}
+        for obs in (self.neighbour(258, 67061, rsrp=-99.0), self.scanned("18BBAE3", 258, 67061)):
+            event = normalise(obs, known)
+            event["seen_at"] = 1.0
+            core.Agent._record(detections, PROFILES["cellular"], event, None, None)
+        self.assertEqual(list(detections), ["LTE:18BBAE3"])
+        self.assertEqual((detections["LTE:18BBAE3"]["count"], detections["LTE:18BBAE3"]["best_rssi_dbfs"]), (2, -99.0))

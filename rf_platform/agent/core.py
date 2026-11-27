@@ -397,6 +397,15 @@ class Agent:
         key = profile.key(event)
         if not key:
             return
+        old = event.get("supersedes")
+        if old and old != key and old in detections:  # a cell first heard by PCI only, now named: one record
+            earlier = detections.pop(old)
+            item = detections.setdefault(key, {**earlier, "key": key, "count": 0})
+            item["count"] += earlier["count"] if item is not earlier else 0
+            if earlier.get("first_seen") is not None:
+                item["first_seen"] = min(x for x in (item.get("first_seen"), earlier["first_seen"]) if x is not None)
+            if "best_rssi_dbfs" in earlier:
+                item["best_rssi_dbfs"] = max(earlier["best_rssi_dbfs"], item.get("best_rssi_dbfs", -200.0))
         item = detections.setdefault(key, {"key": key, "count": 0, "first_seen": event.get("seen_at"),
                                            "protocol": profile.name})
         item["count"] += 1

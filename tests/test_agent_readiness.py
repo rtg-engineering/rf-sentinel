@@ -50,6 +50,17 @@ class ReadinessTest(unittest.TestCase):
         out = check(self.plan, SimRadio(), "passive-auto", self.dir, simulate=True)
         self.assertTrue(out["ok"])
         self.assertEqual(self.by_name(out)["Receivers"], "ok")
+        self.assertNotIn("Cell survey length", self.by_name(out))  # simulated modem: no scan timing
+
+    def test_short_cell_survey_warns_about_unnamed_neighbours(self):
+        modem = lambda: {"supported": True, "reason": "modem ok"}  # noqa: E731
+        short = check(plan_any("survey cell towers for 30 seconds", "deterministic"), SimRadio(), "passive-auto",
+                      self.dir, cellular=modem)
+        self.assertEqual(self.by_name(short)["Cell survey length"], "warn")
+        self.assertTrue(short["ok"])  # a warning, not a failure: serving and neighbour cells are still listed
+        long = check(plan_any("survey cell towers for 2 minutes", "deterministic"), SimRadio(), "passive-auto",
+                     self.dir, cellular=modem)
+        self.assertNotIn("Cell survey length", self.by_name(long))
 
 
 if __name__ == "__main__":

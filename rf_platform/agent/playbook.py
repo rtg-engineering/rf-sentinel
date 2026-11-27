@@ -541,6 +541,10 @@ def plan_any(text: str, planner: str = "auto", model: Any = None, utc_offset_min
         out = {**saved["plan"], "planner": "library", "model": None, "fallback_reason": None, "library": saved["name"]}
         out["explain"] = explain(out)
         return out
+    if re.search(r"\bwi-?fi\b(?!\s+(?:calling|offload))", text, re.I):
+        # Checked by code before any planner: a model would quietly plan only the parts it can do.
+        raise ValueError("WiFi needs a monitor-mode WiFi adapter, not an SDR, so it is not available here. "
+                         "Ask again without WiFi to run the rest (Bluetooth, Zigbee, TPMS, cell towers).")
     if not is_multistep(text):
         out = plan(text, planner, model)
         out["explain"] = explain(out)
@@ -703,7 +707,15 @@ def step_summary(record: dict[str, Any], sentence: bool = False) -> str:
             + ([f"{evidence} IQ file(s)"] if evidence else [])
         return " · ".join(parts)
     what = (wf.get("summary") or {}).get("find", "")
-    text = f"collected {what}, saw {seen} device(s)" + (f", {matched} matched the filters" if filtered else "")
+    focus = wf.get("focus")
+    if focus is not None:
+        heard = wf.get("heard")
+        text = (f"collected {what}" + (f", heard {heard} device(s)" if heard is not None else "")
+                + (f"; {seen} of the {len(focus)} device(s) from earlier reappeared" if seen
+                   else f"; none of the {len(focus)} device(s) from earlier reappeared"))
+    else:
+        text = f"collected {what}, saw {seen} device(s)"
+    text += f", {matched} matched the filters" if filtered else ""
     rules: dict[str, set[str]] = {}
     for event in wf.get("timeline") or []:
         if event["kind"] == "trigger":
