@@ -65,7 +65,8 @@ def _render(result: dict[str, Any]) -> str:
                            for x in wf.get("evidence", []))
         story = "".join(f"<li>{e(x)}</li>" for x in wf.get("narrative") or [])
         workflow_html = (
-            "<div class='stats'>" + "".join(
+            (f"<p class='card'><strong>Plan.</strong> {e(wf['explain'])}</p>" if wf.get("explain") else "")
+            + "<div class='stats'>" + "".join(
                 f"<div class='stat'><span>{label}</span><strong>{e(value)}</strong></div>" for label, value in (
                     ("Devices seen", wf.get("seen", 0)), ("Matched", len(wf.get("matched") or [])),
                     ("Rules fired", wf.get("triggers_fired", 0)), ("Alerts", len(wf.get("alerts") or [])),

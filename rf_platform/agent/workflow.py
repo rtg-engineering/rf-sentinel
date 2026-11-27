@@ -192,6 +192,8 @@ ACTION_PATTERNS: list[tuple[str, Callable[[re.Match], Action]]] = [
                       severity="critical" if (m.group(1) or m.group(3)) else "warning")),
     (rf"\b(?:record|capture|save)\s*(?:(\d+(?:\.\d+)?)\s*({UNIT_S})\s*)?(?:of\s+)?(?:iq|samples|evidence|it|the signal)?\b",
      lambda m: Action(kind="record_iq", seconds=_seconds(m.group(1), m.group(2)) if m.group(1) else 5)),
+    (rf"\b(?:grab|take|get|pull|keep)\s+(\d+(?:\.\d+)?)\s*({UNIT_S})\s+of\s+(?:iq|samples|evidence|raw iq)\b",
+     lambda m: Action(kind="record_iq", seconds=_seconds(m.group(1), m.group(2)))),
     (rf"\b(?:scan|look|sweep|check|listen|survey)\s+(?:for\s+|the\s+)?(bluetooth classic|classic bluetooth|classic|br/edr|zigbee|tpms|tire sensors?|ble|cell towers?|cellular|cells|lte|5g)"
      rf"(?:\s+devices)?(?:\s+for\s+(\d+(?:\.\d+)?)\s*({UNIT_S}))?",
      lambda m: Action(kind="start_scan", protocol=_protocol_word(m.group(1)),
@@ -238,7 +240,8 @@ def _conditions(text: str) -> list[Condition]:
         found.append(Condition(field="name", op="contains", value=m.group(1).strip()))
     if re.search(r"\b(?:new|unfamiliar|never seen)\b(?! (?:than|scan|serving))|\bunknown\b(?! (?:operator|network|carrier|plmn))|\banything new\b", text):
         found.append(Condition(field="new", op="eq", value=True))
-    m = re.search(rf"\b(?:seen|around|present|following|stays?|persists?|lingers?)\b[^.]*?\bfor (?:more than |over |at least )?(\d+(?:\.\d+)?)\s*({UNIT_S})", text)
+    m = (re.search(rf"\b(?:seen|around|present|following|stays?|persists?|lingers?)\b[^.]*?\bfor (?:more than |over |at least )?(\d+(?:\.\d+)?)\s*({UNIT_S})", text)
+         or re.search(rf"\bstill (?:there|around|here|present|seen|nearby|visible)\b (?:after|for|past) (?:more than |over |at least )?(\d+(?:\.\d+)?)\s*({UNIT_S})", text))
     if m:
         found.append(Condition(field="dwell_s", op="ge", value=_seconds(m.group(1), m.group(2))))
     carriers = {"at&t": "AT&T", "att": "AT&T", "firstnet": "FirstNet", "verizon": "Verizon", "t-mobile": "T-Mobile",
@@ -250,6 +253,11 @@ def _conditions(text: str) -> list[Condition]:
         found.append(Condition(field="operator", op="eq", value="unknown operator"))
     for generation in ("2g", "3g", "4g", "5g"):
         if re.search(rf"\b(?:downgrades?|drops?|falls?|fall back|switch(?:es)?) to {generation}\b|\b{generation} (?:cell|tower|cells|towers)\b", text):
+            found.append(Condition(field="generation", op="eq", value=generation.upper()))
+    for generation in ("2g", "3g"):
+        # "anything 2G": suspicious generations named on their own (4G/5G alone usually describe the survey)
+        if re.search(rf"\b(?:anything|any|something|a|an|every|each) {generation}\b(?! (?:cell|tower|cells|towers))", text) \
+                and not any(c.field == "generation" and c.value == generation.upper() for c in found):
             found.append(Condition(field="generation", op="eq", value=generation.upper()))
     if re.search(r"\b(?:gsm)\b", text):
         found.append(Condition(field="generation", op="eq", value="2G"))
@@ -307,13 +315,19 @@ def _parse_triggers(clause: str) -> list[Trigger]:
     return [Trigger(when=when, do=do, repeat=repeat)]
 
 
-def plan_deterministic(text: str) -> WorkflowSpec:
-    """Plain-language request → WorkflowSpec with a fixed grammar. Raises ValueError when unsure."""
+def plan_deterministic(text: str, standing_actions: bool = False) -> WorkflowSpec:
+    """Plain-language request → WorkflowSpec with a fixed grammar. Raises ValueError when unsure.
+
+    standing_actions: actions with no condition ("... and tag them as suspect") apply to every device in scope
+    (used by playbook steps that focus on devices an earlier step found)."""
     from .profiles import IntentError, parse
     raw = " ".join(str(text).split())
     lower = raw.lower()
     if re.search(r"\b(transmit|jam|spoof|replay|attack|inject|deauth|page)\b", lower):
         raise ValueError("RF Sentinel only receives. It will not transmit, jam, spoof, replay, or page devices.")
+    # "alert me on anything 2G or any unknown network" = "alert me if ...": the condition follows the action.
+    lower = re.sub(r"\b((?:send (?:me )?an? )?(?:(?:urgent|critical|high[- ]priority) )?(?:alert|notify|warn)(?: me)?) "
+                   r"(?:on|about|for|of) (?=(?:any|anything|every|each|new|unknown)\b|(?:a|an) (?!\d))", r"\1 if ", lower)
     main, trigger_clauses = _split_triggers(lower)
     # A sentence boundary ends a rule: "if X, alert. Send an urgent alert if Y" - the second sentence's action
     # leads the next condition rather than joining the first rule.
@@ -359,10 +373,30 @@ def plan_deterministic(text: str) -> WorkflowSpec:
             conditions = _conditions(clause)
             if follow and conditions:
                 trigger = Trigger(when=conditions, do=follow.do, repeat=follow.repeat)
+        if trigger is not None and index == 0 and not isinstance(trigger, _OrTriggers):
+            # "send an urgent alert if X, and record 5 s of IQ": the action before "if" belongs to this rule too.
+            segments = re.split(r"[.;,]|\band\b|\bthen\b", main)
+            tail = segments[-1]
+            lead_rules = [] if re.search(r"\b(?:find|watch|monitor|survey|scan|look|listen|search|track|sweep)\b", tail) \
+                else _parse_triggers("x " + tail)
+            lead = [a for a in lead_rules[0].do if a.kind in ("alert", "tag", "record_iq")] if lead_rules else []
+            if lead:
+                trigger = Trigger(when=trigger.when, do=lead + [a for a in trigger.do if a.kind not in {x.kind for x in lead}],
+                                  repeat=trigger.repeat)
+                main = main[: len(main) - len(tail)].rstrip(" ,.;").removesuffix(" and").removesuffix(" then")
         if isinstance(trigger, _OrTriggers):
             triggers.extend(trigger)
         elif trigger is not None:
             triggers.append(trigger)
+    if standing_actions:
+        segments = [seg for seg in re.split(r"[.;,]|\band\b|\bthen\b", main)[1:] if seg.strip()]
+        standing = [a for seg in segments for t in _parse_triggers("x " + seg) for a in t.do
+                    if a.kind in ("alert", "tag", "record_iq")]
+        if standing:
+            triggers.append(Trigger(when=[Condition(field="count", op="ge", value=1)], do=standing))
+            for seg in segments:
+                if _parse_triggers("x " + seg):
+                    main = main.replace(seg, " ")
     trackers = bool(re.search(r"\b(?:trackers?|airtags?|tiles?|find my|smarttags?)\b", main))
     cellular_words = r"\b(?:cell|cells|cellular|towers?|lte|5g|4g|2g|3g|gsm|base stations?|carriers?|plmn|(?:unknown|unrecognized) (?:network|operator|carrier))\b"
     implies_cellular = bool(re.search(cellular_words, main)) or (
@@ -555,8 +589,9 @@ def filter_applies(condition: Condition, record: dict[str, Any], mixed: bool) ->
     return (condition.field in CELL_FIELDS) == is_cell
 
 
-def known_devices_path(base: Path | None = None) -> Path:
-    return (base or runs_dir()) / "known_devices.json"
+def known_devices_path(base: Path | None = None, simulated: bool = False) -> Path:
+    # Simulated runs keep their own list, so synthetic devices never make real ones look "previously seen".
+    return (base or runs_dir()) / ("known_devices.simulated.json" if simulated else "known_devices.json")
 
 
 class WorkflowEngine:
@@ -564,8 +599,12 @@ class WorkflowEngine:
 
     def __init__(self, spec: WorkflowSpec, agent, step: Callable[[str], None],
                  on_event: Callable[[dict[str, Any]], None] | None = None, evidence_dir: Path | None = None,
-                 base_dir: Path | None = None):
+                 base_dir: Path | None = None, focus: set[str] | None = None,
+                 carried_tags: dict[str, list[str]] | None = None):
         self.spec, self.agent, self.step = spec, agent, step
+        # A playbook step can focus on devices an earlier step found: anything else is ignored by this engine.
+        self.focus = set(focus) if focus is not None else None
+        self.carried_tags = carried_tags or {}
         self.on_event = on_event or (lambda e: None)
         self.base_dir = base_dir or runs_dir()
         self.evidence_dir = evidence_dir or self.base_dir / "evidence"
@@ -581,8 +620,9 @@ class WorkflowEngine:
         self.evidence: list[dict[str, Any]] = []
         self._threads: list[threading.Thread] = []
         self._started = time.time()
+        self._simulated = bool(getattr(agent, "simulate", False))
         try:
-            self.known = set(json.loads(known_devices_path(self.base_dir).read_text()))
+            self.known = set(json.loads(known_devices_path(self.base_dir, self._simulated).read_text()))
         except (OSError, ValueError):
             self.known = set()
 
@@ -596,10 +636,15 @@ class WorkflowEngine:
 
     def observe(self, event: dict[str, Any]) -> None:
         key = event.get("agent_key")
-        if not key:
+        old = event.get("supersedes")
+        if key and old and old != key and self.focus is not None and old in self.focus:
+            self.focus.add(key)  # a focused cell, now known by its cell ID
+        if not key or (self.focus is not None and key not in self.focus):
             return
         now = time.time()
         with self._lock:
+            if old and old != key and old in self.devices:
+                self._fold(old, key)
             record = self.devices.get(key)
             if record is None:
                 manufacturer = event.get("manufacturer")
@@ -609,7 +654,7 @@ class WorkflowEngine:
                     "name": event.get("name") or "", "address": event.get("address") or event.get("lap") or "",
                     "manufacturer": (manufacturer or {}).get("company_name", "") if isinstance(manufacturer, dict) else str(manufacturer or ""),
                     "device_type": event.get("device_type_detail") or event.get("device_type") or "",
-                    "new": key not in self.known, "tags": [], "best_rssi_dbfs": None}
+                    "new": key not in self.known, "tags": list(self.carried_tags.get(key, [])), "best_rssi_dbfs": None}
                 for field in ("operator", "rat", "generation", "role"):
                     record[field] = event.get(field) or ""
                 if record["protocol"] == "cellular":
@@ -654,6 +699,29 @@ class WorkflowEngine:
                                           name=f"workflow-trigger-{index}", daemon=True)
                 self._threads.append(thread)
                 thread.start()
+
+    def _fold(self, old: str, key: str) -> None:
+        """One physical cell seen under two keys (PCI-only, then named): keep one record, fired rules carry over."""
+        earlier = self.devices.pop(old)
+        record = self.devices.get(key)
+        if record is None:
+            self.devices[key] = {**earlier, "key": key, "new": earlier["new"] and key not in self.known}
+        else:
+            record["new"] = record["new"] and earlier["new"]
+            record["count"] += earlier["count"]
+            record["first_seen"] = min(record["first_seen"], earlier["first_seen"])
+            record["dwell_s"] = round(record["last_seen"] - record["first_seen"], 1)
+            if earlier.get("best_rssi_dbfs") is not None:
+                record["best_rssi_dbfs"] = max(earlier["best_rssi_dbfs"], record.get("best_rssi_dbfs") or -200.0)
+            record["tags"] = list(dict.fromkeys((record.get("tags") or []) + (earlier.get("tags") or [])))
+        if old in self.matched:
+            self.matched.discard(old)
+            self.matched.add(key)
+        for (index, fired_key), at in list(self.fired.items()):
+            if fired_key == old:
+                self.fired.setdefault((index, key), self.fired.pop((index, fired_key)))
+        if old in self._trigger_conditions:
+            self._trigger_conditions.setdefault(key, self._trigger_conditions.pop(old))
 
     @staticmethod
     def _public(record: dict[str, Any]) -> dict[str, Any]:
@@ -702,9 +770,27 @@ class WorkflowEngine:
                      "reasons": [reason] if reason else [], "custom": bool(action.message)}
             self.alerts.append(alert)
         self._emit("alert", severity=action.severity, message=message, device=device)
+        self._deliver(alert)
         rssi = device.get("rssi_dbfs")
         self.step(f"ALERT ({action.severity}): {message}" + (f" ({rssi:.0f} {unit})" if isinstance(rssi, (int, float)) else ""))
         return message
+
+    def _deliver(self, alert: dict[str, Any]) -> None:
+        """Also send the alert to the operator's webhook, when one is configured (off by default)."""
+        from . import notify
+        if not notify.webhook_url():
+            return
+        host = notify.describe()["host"]
+        try:
+            self.agent.gateway.authorize("deliver_alert", {"host": host, "severity": alert["severity"]})
+        except Exception as exc:
+            self._emit("delivery", status="denied", detail=str(exc), device_key=alert["device"]["key"])
+            return
+        thread = notify.deliver(alert, self.agent.gateway.run_id, self._simulated,
+                                on_done=lambda status, detail: self._emit("delivery", status=status, detail=detail,
+                                                                          device_key=alert["device"]["key"]))
+        if thread is not None:
+            self._threads.append(thread)
 
     def _do_tag(self, action: Action, device: dict[str, Any]) -> str:
         self.agent.gateway.authorize("tag_device", {"device": device["key"], "label": action.label})
@@ -794,12 +880,14 @@ class WorkflowEngine:
     # results --------------------------------------------------------------------------------
     def finish(self, timeout_s: float = 120) -> dict[str, Any]:
         deadline = time.monotonic() + timeout_s
-        for thread in list(self._threads):
-            thread.join(max(0.0, deadline - time.monotonic()))
+        joined = 0
+        while joined < len(self._threads):  # actions may start more threads (e.g. alert delivery) while we wait
+            self._threads[joined].join(max(0.0, deadline - time.monotonic()))
+            joined += 1
         with self._lock:
             matched = [self._public(self.devices[k]) for k in self.matched]
             try:
-                path = known_devices_path(self.base_dir)
+                path = known_devices_path(self.base_dir, self._simulated)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(json.dumps(sorted(self.known | set(self.devices))))
             except OSError:
@@ -862,9 +950,10 @@ def run_workflow(agent, spec: WorkflowSpec, on_step: Callable[[str], None] = pri
                  on_detection: Callable[[dict[str, Any]], None] | None = None,
                  on_event: Callable[[dict[str, Any]], None] | None = None,
                  gain_db: float | None = None, planner: dict[str, Any] | None = None,
-                 base_dir: Path | None = None) -> dict[str, Any]:
+                 base_dir: Path | None = None, focus: set[str] | None = None,
+                 carried_tags: dict[str, list[str]] | None = None) -> dict[str, Any]:
     """Run a validated spec: deterministic collection by the agent, filters and triggers by the engine."""
-    engine = WorkflowEngine(spec, agent, on_step, on_event, base_dir=base_dir)
+    engine = WorkflowEngine(spec, agent, on_step, on_event, base_dir=base_dir, focus=focus, carried_tags=carried_tags)
     on_step(f"Workflow: {spec.summary()['find']}"
             + (f"; keep {' and '.join(spec.summary()['filters'])}" if spec.filters else "")
             + (f"; {len(spec.triggers)} trigger(s)" if spec.triggers else ""))
@@ -901,11 +990,19 @@ def run_workflow(agent, spec: WorkflowSpec, on_step: Callable[[str], None] = pri
         if cell:
             result["devices"] = result["devices"] + cell["devices"]
             result["audit"] = result["audit"]  # shared gateway: the audit already holds both
+    heard = len(result["devices"])
+    if focus is not None:
+        result["devices"] = [d for d in result["devices"] if d["key"] in engine.focus]
     result["workflow"] = engine.finish()
     result["workflow"]["planner"] = planner or {"planner": "deterministic"}
+    if focus is not None:
+        result["workflow"]["focus"] = sorted(engine.focus)
+        result["workflow"]["heard"] = heard  # everything decoded, focused on or not
     for follow in engine.follow_ups:
         result["devices"] = result["devices"] + follow["result_devices"]
     result["workflow"]["narrative"] = narrative(result)
+    from .explain import explain_workflow
+    result["workflow"]["explain"] = explain_workflow(spec)
     tags = {k: v["tags"] for k, v in engine.devices.items() if v["tags"]}
     for device in result["devices"]:
         if device["key"] in tags:

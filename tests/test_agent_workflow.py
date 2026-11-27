@@ -358,3 +358,51 @@ class HistoryAndErrorsTest(unittest.TestCase):
         from rf_platform.agent.radio import Radio
         with self.assertRaisesRegex(RuntimeError, "IQ service at http://127.0.0.1:9 is not running"):
             Radio("http://127.0.0.1:9", "").devices()
+
+
+class AlertDeliveryTest(unittest.TestCase):
+    """Alerts go to an operator-configured webhook (off by default), through the gateway, recorded in the timeline."""
+
+    def test_webhook_delivery(self):
+        import http.server
+        import json as _json
+        received: list[dict] = []
+
+        class Hook(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                received.append(_json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+        server = http.server.HTTPServer(("127.0.0.1", 0), Hook)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        url = f"http://127.0.0.1:{server.server_port}/hook"
+        try:
+            with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"RF_SENTINEL_AGENT_RUNS_DIR": temp,
+                                                                              "RF_SENTINEL_ALERT_WEBHOOK": url}):
+                spec = plan_deterministic("find ble devices for 6 seconds. send an urgent alert if an airtag appears")
+                result = run_workflow(core.Agent(simulate=True), spec, on_step=lambda m: None)
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(len(received), 1)
+        self.assertIn("[SIMULATED] RF Sentinel CRITICAL", received[0]["text"])
+        self.assertIn("AirTag", received[0]["text"])
+        deliveries = [e for e in result["workflow"]["timeline"] if e["kind"] == "delivery"]
+        self.assertEqual([d["status"] for d in deliveries], ["delivered"])
+        self.assertIn("deliver_alert", [a["tool"] for a in result["audit"]])
+
+    def test_off_by_default_and_severity_floor(self):
+        from rf_platform.agent import notify
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("RF_SENTINEL_ALERT_WEBHOOK", None)
+            self.assertIsNone(notify.deliver({"severity": "critical", "message": "x"}, "RUN", False))
+            self.assertFalse(notify.describe()["enabled"])
+        with patch.dict(os.environ, {"RF_SENTINEL_ALERT_WEBHOOK": "http://127.0.0.1:9/x",
+                                     "RF_SENTINEL_ALERT_MIN_SEVERITY": "critical"}):
+            self.assertIsNone(notify.deliver({"severity": "warning", "message": "x"}, "RUN", False))
+            self.assertEqual(notify.describe()["host"], "127.0.0.1:9")
+        with patch.dict(os.environ, {"RF_SENTINEL_ALERT_WEBHOOK": "file:///etc/passwd"}):
+            self.assertIsNone(notify.webhook_url())

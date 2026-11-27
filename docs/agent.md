@@ -17,11 +17,15 @@ rf-sentinel agent approve <run-id> <action-id> --operator NAME   # or: deny ... 
 rf-sentinel agent report <run-id>
 rf-sentinel agent policy
 rf-sentinel agent run "find bluetooth devices" --local            # no dashboard: run in this process
+rf-sentinel agent ready "survey cell towers for 2 minutes"          # can this plan run here now? (nothing runs)
+rf-sentinel agent ask <run-id> "which trackers came back every cycle?"
+rf-sentinel agent library save "night watch" "from 10pm to 6am, every 30 minutes, sweep for trackers for 1 minute"
+rf-sentinel agent run "run night watch"                             # a saved plan, by name
 ```
 
 Runs are managed by the dashboard's run service, which is the single source of truth. A run started from the dashboard can be inspected and stopped from the CLI, and the reverse. The CLI talks to `--server`, else `RF_SENTINEL_URL`, else `http://127.0.0.1:5050`. Stopping a run ends its scan, or its gain measurement or approval wait, within about 1–2 s, and releases only that run's receiver stream.
 
-In the dashboard, type the same request into the **Ask RF Sentinel** bar. Its steps (including every gain change) appear as they happen. Decoded devices appear in the normal detections table, and a link opens the verifiable report. The dashboard and CLI use the same agent code and the same IQ service.
+In the dashboard, type the same request into the **Agent workflows** panel. Its steps (including every gain change) appear under *Agent steps* as they happen. Decoded devices appear in the normal detections table, and a link opens the verifiable report. The dashboard and CLI use the same agent code and the same IQ service.
 
 ## Workflows: find, keep, when → do
 
@@ -89,16 +93,126 @@ The server validates it again when the run starts. Every action is authorized by
 | `extend` | `extend_scan` (collect) | Lengthens this run, never past 600 s in total. |
 | `stop` | `stop_scan` (control) | Ends collection early and reports normally. |
 
-In `observe` mode, collect actions are denied; alerts and tags still work. In `approval-required` mode, each collect action waits for a named operator.
+In `observe` mode, collect actions are denied; alerts and tags still work.
+
+**Alerts off this machine.** Set `RF_SENTINEL_ALERT_WEBHOOK` to have workflow alerts also posted to a webhook. Delivery is off unless it is set.
+- Slack-style hooks receive `{"text": …}`.
+- An `ntfy.sh/<topic>` URL receives plain text with a priority header.
+- `RF_SENTINEL_ALERT_MIN_SEVERITY` (`info`, `warning` (the default), or `critical`) sets the lowest severity that is sent.
+
+Each message carries the alert text, severity, device label and run id, and is marked `[SIMULATED]` when the run is simulated. It never includes IQ or evidence files. Each delivery goes through the gateway as `deliver_alert` (audited) and appears in the run's timeline as sent or failed. A failed delivery never affects the run. The dashboard shows the webhook host next to the notification bell. In `approval-required` mode, each collect action waits for a named operator.
 
 **Measured live** (two bladeRF 2.0 micro):
 - "Find ble devices for 60 seconds, only stronger than -60. When a device is seen 5 times, alert me and tag it as persistent. If an Apple device appears, record 2 seconds of IQ."
 - 5 devices matched (Microsoft, Apple ×2, Tile, Bose), 5 alerts and tags.
 - 2 s of IQ was captured on the second receiver when an Apple device appeared, with a hashed evidence file.
 
+## Playbooks: a whole operation in one request
+
+![Planning, refining, running and asking about a playbook (simulated receivers)](media/rf-sentinel-agent-playbook.gif)
+
+*Recorded with `python3 scripts/record_agent_walkthrough.py`. The script starts its own dashboard with simulated receivers, so it needs no radio. [MP4](media/rf-sentinel-agent-playbook.mp4).*
+
+Chain workflows with *then*, *after that*, *next*, *finally*, or a numbered list. Each step is an ordinary workflow (find / keep / when → do). A step can also build on the steps before it:
+
+| You say | The step |
+|---|---|
+| "watch **them**", "the apple devices **you found**", "any trackers you saw" | focuses on the devices an earlier step matched, and ignores everything else |
+| "the **flagged** ones", "the alerted ones" / "the **tagged** ones" | focuses on devices that raised an alert / were tagged |
+| "**if you find any** trackers, …", "if anything turns up, …" | runs only if the earlier step matched such a device |
+| "**if nothing turns up**, …", "if you see nothing, …" | runs only if it did not. After a step with only alert rules, this means "if no alert fired" |
+| "if any alerts were raised, …", "if something alerted, …" | runs only if the earlier step alerted |
+| "**otherwise**, …" | the inverse of the previous step's condition, about the same earlier step |
+
+A step that names no protocol continues with the protocol of the step it builds on. An action with no condition of its own ("and tag them as suspect", "record 3 seconds of IQ") applies to every device the step keeps.
+
+```bash
+rf-sentinel agent plan "Sweep for bluetooth trackers for 2 minutes. If you find any, watch them for 5 minutes and \
+  send an urgent alert if one is still there after 3 minutes, and record 5 seconds of IQ. Then survey cell towers \
+  for 1 minute and alert me if a 2G cell shows up."
+Playbook (deterministic)
+  1. Sweep BLE
+     FIND    BLE for 120 s
+     FILTER  kind is "tracker"
+  2. Follow up on what was found (BLE)
+     IF      only if step 1 found something
+     FOCUS   devices from step 1
+     FIND    BLE for 300 s
+     WHEN    when seen for ≥ 180 s → alert (critical), record 5 s of IQ evidence
+  3. Survey Cellular
+     FIND    Cellular (modem) for 60 s
+     WHEN    when generation is "2G" → alert (warning)
+  up to 480 s of collection
+```
+
+The steps run in order under one gateway (mode, approvals, audit) and one stop control. A playbook has at most 6 steps and 1800 s of collection; a longer request is refused, never shortened. Tags travel with a device into later steps. The result lists, for every device, the steps that decoded it, and calls out **persistent** devices (decoded in more than one step, alerted and tagged ones first). One verifiable report covers the whole playbook.
+
+In the dashboard, a playbook plan is a numbered pipeline: each step shows its condition and focus, and its duration can be changed. While it runs, a stepper shows each step as waiting, running (with how many devices it focuses on), done (with its results), or skipped (with the reason). The timeline marks which step each event came from. The two playbook example prompts show the flow. In simulation, all the steps share one scripted scenario clock, so the strong newcomer arrives part-way through, as it would live.
+
+**Planning quality.** `tests/fixtures/playbook_phrases.json` holds 17 reviewed multi-step requests and 2 that must be refused. Each request is recorded with the exact plan it must produce. `python3 scripts/evaluate_planner.py --playbooks [--model …]` scores a planner per step part:
+- **Rules planner:** 17/17, with 2/2 refusals.
+- **Model planner** (`openai-codex:gpt-6-astra`), live:
+  - 16/17, with 2/2 refusals and no fallbacks.
+  - The one miss gates on "found a tracker" instead of filtering for trackers. That is the same devices, reached a different way.
+  - The guidance was refined on the first 12 requests. The last 5 were written afterwards as a held-out check.
+
+Whether a request has steps is decided by the rules (sequencing words and step verbs). A single request always plans exactly as before; the 30-phrase workflow corpus is checked for that.
+
+**Standing watches.** A watch repeats a whole playbook on a schedule:
+
+> "Every 10 minutes for the next 2 hours, sweep for bluetooth trackers for 1 minute and send an urgent alert when a new one appears."
+
+Other phrasings it understands:
+- "…, repeat 4 times, every 15 minutes"
+- "…, every hour until I stop it" (with no end given, the watch runs as many cycles as fit within the limits)
+
+**Scheduled starts.** A playbook or watch can begin later:
+- "In 20 minutes, …" waits 20 minutes after **Run**.
+- "At 10pm, …", "tonight at 10, …" or "at 22:30, …" waits for the next time that clock time comes round.
+- "From 10pm to 6am, every 30 minutes, …" sets both the start and the window, so this example runs 16 cycles.
+
+Clock times use the operator's time zone: the dashboard sends the browser's, and the CLI uses the machine's. The plan shows the resolved zone. A bare "at 10" is not taken as a time; give am/pm or hh:mm. A start can be at most 24 h ahead. While a run waits, it shows a countdown and can be stopped.
+
+Cycles start on the schedule (start to start), and **Stop** ends the watch even while it is waiting. If the first cycle cannot run any step, for example because there is no receiver, the watch ends at once instead of waiting through the remaining cycles.
+
+Results:
+- A "new" rule fires only for devices that no earlier cycle (or run) has seen. A watch therefore alerts on arrivals, not on the same crowd every cycle.
+- **Recurring** devices are those decoded in two or more cycles, with how many cycles and over how long.
+- The dashboard shows the cycles (alerts marked), a countdown to the next cycle, and a recurring-devices card. The report has a per-cycle table.
+
+Limits:
+- cycles start 60 s to 6 h apart;
+- at most 48 cycles;
+- the watch ends within 12 h;
+- a cycle must fit within the interval.
+
+A request beyond a limit is refused with the reason.
+
+**Ready?** Under every plan, a row of checks says whether it can run here right now (`POST /api/agent/readiness`):
+- the IQ service and a receiver for each SDR band;
+- the Bluetooth Classic decoder;
+- the cellular modem;
+- disk space for reports and IQ evidence;
+- Approve mode on an unattended watch;
+- whether alerts reach anywhere but this screen.
+
+The probes are read-only: no receiver is opened. Run them before leaving a watch overnight.
+
+**Surviving restarts.** While a scheduled playbook or a standing watch runs, it is recorded in `<log dir>/agent-runs/active/`. If the dashboard restarts, the watch resumes from its next scheduled cycle, in the same mode, and is marked *resumed*. A cycle that was in progress when the dashboard stopped is not re-run, and its results are lost. A run that ends normally, or is stopped, is no longer recorded there.
+
+**Ask about a run.** When a run has finished, including runs loaded from **Recent runs**, an *Ask* bar takes questions such as "what alerted?", "which trackers came back every cycle?", "what was strongest?" or "why was step 2 skipped?" (`POST /api/agent/jobs/<id>/ask`).
+- **With a model:** the model answers, and it can read the run only through tools (overview, devices, alerts). Its answer is then checked by code: every device it cites must be one the run recorded, and every number must appear in what the tools returned.
+- **Limit of the check:** it rejects invented devices and readings, but it cannot prove a small count the model worked out itself. "8 devices appeared in every cycle" passes if 8 occurs anywhere in the records. For exact counts, ask the code path (planner *Rules*).
+- **Live, on a simulated standing watch:** 6 of 6 `gpt-6-astra` answers passed the check. Where the records lacked the information, the model said so instead of guessing.
+- **Without a model, or if the check fails:** code answers the common questions from the run's records, and the answer states the reason.
+
+**Saved plans.** **Save** under a plan stores it by name on the server, so the dashboard and the CLI share it. Typing "run tonight's watch" (or clicking the saved plan) loads that plan, re-validated, without planning again; `rf-sentinel agent library` lists saved plans. Saved plans live in `<log dir>/agent-runs/library.json`.
+
+**Limits:** devices are followed from step to step by address. BLE devices that rotate their random address can therefore look new in a later step; phones and AirTags rotate about every 15 minutes. "Seen for" (dwell) is counted within a step.
+
 ## What it does
 
-1. **Understands the request.** Supported: Bluetooth Low Energy ("BLE", "beacons", "AirTag"), Bluetooth Classic ("bluetooth classic", "BR/EDR"), Zigbee / 802.15.4, TPMS tire sensors, and cell towers through a cellular modem ("cell towers", "LTE", "5G"). A plain "bluetooth" request covers both kinds of Bluetooth (see [Bluetooth Classic](#bluetooth-classic)). It understands durations ("for 2 minutes", up to 600 s), a receiver ("on bladerf:1"), and a Zigbee channel. Requests to transmit, jam, spoof, or replay are refused. WiFi needs a monitor-mode adapter, not an SDR, so the agent says so.
+1. **Understands the request.** Supported: Bluetooth Low Energy ("BLE", "beacons", "AirTag"), Bluetooth Classic ("bluetooth classic", "BR/EDR"), Zigbee / 802.15.4, TPMS tire sensors, and cell towers through a cellular modem ("cell towers", "LTE", "5G"). A plain "bluetooth" request covers both kinds of Bluetooth (see [Bluetooth Classic](#bluetooth-classic)). It understands durations ("for 2 minutes", up to 600 s), a receiver ("on bladerf:1"), and a Zigbee channel. Requests to transmit, jam, spoof, or replay are refused. WiFi needs a monitor-mode adapter, not an SDR, so the agent refuses any request that names WiFi, before any planner sees it. A model asked for "wifi and bluetooth" would otherwise quietly plan only the Bluetooth half.
 2. **Chooses a receiver.** A free receiver whose tuning range and sample rate cover the band, from the IQ service. It uses the built-in SoapySDR service by default ([sdr.md](sdr.md)).
 3. **Level-based gain.** It measures received samples on every center frequency, then steps the gain to the highest value where the 99.9th-percentile magnitude is within 3 dB of -6 dBFS and under 0.1% of samples clip. The loudest channel decides, so the gain is safe everywhere.
 4. **Decoder-feedback gain.** While the decoder runs, the agent checks the decoder's own burst peaks every 8 s:
@@ -132,6 +246,10 @@ rf-sentinel agent run "Survey cell towers for 3 minutes. Send an urgent alert if
   - The full scan is treated as authoritative for a cell's network.
   - A serving-cell report whose PLMN hasn't been confirmed by a scan is shown as *unverified PLMN*, not *unknown operator*. Some modem serving-cell reports carry a mis-parsed PLMN, and an "unknown network" trigger must not fire on that.
   - Neighbour reports that carry no PLMN are shown as *PLMN not reported*.
+- **One cell, one entry.** A neighbour report has only PCI and channel (ARFCN). The serving report and the full scan also carry the cell ID. Once a cell ID is known for a (RAT, PCI, ARFCN), every report of that cell uses one key. Its earlier PCI-only sightings are folded in, and a rule that already fired on it does not fire again. The same PCI on another channel is a different cell. In a live 90 s survey this took the count from 28 entries to 17 cells.
+- **Survey length.** The full scan holds the modem for about a minute (56 s measured), and it starts after the first quick poll.
+  - A survey shorter than that still lists serving and neighbour cells, but the neighbours have no operator, so operator rules ("unknown network", "only verizon") cannot judge them.
+  - **Ready?** warns when a cell step is shorter than 75 s. Survey for 90 s or more to name the neighbours.
 - **Workflow fields.** `operator`, `rat`, `generation` (2G–5G), and `role` (serving / neighbour / scanned). For cells, signal is RSRP in dBm.
 - **Rules-planner phrases:**
   - carrier names ("only verizon");

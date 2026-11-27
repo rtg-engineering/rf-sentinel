@@ -51,14 +51,18 @@ def main(argv: list[str] | None = None) -> int:
             if args.qscan_every_s <= 0 or stop.wait(args.qscan_every_s):
                 return
 
-    if not args.no_qscan:
-        threading.Thread(target=qscan_loop, daemon=True).start()
+    # The full scan holds the modem for about a minute, so it starts only after the first serving/neighbour
+    # poll has reported: started together, the quick poll queues behind it and a short survey reports nothing.
+    qscan_started = args.no_qscan
     try:
         while not stop.is_set():
             try:
                 emit(client.scan(), "serving")
             except Exception as exc:
                 print(f"scan failed: {exc}", file=sys.stderr, flush=True)
+            if not qscan_started:
+                qscan_started = True
+                threading.Thread(target=qscan_loop, daemon=True).start()
             stop.wait(args.poll_s)
     except KeyboardInterrupt:
         pass

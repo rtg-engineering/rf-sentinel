@@ -105,6 +105,22 @@ def normalise(observation: dict[str, Any], known_plmns: dict[tuple[str, str], st
     arfcn = identity.get("nr_arfcn") or identity.get("earfcn")
     if not cell_id and pci is None:
         return None
+    # Neighbour reports carry only PCI and channel; the serving report and the full scan also carry the cell ID.
+    # (type, PCI, channel) is one physical cell, so once its cell ID is known both reports share one key, and the
+    # first named report says which PCI-only key it replaces so earlier sightings can be folded in.
+    pci_key = f"{rat}:PCI{pci}@{arfcn}" if pci is not None and arfcn is not None else None
+    supersedes = None
+    if known_plmns is not None and pci_key:
+        alias = ("cell", rat, pci, arfcn)
+        if cell_id:
+            if alias not in known_plmns:
+                known_plmns[alias] = cell_id
+                supersedes = pci_key
+        elif alias in known_plmns:
+            cell_id = known_plmns[alias]
+            if not plmn and (rat, cell_id) in known_plmns:
+                plmn, verified = known_plmns[(rat, cell_id)], True
+                operator = OPERATORS.get(plmn, "unknown operator")
     key = f"{rat}:{cell_id or 'PCI' + str(pci) + '@' + str(arfcn)}"  # one physical cell, whatever PLMNs it lists
     rsrp = signal.get("rsrp_dbm")
     role = str(observation.get("role") or "scanned")
@@ -117,4 +133,4 @@ def normalise(observation: dict[str, Any], known_plmns: dict[tuple[str, str], st
         "rssi_dbfs": rsrp,  # generic signal field used by filters; for cells it is RSRP in dBm
         "identity": f"{operator} · {rat}" + (f" · PCI {pci}" if pci is not None else ""),
         "source": observation.get("source"), "observed_at": observation.get("timestamp"),
-    }
+    } | ({"supersedes": supersedes} if supersedes else {})

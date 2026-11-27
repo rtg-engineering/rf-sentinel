@@ -28,6 +28,13 @@ def main() -> int:
           + (f" via {sdr['gateway_url']}" if sdr.get("gateway_url") else "")
           + (f" ({', '.join(sdr['devices']) or 'no receivers found'})" if "devices" in sdr else "")
           + (f" unavailable: {sdr['error']}" if sdr.get("error") else ""), file=sys.stderr)
+    resume = getattr(module, "resume_agent_watches", None)
+    if callable(resume):
+        try:
+            for job in resume():
+                print(f"[ui] {job['resumed']} ({job['job_id']})", file=sys.stderr)
+        except Exception as exc:  # resuming is best effort; the dashboard starts regardless
+            print(f"[ui] could not resume agent watches: {exc}", file=sys.stderr)
     host = os.getenv("RF_SENTINEL_HOST", os.getenv("BT_EXPLORER_HOST", "0.0.0.0"))
     port = int(os.getenv("RF_SENTINEL_PORT", os.getenv("BT_EXPLORER_PORT", "5050")))
     run_textual_console_dashboard = getattr(module, "run_textual_console_dashboard", None)

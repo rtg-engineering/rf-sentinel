@@ -8745,6 +8745,8 @@ def analyst_report():
 # capped by the server ceiling RF_SENTINEL_AGENT_MODE. Decoded detections are ingested through the same
 # path as scanner output, so they appear in the normal detections table.
 agent_jobs: dict[str, dict[str, Any]] = {}
+AGENT_EVENTS_KEPT = 400   # recent workflow events per job (the dashboard polls the job every second)
+AGENT_STEPS_KEPT = 600
 agent_jobs_lock = threading.Lock()
 AGENT_PROTOCOL_TAG = {"ble": "ble", "zigbee": "ieee802154", "tpms": "tpms", "classic": "btc", "cellular": "cellular"}
 _agent_broker = None
@@ -8802,7 +8804,9 @@ def _agent_job(job_id: str) -> dict[str, Any] | None:
 @app.get("/api/agent/policy")
 def agent_policy():
     from rf_platform.agent.gateway import MODES, NEVER, TOOLS, server_ceiling
-    return jsonify({"ceiling": server_ceiling(), "modes": list(MODES), "tools": TOOLS, "never": sorted(NEVER)})
+    from rf_platform.agent import notify
+    return jsonify({"ceiling": server_ceiling(), "modes": list(MODES), "tools": TOOLS, "never": sorted(NEVER),
+                    "alert_delivery": notify.describe()})
 
 
 def agent_simulated(requested: bool) -> bool:
@@ -8813,8 +8817,20 @@ def agent_simulated(requested: bool) -> bool:
 def agent_plan():
     """Plain language -> a validated workflow plan (find / filter / when->do). Nothing runs."""
     from pydantic import ValidationError
-    from rf_platform.agent.workflow import WorkflowSpec, plan
+    from rf_platform.agent.playbook import PlaybookSpec, plan_any
+    from rf_platform.agent.workflow import WorkflowSpec
     body = request.get_json(silent=True) or {}
+    if isinstance(body.get("playbook"), dict):
+        try:
+            book = PlaybookSpec.model_validate(body["playbook"])
+        except (ValueError, ValidationError) as exc:
+            return jsonify({"error": str(exc)[:500]}), 400
+        planner_info = body.get("planner") if isinstance(body.get("planner"), dict) else {}
+        from rf_platform.agent.explain import explain
+        return jsonify({"playbook": book.model_dump(), "summary": book.summary(), "edited": True,
+                        "explain": explain({"playbook": book.model_dump()}),
+                        "planner": planner_info.get("planner", "deterministic"), "model": planner_info.get("model"),
+                        "fallback_reason": planner_info.get("fallback_reason")})
     if isinstance(body.get("spec"), dict):
         # An edited plan: validate it (bounds included) and return its summary, keeping who planned it.
         try:
@@ -8822,17 +8838,90 @@ def agent_plan():
         except (ValueError, ValidationError) as exc:
             return jsonify({"error": str(exc)[:500]}), 400
         planner_info = body.get("planner") if isinstance(body.get("planner"), dict) else {}
+        from rf_platform.agent.explain import explain
         return jsonify({"spec": spec.model_dump(), "summary": spec.summary(), "edited": True,
+                        "explain": explain({"spec": spec.model_dump()}),
                         "planner": planner_info.get("planner", "deterministic"), "model": planner_info.get("model"),
                         "fallback_reason": planner_info.get("fallback_reason")})
     text = str(body.get("text") or body.get("command") or "").strip()
     planner = str(body.get("planner") or "auto")
     if planner not in ("auto", "model", "deterministic"):
         return jsonify({"error": "planner must be auto, model, or deterministic"}), 400
+    offset = body.get("tz_offset_min")
+    offset = int(offset) if isinstance(offset, (int, float)) and -840 <= offset <= 840 else None
     try:
-        return jsonify(plan(text, planner))
+        return jsonify(plan_any(text, planner, utc_offset_min=offset, library_dir=RF_SENTINEL_LOG_DIR / "agent-runs"))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
+
+
+@app.get("/api/agent/library")
+def agent_library():
+    from rf_platform.agent import library
+    return jsonify([{k: e[k] for k in ("name", "text", "saved_at")} | {"summary": e["plan"].get("summary"),
+                    "kind": "playbook" if e["plan"].get("playbook") else "workflow"}
+                    for e in library.load(RF_SENTINEL_LOG_DIR / "agent-runs")])
+
+
+@app.post("/api/agent/library")
+def agent_library_save():
+    from pydantic import ValidationError
+    from rf_platform.agent import library
+    body = request.get_json(silent=True) or {}
+    plan = body.get("plan") if isinstance(body.get("plan"), dict) else {}
+    try:
+        entry = library.save(str(body.get("name") or ""), plan, str(body.get("text") or ""), RF_SENTINEL_LOG_DIR / "agent-runs")
+    except (ValueError, ValidationError) as exc:
+        return jsonify({"error": str(exc)[:500]}), 400
+    return jsonify({"name": entry["name"], "saved_at": entry["saved_at"]})
+
+
+@app.delete("/api/agent/library/<path:name>")
+def agent_library_delete(name: str):
+    from rf_platform.agent import library
+    if not library.delete(name, RF_SENTINEL_LOG_DIR / "agent-runs"):
+        return jsonify({"error": "No saved plan by that name"}), 404
+    return jsonify({"ok": True})
+
+
+@app.post("/api/agent/readiness")
+def agent_readiness():
+    """Can this plan run here, now? Quick read-only probes; nothing is opened or collected."""
+    from pydantic import ValidationError
+    from rf_platform.agent.gateway import PermissionDenied, effective_mode
+    from rf_platform.agent.readiness import check
+    body = request.get_json(silent=True) or {}
+    plan = body.get("plan") if isinstance(body.get("plan"), dict) else {}
+    simulate = agent_simulated(bool(body.get("simulate")) or RF_SENTINEL_DEMO_MODE)
+    try:
+        mode = effective_mode(body.get("mode"))
+        if simulate:
+            from rf_platform.agent.simulate import SimRadio
+            radio = SimRadio()
+        else:
+            from rf_platform.agent.radio import Radio
+            radio = Radio(_gateway_base(), os.getenv("SDR_GATEWAY_API_TOKEN", ""))
+        return jsonify(check(plan, radio, mode, RF_SENTINEL_LOG_DIR, simulate=simulate))
+    except (ValueError, ValidationError, PermissionDenied, KeyError) as exc:
+        return jsonify({"error": str(exc)[:500]}), 400
+
+
+@app.post("/api/agent/refine")
+def agent_refine():
+    """Change the current plan in plain words. Returns the updated, validated plan and what changed."""
+    from pydantic import ValidationError
+    from rf_platform.agent.refine import refine
+    body = request.get_json(silent=True) or {}
+    current = body.get("current") if isinstance(body.get("current"), dict) else {}
+    if not (isinstance(current.get("spec"), dict) or isinstance(current.get("playbook"), dict)):
+        return jsonify({"error": "current must hold the plan to change ({spec} or {playbook})"}), 400
+    planner = str(body.get("planner") or "auto")
+    if planner not in ("auto", "model", "deterministic"):
+        return jsonify({"error": "planner must be auto, model, or deterministic"}), 400
+    try:
+        return jsonify(refine(current, str(body.get("instruction") or ""), str(body.get("text") or ""), planner))
+    except (ValueError, ValidationError) as exc:
+        return jsonify({"error": str(exc)[:500]}), 400
 
 
 @app.post("/api/agent/run")
@@ -8840,30 +8929,57 @@ def agent_run():
     from pydantic import ValidationError
     from rf_platform.agent.core import Agent
     from rf_platform.agent.gateway import AgentGateway, PermissionDenied, decide, effective_mode
+    from rf_platform.agent.playbook import PlaybookSpec, is_multistep, plan_playbook_deterministic, run_playbook
     from rf_platform.agent.workflow import WorkflowSpec, plan_deterministic, run_workflow
     body = request.get_json(silent=True) or {}
     command = str(body.get("command") or "").strip()
     # The synthetic demo has no radios: agent runs there use simulated receivers and say so everywhere.
     simulate = bool(body.get("simulate")) or RF_SENTINEL_DEMO_MODE
+    book = None
     try:
         # A confirmed plan is re-validated here: a client (or model) cannot exceed the schema's bounds.
-        spec = WorkflowSpec.model_validate(body["workflow"]) if body.get("workflow") else plan_deterministic(command)
+        if body.get("playbook"):
+            book = PlaybookSpec.model_validate(body["playbook"])
+        elif not body.get("workflow") and is_multistep(command):
+            book = plan_playbook_deterministic(command)
+        spec = (book.steps[0].workflow if book else WorkflowSpec.model_validate(body["workflow"]) if body.get("workflow")
+                else plan_deterministic(command))
         mode = effective_mode(body.get("mode"))
     except (ValueError, ValidationError, PermissionDenied) as exc:
         return jsonify({"error": str(exc)[:500]}), 400
-    command = command or spec.goal or spec.command()
+    command = command or (book.goal if book else "") or spec.goal or spec.command()
     planner_info = body.get("planner") if isinstance(body.get("planner"), dict) else {"planner": "deterministic"}
     if decide("start_scan", mode) == "deny":
         return jsonify({"error": f"{mode} mode is read-only: it cannot start collection.", "mode": mode}), 403
     if _agent_running():
         return jsonify({"error": "An agent run is already active; stop it first."}), 409
+    job = _launch_agent_job(spec, book, command, mode, planner_info, simulate, body.get("gain_db"),
+                            str(body.get("source") or "dashboard")[:20])
+    return jsonify(_agent_public(job))
+
+
+def _active_dir() -> Path:
+    return RF_SENTINEL_LOG_DIR / "agent-runs" / "active"
+
+
+def _launch_agent_job(spec, book, command: str, mode: str, planner_info: dict[str, Any], simulate: bool, gain,
+                      source: str, resumed: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Start a workflow or playbook job in the background. Long playbooks (scheduled or repeating) are recorded in
+    <log dir>/agent-runs/active/ while they run, so a dashboard restart can resume them (resume_agent_watches)."""
+    from rf_platform.agent.core import Agent
+    from rf_platform.agent.gateway import AgentGateway, PermissionDenied
+    from rf_platform.agent.playbook import run_playbook
+    from rf_platform.agent.workflow import run_workflow
     job_id = f"run-{uuid.uuid4().hex[:10]}"
-    gain = body.get("gain_db")
     job = {"job_id": job_id, "command": command, "profile": spec.collect[0], "mode": mode,
-           "source": str(body.get("source") or "dashboard")[:20], "status": "running", "started_at": time.time(),
+           "source": source, "status": "running", "started_at": time.time(),
            "steps": [], "result": None, "error": None, "workflow": spec.model_dump(), "summary": spec.summary(),
            "planner": planner_info, "events": [], "alerts": [], "simulated": agent_simulated(simulate),
            "activity": []}
+    if book is not None:
+        job.update(kind="playbook", playbook=book.model_dump(), summary=book.summary(), workflow=None,
+                   step_status=[{"status": "pending", "reason": ""} for _ in book.steps], current_step=None,
+                   cycle={"index": 0, "total": book.repeat.times, "status": "running", "next_at": None} if book.repeat else None)
     gateway = AgentGateway(mode, job_id, _agent_approvals(),
                            on_pending=lambda p: job["steps"].append({"t": round(time.time() - job["started_at"], 1),
                                                                      "message": f"Approval needed for {p['tool']} {p['params']} (action {p['action_id']})"}))
@@ -8876,20 +8992,58 @@ def agent_run():
     def work():
         try:
             def on_event(event):
+                if event["kind"] == "cycle" and event["status"] == "done" and event.get("stats"):
+                    job.setdefault("cycle_stats", []).append({"cycle": event["cycle"], **event["stats"]})
+                if event["kind"] == "cycle" and book is not None and event["status"] != "done":
+                    job["cycle"] = {"index": event["cycle"], "total": book.repeat.times if book.repeat else 1,
+                                    "status": event["status"], "next_at": event.get("next_at"),
+                                    "scheduled": bool(event.get("scheduled"))}
+                    if event["status"] == "running":
+                        job["step_status"] = [{"status": "pending", "reason": ""} for _ in book.steps]
+                if event["kind"] == "step" and book is not None:
+                    previous = job["step_status"][event["step"]]
+                    job["step_status"][event["step"]] = {"status": event["status"], "reason": event.get("reason") or "",
+                                                         "focus": event.get("focus", previous.get("focus")),
+                                                         "summary": event.get("summary") or ""}
+                    if event["status"] == "running":
+                        job["current_step"] = event["step"]
                 job["events"].append(event)
+                counts = job.setdefault("event_counts", {})
+                counts[event["kind"]] = counts.get(event["kind"], 0) + 1
+                if len(job["events"]) > AGENT_EVENTS_KEPT:  # a long watch keeps the recent timeline; totals stay exact
+                    del job["events"][:-AGENT_EVENTS_KEPT]
                 if event["kind"] == "alert":
                     key = (event.get("device") or {}).get("key")
                     if event.get("merged") and job["alerts"] and (job["alerts"][-1].get("device") or {}).get("key") == key:
                         job["alerts"][-1] = event  # several rules matched at once: one alert, every reason
                     else:
                         job["alerts"].append(event)
-            job["result"] = run_workflow(
-                agent, spec, on_step=lambda m: job["steps"].append({"t": round(time.time() - job["started_at"], 1), "message": m}),
-                on_detection=lambda e: _agent_detection(job, spec, e), on_event=on_event,
-                gain_db=float(gain) if gain is not None else None, planner=planner_info,
-                base_dir=RF_SENTINEL_LOG_DIR / "agent-runs")
-            from rf_platform.agent.report import save
-            job["report_dir"] = str(save(job["result"], RF_SENTINEL_LOG_DIR / "agent-runs"))
+            def log(message: str) -> None:
+                job["steps"].append({"t": round(time.time() - job["started_at"], 1), "message": message})
+                if len(job["steps"]) > AGENT_STEPS_KEPT:
+                    del job["steps"][1:-AGENT_STEPS_KEPT + 1]  # keep the first line (the plan) and the recent ones
+            if book is not None:
+                from rf_platform.agent.playbook import save as save_playbook
+                job["result"] = run_playbook(agent, book, on_step=log, on_detection=lambda e: _agent_detection(job, spec, e),
+                                             on_event=on_event, planner=planner_info,
+                                             base_dir=RF_SENTINEL_LOG_DIR / "agent-runs",
+                                             gain_db=float(gain) if gain is not None else None)
+                job["current_step"] = None
+                job["report_dir"] = str(save_playbook(job["result"], RF_SENTINEL_LOG_DIR / "agent-runs"))
+                records = job["result"]["steps_run"]
+                if not agent._stop.is_set() and not any(r["status"] == "done" for r in records):
+                    failed = [r for r in records if r["status"] == "error"]
+                    if failed:  # nothing could run (e.g. no receiver): an error, so the dashboard offers a simulation
+                        job["run_id"] = job["result"]["run_id"]
+                        job["status"], job["error"] = "error", failed[0]["reason"]
+                        return
+            else:
+                job["result"] = run_workflow(
+                    agent, spec, on_step=log, on_detection=lambda e: _agent_detection(job, spec, e), on_event=on_event,
+                    gain_db=float(gain) if gain is not None else None, planner=planner_info,
+                    base_dir=RF_SENTINEL_LOG_DIR / "agent-runs")
+                from rf_platform.agent.report import save
+                job["report_dir"] = str(save(job["result"], RF_SENTINEL_LOG_DIR / "agent-runs"))
             job["run_id"] = job["result"]["run_id"]
             job["status"] = "stopped" if agent._stop.is_set() else "done"
         except PermissionDenied as exc:
@@ -8900,8 +9054,68 @@ def agent_run():
             job["finished_at"] = time.time()
             job["audit"] = gateway.audit
 
-    threading.Thread(target=work, name=job_id, daemon=True).start()
-    return jsonify(_agent_public(job))
+    active_file = None
+    if book is not None and (book.repeat or book.start):
+        origin = book.start.resolve(job["started_at"]) if book.start else job["started_at"]
+        active_file = _active_dir() / f"{job_id}.json"
+        try:
+            active_file.parent.mkdir(parents=True, exist_ok=True)
+            active_file.write_text(json.dumps({"job_id": job_id, "playbook": (resumed or {}).get("original") or book.model_dump(),
+                                               "origin": (resumed or {}).get("origin", origin), "mode": mode,
+                                               "planner": planner_info, "simulate": bool(simulate), "command": command,
+                                               "source": source, "gain_db": gain}))
+        except OSError:
+            active_file = None
+    if resumed:
+        job["resumed"] = resumed["note"]
+        job["steps"].append({"t": 0.0, "message": resumed["note"]})
+
+    def run_and_forget():
+        try:
+            work()
+        finally:
+            if active_file is not None:
+                try:
+                    active_file.unlink()
+                except OSError:
+                    pass
+    threading.Thread(target=run_and_forget, name=job_id, daemon=True).start()
+    return job
+
+
+def resume_agent_watches(now: float | None = None) -> list[dict[str, Any]]:
+    """After a restart: continue standing watches and scheduled playbooks that were running, from their next
+    scheduled cycle. A cycle that was in progress when the dashboard stopped is not re-run; its results are lost."""
+    from rf_platform.agent.playbook import PlaybookSpec, Repeat, Start
+    now = time.time() if now is None else now
+    resumed: list[dict[str, Any]] = []
+    for path in sorted(_active_dir().glob("run-*.json")) if _active_dir().is_dir() else []:
+        try:
+            entry = json.loads(path.read_text())
+            original = PlaybookSpec.model_validate(entry["playbook"])
+        except (OSError, ValueError, KeyError):
+            path.unlink(missing_ok=True)
+            continue
+        path.unlink(missing_ok=True)
+        origin = float(entry["origin"])
+        every = original.repeat.every_s if original.repeat else None
+        times = original.repeat.times if original.repeat else 1
+        next_k = 0 if now <= origin else (int(-(-(now - origin) // every)) if every else times)
+        remaining = times - next_k
+        if remaining <= 0 or _agent_running():
+            continue
+        book = original.model_copy(deep=True)
+        book.repeat = Repeat(every_s=every, times=remaining) if every and remaining >= 2 else None
+        book.start = Start(in_s=int(max(0, origin + next_k * (every or 0) - now)))
+        book = PlaybookSpec.model_validate(book.model_dump())
+        note = (f"Resumed after a dashboard restart: cycles {next_k + 1}–{times} of {times}" if every
+                else "Resumed after a dashboard restart: waiting for the scheduled start")
+        job = _launch_agent_job(book.steps[0].workflow, book, entry.get("command") or book.goal, entry["mode"],
+                                entry.get("planner") or {"planner": "deterministic"}, bool(entry.get("simulate")),
+                                entry.get("gain_db"), "resumed",
+                                resumed={"note": note, "origin": origin, "original": original.model_dump()})
+        resumed.append(job)
+    return resumed
 
 
 def _saved_agent_runs(limit: int = 20, exclude: set[str] | None = None) -> list[dict[str, Any]]:
@@ -8927,6 +9141,31 @@ def _saved_agent_runs(limit: int = 20, exclude: set[str] | None = None) -> list[
             started = datetime.fromisoformat(str(result.get("started_at"))).timestamp()
         except ValueError:
             started = path.stat().st_mtime
+        if result.get("kind") == "playbook":
+            from rf_platform.agent.playbook import step_summary
+            records = result.get("steps_run") or []
+            events = [{**e, "step": r.get("index", 0), "cycle": r.get("cycle", 0)} for r in records
+                      for e in ((r.get("result") or {}).get("workflow") or {}).get("timeline") or []]
+            last_cycle = max((r.get("cycle", 0) for r in records), default=0)
+            cycles = result.get("cycles")
+            from rf_platform.agent.playbook import cycle_stats
+            per_cycle = [{"cycle": c, **cycle_stats([r for r in records if r.get("cycle", 0) == c])}
+                         for c in sorted({r.get("cycle", 0) for r in records})] if cycles else []
+            out.append({"job_id": f"saved-{result.get('run_id')}", "run_id": result.get("run_id"), "saved": True,
+                        "kind": "playbook", "command": result.get("command"), "profile": result.get("profile"),
+                        "mode": result.get("mode"), "source": "saved", "status": "stopped" if result.get("stopped") else "done",
+                        "started_at": started, "finished_at": started + float(result.get("elapsed_s") or 0),
+                        "steps": result.get("steps") or [], "result": result, "error": None, "workflow": None,
+                        "playbook": result.get("playbook"), "summary": result.get("summary"), "planner": result.get("planner"),
+                        "events": events, "alerts": result.get("alerts") or [], "simulated": bool(result.get("simulated")),
+                        "activity": [], "report_dir": str(path.parent), "pending_approvals": [],
+                        "step_status": [{"status": r.get("status"), "reason": r.get("reason") or "",
+                                         "focus": len(r["focus"]) if r.get("focus") is not None else None,
+                                         "summary": step_summary(r) if r.get("status") == "done" else ""}
+                                        for r in records if r.get("cycle", 0) == last_cycle],
+                        "current_step": None, "cycle_stats": per_cycle,
+                        "cycle": {"index": last_cycle, "total": cycles["planned"], "status": "done", "next_at": None} if cycles else None})
+            continue
         out.append({"job_id": f"saved-{result.get('run_id')}", "run_id": result.get("run_id"), "saved": True,
                     "command": (workflow.get("spec") or {}).get("goal") or result.get("command"),
                     "profile": result.get("profile"), "mode": result.get("mode"), "source": "saved",
@@ -8964,6 +9203,30 @@ def agent_job_report(job_id: str):
     if job is None or not job.get("report_dir"):
         return Response("No report for this run yet.", status=404, mimetype="text/plain")
     return Response((Path(job["report_dir"]) / "report.html").read_text(), mimetype="text/html")
+
+
+@app.post("/api/agent/jobs/<job_id>/ask")
+def agent_job_ask(job_id: str):
+    """Ask about a finished run. Answers come from the run's own records (model answers are checked against them)."""
+    from rf_platform.agent.ask import ask
+    body = request.get_json(silent=True) or {}
+    job = _agent_job(job_id)
+    result = job.get("result") if job else None
+    if job is None and re.fullmatch(r"saved-RUN-[0-9a-f]{12}", job_id):
+        path = RF_SENTINEL_LOG_DIR / "agent-runs" / job_id[len("saved-"):] / "run.json"
+        try:
+            result = json.loads(path.read_text())
+        except (OSError, ValueError):
+            result = None
+    if result is None:
+        return jsonify({"error": "Ask once the run has finished" if job else "Unknown run"}), 409 if job else 404
+    planner = str(body.get("planner") or "auto")
+    if planner not in ("auto", "model", "deterministic"):
+        return jsonify({"error": "planner must be auto, model, or deterministic"}), 400
+    try:
+        return jsonify(ask(result, str(body.get("question") or ""), planner))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
 
 @app.post("/api/agent/jobs/<job_id>/stop")

@@ -41,11 +41,16 @@ def plugin_path(name: str) -> str | None:
     return str(local) if local.exists() else shutil.which(name)
 
 
-def simulate_command(task: Task, device: dict[str, Any]) -> list[str]:
-    """The scripted-scenario stand-in for a receiver plugin (rf_platform.agent.simulate)."""
-    seed = abs(hash((task.profile.name, device["id"]))) % 1000
+def simulate_command(task: Task, device: dict[str, Any], clock: tuple[float, float] | None = None) -> list[str]:
+    """The scripted-scenario stand-in for a receiver plugin (rf_platform.agent.simulate).
+
+    clock = (scenario start, scenario length): a playbook runs one scenario across all its steps."""
+    import zlib
+    seed = zlib.crc32(f"{task.profile.name}|{device['id']}".encode()) % 1000  # reproducible, unlike hash()
+    duration, offset = (task.duration_s, 0.0) if clock is None else (clock[1], max(0.0, time.time() - clock[0]))
+    tag = int(clock[0]) if clock is not None else int(time.time())
     return [sys.executable, "-m", "rf_platform.agent.simulate", "--profile", task.profile.name,
-            "--duration", str(task.duration_s), "--seed", str(seed)]
+            "--duration", str(duration), "--seed", str(seed), "--offset", f"{offset:.1f}", "--run-tag", str(tag)]
 
 
 def plugin_command(task: Task, device: dict[str, Any], gain_db: float, base_url: str, token: str) -> list[str]:
@@ -106,6 +111,7 @@ class Agent:
         child.radio, child._stop, child.gateway = self.radio, self._stop, self.gateway
         child._deadline, child.stop_reason = float("inf"), None
         child.simulate = self.simulate
+        child.sim_clock = getattr(self, "sim_clock", None)
         return child
 
     def stop(self, reason: str = "operator") -> None:
@@ -224,7 +230,7 @@ class Agent:
         self._started_mono = time.monotonic()
         self._deadline = self._started_mono + task.duration_s
         while time.monotonic() < self._deadline and not self._stop.is_set():
-            command_line = (simulate_command(task, device) if self.simulate
+            command_line = (simulate_command(task, device, getattr(self, "sim_clock", None)) if self.simulate
                             else plugin_command(task, device, gain, self.radio.base_url, self.radio.token))
             proc = subprocess.Popen(command_line,
                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
@@ -391,6 +397,15 @@ class Agent:
         key = profile.key(event)
         if not key:
             return
+        old = event.get("supersedes")
+        if old and old != key and old in detections:  # a cell first heard by PCI only, now named: one record
+            earlier = detections.pop(old)
+            item = detections.setdefault(key, {**earlier, "key": key, "count": 0})
+            item["count"] += earlier["count"] if item is not earlier else 0
+            if earlier.get("first_seen") is not None:
+                item["first_seen"] = min(x for x in (item.get("first_seen"), earlier["first_seen"]) if x is not None)
+            if "best_rssi_dbfs" in earlier:
+                item["best_rssi_dbfs"] = max(earlier["best_rssi_dbfs"], item.get("best_rssi_dbfs", -200.0))
         item = detections.setdefault(key, {"key": key, "count": 0, "first_seen": event.get("seen_at"),
                                            "protocol": profile.name})
         item["count"] += 1
