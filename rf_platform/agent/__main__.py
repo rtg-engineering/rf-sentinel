@@ -22,6 +22,7 @@ so runs started from the CLI or the dashboard can be inspected and stopped from 
 
   rf-sentinel agent operators add alice --role approver --save     # on the dashboard host; prints a token once
   rf-sentinel agent operators list | remove NAME
+  rf-sentinel agent publish <run dir> <out dir>                    # public copy: device IDs, names, cell IDs removed
 
 Server: --server, else RF_SENTINEL_URL, else http://127.0.0.1:5050. Receive-only.
 Token (when the dashboard requires sign-in): --token, else RF_SENTINEL_TOKEN, else ~/.config/rf-sentinel/token.
@@ -37,7 +38,7 @@ import time
 import requests
 
 COMMANDS = ("run", "plan", "status", "stop", "list", "approve", "deny", "report", "policy", "library", "ask", "ready",
-            "operators")
+            "operators", "publish")
 TOKEN_FILE = os.path.expanduser("~/.config/rf-sentinel/token")
 
 
@@ -287,9 +288,20 @@ def main(argv: list[str] | None = None) -> int:
     ops.add_argument("--log-dir", default=os.getenv("RF_SENTINEL_LOG_DIR", "/var/log/rf_sentinel"),
                      help="the dashboard's RF_SENTINEL_LOG_DIR (operators live in <log dir>/auth/)")
     ops.add_argument("--save", action="store_true", help=f"also store the new token in {TOKEN_FILE} for this user's CLI")
+    pub = sub.add_parser("publish", help="Write a public copy of a saved run (identifiers removed), with checksums")
+    pub.add_argument("run_dir")
+    pub.add_argument("out_dir")
     args = parser.parse_args(argv)
     if args.cmd == "operators":
         return operators(args)
+    if args.cmd == "publish":
+        from pathlib import Path
+        from .publish import publish
+        try:
+            print(publish(Path(args.run_dir), Path(args.out_dir)))
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise SystemExit(f"error: {exc}")
+        return 0
     server = Server(args.server, args.token)
 
     if args.cmd == "run":
