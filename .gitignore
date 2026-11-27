@@ -23,3 +23,6 @@ rf_platform/plugins/*/src/**/*.so
 
 # Local secrets/environment overrides.
 config/env.txt
+
+# Private working notes (security review, plans): never published
+context/
