@@ -235,3 +235,45 @@ class DroneGainBandTest(unittest.TestCase):
         self.assertEqual(drone_profile_for(PROFILES["drone"], "find drones").freqs_hz[0], 5_745_500_000)
         self.assertEqual(drone_profile_for(PROFILES["drone"], "find drone controllers for 60 seconds").freqs_hz[0],
                          2_405_500_000)
+
+
+class ReceiverCardTest(unittest.TestCase):
+    """The dashboard says which radio a running mission holds (receiver cards), from the mission's own steps."""
+
+    @classmethod
+    def setUpClass(cls):
+        from tests.test_validation_harness import BackendValidationTest
+        BackendValidationTest.setUpClass()
+        cls.harness, cls.backend = BackendValidationTest, BackendValidationTest.backend
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.harness.tearDownClass()
+
+    def test_running_mission_receivers(self):
+        b = self.backend
+        with b.agent_jobs_lock:
+            b.agent_jobs.clear()
+            b.agent_jobs["run-x"] = {"job_id": "run-x", "status": "running", "summary": {"find": "Drone RF for 60 s"},
+                                     "requested_by": "ops", "steps": [{"message": "Receiver: bladerf:1 (BladeRF #1)"},
+                                                                      {"message": "Starting a BLE scan on bladerf:0 for 30 s"}]}
+            b.agent_jobs["run-old"] = {"job_id": "run-old", "status": "done", "steps": [{"message": "Receiver: hackrf:0"}]}
+        try:
+            held = b._agent_receivers()
+        finally:
+            with b.agent_jobs_lock:
+                b.agent_jobs.clear()
+        self.assertEqual(sorted(held), ["bladerf:0", "bladerf:1"])
+        self.assertEqual(held["bladerf:1"]["find"], "Drone RF for 60 s")
+
+
+class DroneConfirmedPhrasingTest(unittest.TestCase):
+    def test_confirmed_without_naming_the_drone(self):
+        from rf_platform.agent.playbook import plan_any
+        from rf_platform.agent.workflow import WorkflowSpec
+        spec = WorkflowSpec(**plan_any("watch for drones for 2 minutes and alert me when one is confirmed",
+                                       planner="deterministic")["spec"])
+        self.assertIn(("device_class", "eq", "drone"), [(c.field, c.op, c.value) for c in spec.triggers[0].when])
+        loose = WorkflowSpec(**plan_any("watch for drones for 2 minutes and alert me when anything shows up",
+                                        planner="deterministic")["spec"])
+        self.assertNotIn("device_class", [c.field for c in loose.triggers[0].when])

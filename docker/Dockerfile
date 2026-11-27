@@ -1,5 +1,8 @@
 # Build from the repo root: docker build -f docker/Dockerfile .
-FROM ubuntu:22.04
+# BASE=ubuntu:24.04 (Python 3.12) for the dashboard: the model planner (pydantic-ai) needs Python 3.11+.
+# The IQ service image can stay on 22.04; the dashboard reaches receivers only over HTTP.
+ARG BASE=ubuntu:22.04
+FROM ${BASE}
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1
@@ -45,6 +48,8 @@ COPY requirements.txt pyproject.toml install.sh /opt/rf-sentinel/
 
 WORKDIR /opt/rf-sentinel
 RUN chmod +x install.sh && ./install.sh
+# Model planner/analyst (pydantic-ai): installed on Python 3.11+, skipped by its own marker on 3.10.
+RUN /opt/rf-sentinel/.venv/bin/python -m pip install --no-cache-dir -e "/opt/rf-sentinel[analyst-llm]"
 RUN mkdir -p /opt/rf-sentinel/ui/backend/data /var/log/rf_sentinel
 
 ENV RF_SENTINEL_HOST=0.0.0.0 \

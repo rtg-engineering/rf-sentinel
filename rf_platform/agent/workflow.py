@@ -451,6 +451,12 @@ def plan_deterministic(text: str, standing_actions: bool = False) -> WorkflowSpe
                      "Signal strength is relative (dBFS at the receiver), not calibrated dBm.")
     if len(triggers) < len(trigger_clauses):
         notes.append("Some 'if/when' clauses had no action I recognise and were left out.")
+    if collect == ["drone"] and re.search(r"\bconfirm(?:ed|s)?\b", lower):
+        # "alert me when one is confirmed": the clause names no drone, but in a drone watch "confirmed" can only
+        # mean the detector's confirmation, never just any drone-like link.
+        for trigger in triggers:
+            if not any(c.field == "device_class" for c in trigger.when):
+                trigger.when.append(Condition(field="device_class", op="eq", value="drone"))
     return WorkflowSpec(goal=raw, collect=collect, duration_s=task.duration_s, device_id=task.device_id,
                         channel=task.channel if task.profile.name == "zigbee" else None,
                         filters=filters, triggers=triggers, notes=notes)
@@ -460,7 +466,8 @@ PLANNER_INSTRUCTIONS = """\
 You turn an RF operator's request into a WorkflowSpec for RF Sentinel, a RECEIVE-ONLY RF monitoring system.
 
 - collect: protocols to receive. "ble", "classic" (Bluetooth Classic / BR/EDR), "zigbee", "tpms", "drone" (drone RF
-  links via the station's drone detector; device_type "drone_detection" = confirmed, "drone_link" = unconfirmed), or "cellular"
+  links via the station's drone detector: a drone the detector confirmed has device_class "drone"; a drone-like
+  link it could not confirm has device_class "drone link"; "confirmed" always means device_class eq "drone"), or "cellular"
   (cell towers via a cellular modem: fields operator, rat ("LTE", "5G NR", "3G WCDMA", "2G GSM"), generation
   ("2G".."5G"), role ("serving", "neighbour", "scanned"); rssi_dbfs holds RSRP in dBm for cells). A plain
   "bluetooth" request means ["ble", "classic"]. Trackers, AirTags, Tiles and beacons are BLE.
@@ -553,6 +560,11 @@ def _plan_with_model(text: str, model: Any) -> WorkflowSpec:
             spec.goal = text
         if not spec.collect:
             raise ModelRetry("collect must name at least one protocol")
+        known = {"tracker", "beacon", "drone", "drone link"}
+        conditions = spec.filters + [c for t in spec.triggers for c in t.when]
+        bad = sorted({str(c.value) for c in conditions if c.field == "device_class" and str(c.value) not in known})
+        if bad:  # a class no device can have makes a rule that never fires
+            raise ModelRetry(f"device_class must be one of {sorted(known)}, not {bad}")
         return spec
 
     if re.search(r"\b(transmit|jam|spoof|replay|attack|inject|deauth|page)\b", text.lower()):

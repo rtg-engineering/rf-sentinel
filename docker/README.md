@@ -43,6 +43,12 @@ docker run -d --name rf-sentinel --restart unless-stopped --network host \
   -e SDR_GATEWAY_BASE_URL=http://127.0.0.1:8790 -e SDR_GATEWAY_API_TOKEN=$T \
   rf-sentinel:latest
 
+# The model planner (pydantic-ai) needs Python 3.11+: build the dashboard on Ubuntu 24.04 and run it from that
+# image instead (the IQ service image can stay on 22.04):
+#   docker build --build-arg BASE=ubuntu:24.04 -f docker/Dockerfile -t rf-sentinel:dashboard-2404 .
+# and give it a Codex login of its own (writable: the token is refreshed in place):
+#   -v ~/rf-sentinel-codex:/root/.codex      (or -e ANTHROPIC_API_KEY=...)
+
 # Sign-in (the dashboard requires it when bound to 0.0.0.0); the token is shown once.
 docker exec rf-sentinel rf-sentinel agent operators add NAME --role approver --log-dir /var/log/rf_sentinel
 ```

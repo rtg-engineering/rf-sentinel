@@ -554,6 +554,7 @@
         min-width: 0;
       }
 
+      .sdr-assignment.agent-held { border-color: rgba(124, 58, 237, 0.55); }
       .metric[hidden], .tab-btn[hidden], .kpi-strip[hidden], .panel[hidden], .detection-select-stack[hidden] { display: none !important; }
       main.no-side { grid-template-columns: 270px minmax(0, 1fr); }
 
@@ -5025,6 +5026,11 @@
         return `BTLE CH ${status.channel} / 2 MHz`;
       }
 
+      function fmtHzRange(lo, hi) {
+        const f = (hz) => hz >= 1e9 ? `${(hz / 1e9).toFixed(hz % 1e9 ? 2 : 0).replace(/\.?0+$/, "")} GHz` : `${Math.round(hz / 1e6)} MHz`;
+        return `${f(Number(lo))}–${f(Number(hi))}`;
+      }
+
       function renderSdrAssignments(status) {
         const assignments = status?.scanner_assignments || {};
         const devices = Array.isArray(status?.available_devices) ? status.available_devices : [];
@@ -5186,10 +5192,35 @@
           if (preferred) return `Scanning ${preferred}`;
           return "Scanning RF";
         }
+        const agentReceivers = status?.agent_receivers || {};
+        const scannerLive = Boolean(status?.running || status?.worker_alive);
         devices
           .filter((device) => String(device?.id || "").trim())
           .sort((a, b) => String(a.id || "").localeCompare(String(b.id || "")))
           .forEach((device) => {
+            if (disabledSdrIds.has(String(device.id || ""))) return;
+            const meta = `${device.id} · ${String(device.driver || "").toUpperCase()} · max ${(Number(device.max_sample_rate_sps || 0) / 1_000_000).toFixed(1)} Msps`;
+            const agentUse = agentReceivers[device.id];
+            if (agentUse || !scannerLive) {
+              // What the radio is doing now: an agent mission, or nothing. The idle scanner's last assignment and
+              // its configured roles are not activity, so they are not shown as such.
+              const range = Number(device.freq_min_hz) && Number(device.freq_max_hz)
+                ? `${fmtHzRange(device.freq_min_hz, device.freq_max_hz)}` : "";
+              const label = agentUse ? "Agent mission" : device.occupied ? "In use" : "Idle";
+              const line = agentUse ? `${agentUse.find}${agentUse.requested_by ? ` · ${agentUse.requested_by}` : ""}`
+                : device.occupied ? "Held by another IQ client" : `Free${range ? ` · ${range}` : ""}`;
+              cards.push(`
+                <div class="sdr-assignment${agentUse ? " agent-held" : ""}">
+                  <div class="sdr-assignment-top">
+                    <div class="sdr-assignment-title">${device.label || device.id}</div>
+                    <span class="legend-pill">${label}</span>
+                  </div>
+                  <div class="sdr-assignment-band">${line}</div>
+                  <div class="sdr-assignment-meta">${meta}</div>
+                </div>
+              `);
+              return;
+            }
             const assignment = assignments[device.id] || null;
             const active = Boolean(assignment);
             const disabled = disabledSdrIds.has(String(device.id || ""));
