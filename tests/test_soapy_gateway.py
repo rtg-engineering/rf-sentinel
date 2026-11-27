@@ -175,6 +175,44 @@ class BackendTest(unittest.TestCase):
         self.assertAlmostEqual(amplitude, 127 * 10 ** (-6 / 20), delta=3)  # 54 dB gain -> -6 dBFS tone
         self.assertEqual(self.backend._handles["bladerf:0"].agc, False)
 
+    def test_unread_stream_is_reaped_and_frees_the_receiver(self):
+        """A client killed before it stops its stream (seen live: the Classic wrapper) must not hold the receiver."""
+        from rf_platform.soapy_gateway.server import reader_attached, reader_detached, reap_idle_streams
+        cfg = {"device_id": "bladerf:0", "center_freq_hz": 2_402_000_000, "sample_rate_sps": 2_000_000}
+        read = self.backend.start_stream(cfg)
+        reader_attached(read)
+        self.assertEqual(reap_idle_streams(self.backend, 30, now=time.time() + 3600), [])  # being read: kept
+        reader_detached(read)
+        detached_at = read.extra["idle_since"]
+        self.assertEqual(reap_idle_streams(self.backend, 30, now=detached_at + 10), [])  # briefly idle: kept
+        self.assertEqual(reap_idle_streams(self.backend, 30, now=detached_at + 31), [read.id])
+        self.assertTrue(read.extra.get("stopped"))
+        orphan = self.backend.start_stream(cfg)  # the receiver is free again; this one is never read at all
+        first_sweep = time.time()
+        self.assertEqual(reap_idle_streams(self.backend, 30, now=first_sweep), [])
+        self.assertEqual(reap_idle_streams(self.backend, 30, now=first_sweep + 31), [orphan.id])
+
+    def test_token_is_masked_in_the_access_log(self):
+        import logging
+        from rf_platform.soapy_gateway.server import RedactToken
+        record = logging.LogRecord("werkzeug", logging.INFO, "", 0, '"GET /ws/iq/s-1?keep=1&token=abc/DEF+123 HTTP/1.1" %s', ("200",), None)
+        RedactToken().filter(record)
+        self.assertEqual(record.getMessage(), '"GET /ws/iq/s-1?keep=1&token=*** HTTP/1.1" 200')
+
+    def test_stopped_streams_release_memory_and_are_forgotten(self):
+        """Each stopped stream used to keep its worker and ring buffer forever (about 12 MB per stream live)."""
+        cfg = {"device_id": "bladerf:0", "center_freq_hz": 2_402_000_000, "sample_rate_sps": 2_000_000}
+        old = self.backend.start_stream(cfg)
+        old.worker.read(old.worker.cursor(), timeout_s=5)
+        self.backend.stop(old.id)
+        self.assertEqual(len(old.worker._ring), 0)  # buffer dropped at once
+        self.assertIn(old.id, self.backend.sessions)  # still reportable as stopped for a while
+        old.extra["stopped_at"] -= self.backend.STOPPED_KEPT_S + 1
+        newer = self.backend.start_stream(cfg)
+        self.backend.stop(newer.id)
+        self.assertNotIn(old.id, self.backend.sessions)
+        self.assertIn(newer.id, self.backend.sessions)
+
     def test_one_owner_per_device_and_release(self):
         first = self.backend.start_stream({"device_id": "bladerf:0", "center_freq_hz": 2_402_000_000, "sample_rate_sps": 2_000_000})
         with self.assertRaises(DeviceBusy):
