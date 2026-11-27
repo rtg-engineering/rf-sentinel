@@ -4,3 +4,4 @@ requests
 websocket-client
 flask-sock
 pydantic>=2.6
+paho-mqtt>=2.1,<3

@@ -28,6 +28,14 @@ def main() -> int:
           + (f" via {sdr['gateway_url']}" if sdr.get("gateway_url") else "")
           + (f" ({', '.join(sdr['devices']) or 'no receivers found'})" if "devices" in sdr else "")
           + (f" unavailable: {sdr['error']}" if sdr.get("error") else ""), file=sys.stderr)
+    command = getattr(module, "start_command_mode", None)
+    if callable(command):
+        try:
+            started = command()
+            if started:
+                print(f"[ui] {started}", file=sys.stderr)
+        except Exception as exc:  # a misconfigured link is reported; the local dashboard still starts
+            print(f"[ui] Command link not started: {exc}", file=sys.stderr)
     resume = getattr(module, "resume_agent_watches", None)
     if callable(resume):
         try:

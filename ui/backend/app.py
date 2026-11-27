@@ -8982,9 +8982,50 @@ def _agent_ingest(protocol: str, payload: dict[str, Any]) -> None:
         _append_detections(events, [])
 
 
+COMMAND_MODE = None  # rf_platform.command.mode.CommandMode when RF_SENTINEL_COMMAND=station|hub
+
+
+def start_command_mode() -> str | None:
+    """Start the Command link from the environment (called at dashboard start). Returns a one-line status."""
+    global COMMAND_MODE
+    from rf_platform.command.mode import CommandMode
+
+    def capabilities() -> dict[str, Any]:
+        from rf_platform.agent.profiles import PROFILES
+        try:
+            receivers = [{k: d.get(k) for k in ("id", "driver", "freq_min_hz", "freq_max_hz", "max_sample_rate_sps")}
+                         for d in _available_devices()]
+        except Exception:
+            receivers = []
+        return {"receivers": receivers, "profiles": sorted(PROFILES), "receive_only_default": True}
+
+    mode = CommandMode.from_env(capabilities=capabilities)
+    if mode is None:
+        return None
+    mode.start()
+    COMMAND_MODE = mode
+    return f"Command {mode.role} on site {mode.site} via {mode.link.host}:{mode.link.port}"
+
+
+@app.get("/api/command/status")
+def command_status():
+    if COMMAND_MODE is None:
+        return jsonify({"role": "off"})
+    return jsonify(COMMAND_MODE.status())
+
+
+@app.get("/api/command/messages")
+def command_messages():
+    if COMMAND_MODE is None or COMMAND_MODE.role != "hub":
+        return jsonify({"error": "this dashboard is not the Command hub"}), 404
+    return jsonify(COMMAND_MODE.recent(int(request.args.get("limit") or 100)))
+
+
 def _agent_detection(job: dict[str, Any], spec, event: dict[str, Any]) -> None:
     """Ingest an agent detection into the dashboard and count it in the run's per-second activity series."""
     _agent_ingest(event.get("agent_profile") or spec.collect[0], event)
+    if COMMAND_MODE is not None:
+        COMMAND_MODE.observation(event)  # station mode: publish a bounded summary to the hub
     second = int(time.time() - job["started_at"])
     activity = job["activity"]
     if activity and activity[-1][0] == second:

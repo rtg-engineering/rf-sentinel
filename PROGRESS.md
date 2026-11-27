@@ -7,7 +7,7 @@ absent. Details: [docs/command/](docs/command/).
 | Task | Status | Existing | Notes |
 |---|---|---|---|
 | FOC-001 Source audit, contract, risk baseline | IN_PROGRESS (awaiting owner review) | n/a | `docs/command/architecture-audit.md`, `source-capabilities.md`; security review kept private. No code changed. |
-| FOC-002 Versioned MQTT transport, identities | IN_PROGRESS | partial | Envelope v1 done: `rf_platform/command/envelope.py`, `docs/command/schemas/envelope-v1.schema.json`, `tests/test_command_envelope.py` (station identity `<hostname>/<arch>`, deterministic ids, clock state, TTL and idempotency for missions, no IQ). MQTT client, broker, TLS identities and ACLs not started. |
+| FOC-002 Versioned MQTT transport, identities | DONE (awaiting review) | partial→present | Envelope v1 (`rf_platform/command/envelope.py`); Mosquitto over mutual TLS with a site CA (`pki.py`, `broker.py`), certificate CN = `<hostname>/<arch>` as the MQTT username, per-station topic ACL, hub-only mission requests (`topics.py`); station and hub links with QoS 1, offline queue, last-will health, dedup, mission screening (`transport.py`); hub and station as dashboard modes (`mode.py`, `/api/command/*`). Tests: `tests/test_command_envelope.py`, `tests/test_command_transport.py` (real broker). Docs: `docs/command/transport.md`. |
 | FOC-003 Hub store, dedup, sensor health | TODO | partial | Run persistence and watch restart history are per station (`agent-runs/`). The coordinator state is in memory. |
 | FOC-004 Floor plan and baseline view | TODO | partial | `/fleet` map, playback and decision reasons (kept as is by owner decision). Needs station health, baseline vs changed, and an offline basemap or floor plan (the current map needs online tiles). |
 | FOC-005 Cross-station corroboration | TODO | partial | `Coordinator` cues neighbours and reasons about outages, simulated in-process (`tests/test_fleet.py`). Needs source event IDs and non-corroboration reporting. |
@@ -28,3 +28,4 @@ absent. Details: [docs/command/](docs/command/).
 - Transmitting is allowed when a named operator authorizes it: agent transmit tools always ask; dashboard settings that
   transmit need a recorded authorization.
 - Station identity in envelopes is the hostname and CPU architecture.
+- Broker: Mosquitto. The hub is a mode of the dashboard, not a separate service.
