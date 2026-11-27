@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rf-sentinel.command.envelope/1",
+  "title": "RF Sentinel Command envelope, version 1",
+  "description": "Everything a station and the hub exchange. Reference implementation and stricter checks: rf_platform/command/envelope.py (validate). Metadata only: IQ samples never travel in an envelope.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "kind", "id", "station", "seq", "source_time", "sent_time", "clock", "ttl_s", "idempotency_key", "payload"],
+  "properties": {
+    "schema": {"const": "rf-sentinel.command.envelope/1"},
+    "kind": {"enum": ["observation", "heartbeat", "capabilities", "mission_request", "mission_ack", "mission_status", "mission_result"]},
+    "id": {"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "Deterministic per logical event, so redelivery deduplicates."},
+    "station": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "hostname", "arch"],
+      "properties": {
+        "id": {"type": "string", "description": "<hostname>/<arch>. Names the station; authentication is the transport's job."},
+        "hostname": {"type": "string", "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"},
+        "arch": {"type": "string", "pattern": "^[a-z0-9_]{1,32}$", "examples": ["x86_64", "aarch64"]}
+      }
+    },
+    "seq": {"type": "integer", "minimum": 0, "description": "Sender sequence; resets when the sender restarts."},
+    "source_time": {"type": "string", "format": "date-time", "description": "When observed or created, by the station clock."},
+    "sent_time": {"type": "string", "format": "date-time"},
+    "clock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["synchronized", "source"],
+      "properties": {
+        "synchronized": {"type": ["boolean", "null"], "description": "null: the station cannot tell."},
+        "source": {"type": "string"}
+      }
+    },
+    "ttl_s": {"type": ["integer", "null"], "minimum": 1, "maximum": 86400, "description": "Required for mission_request: expiry measured from source_time."},
+    "idempotency_key": {"type": ["string", "null"], "minLength": 1, "maxLength": 128, "description": "Required for mission messages: the command id."},
+    "payload": {"type": "object", "description": "At most 64 KiB serialized. No IQ sample fields."}
+  }
+}
