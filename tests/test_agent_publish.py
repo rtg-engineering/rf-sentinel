@@ -63,3 +63,11 @@ class PublishTest(unittest.TestCase):
                   "recurring": [{"key": "AA:BB:CC:DD:EE:00", "label": "Apple, Inc. (…EE:00)"}]}
         public, _ = redact(result)
         self.assertEqual(public["recurring"][0]["label"], "Apple, Inc. (ble-01)")
+
+
+class HostnameTest(unittest.TestCase):
+    def test_recording_host_name_is_replaced(self):
+        with patch("rf_platform.agent.publish.socket.gethostname", return_value="pats-laptop"):
+            public, summary = redact({"devices": [], "steps": [{"message": "unit pats-laptop"}], "unit": "pats-laptop"})
+        self.assertNotIn("pats-laptop", json.dumps(public))
+        self.assertEqual(public["unit"], "sensor-1")

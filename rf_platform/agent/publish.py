@@ -19,6 +19,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import socket
 from typing import Any
 
 MAC = re.compile(r"(?<![0-9A-Fa-f:])(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}(?![0-9A-Fa-f:])")
@@ -85,10 +86,14 @@ def redact(result: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     text = MAC.sub("[address removed]", text)
     text = SERIAL.sub("[serial removed]", text)
     text = PCI_LABEL.sub("", text)
+    host = socket.gethostname()  # the recording machine's name (often a person's name) appears as the sensor unit
+    if len(host) >= 3:
+        text = text.replace(host, "sensor-1")
     public = json.loads(text)
     summary = {"pseudonyms": counters, "names_removed": len(names),
                "removed": ["device addresses (pseudonymised)", "advertised names", "cell IDs", "tracking-area codes",
-                           "PCI numbers in labels", "receiver serial numbers"]}
+                           "PCI numbers in labels", "receiver serial numbers",
+                           "the recording host's name"]}
     return public, summary
 
 
