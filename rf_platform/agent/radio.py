@@ -122,6 +122,27 @@ class Radio:
                                + ". Check its USB connection, or choose another receiver.")
         return iq_levels(bytes(data), gain_db)
 
+    # Power sweeps (rf_platform.agent.discover): receive-only, 15 MHz per step across a range.
+    def start_sweep(self, device: dict[str, Any], start_hz: int, stop_hz: int, gain_db: float = 30.0) -> str:
+        lna, vga = split_gain(device.get("driver", ""), gain_db)
+        body = {"device_id": device["id"], "start_freq_hz": int(start_hz), "stop_freq_hz": int(stop_hz),
+                "bin_width_hz": 100_000, "lna_gain_db": lna, "vga_gain_db": vga}
+        response = requests.post(f"{self.base_url}/sweeps/start", headers=self.headers, json=body, timeout=30)
+        if response.status_code >= 400:
+            raise RuntimeError(f"Could not start a sweep on {device['id']}: {response.text[:200]}")
+        return response.json()["sweep_id"]
+
+    def sweep_samples(self, sweep_id: str) -> list[dict[str, Any]]:
+        response = requests.get(f"{self.base_url}/sweeps/{sweep_id}/samples", headers=self.headers, timeout=30)
+        response.raise_for_status()
+        return response.json()
+
+    def stop_sweep(self, sweep_id: str) -> None:
+        try:
+            requests.post(f"{self.base_url}/sweeps/{sweep_id}/stop", headers=self.headers, timeout=10)
+        except requests.RequestException:
+            pass
+
 
 def capture_iq(radio: "Radio", device: dict[str, Any], freq_hz: int, rate_sps: int, gain_db: float,
                seconds: float, attempts: int = 2) -> bytes:

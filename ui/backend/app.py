@@ -8191,6 +8191,12 @@ def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
+@app.get("/agent")
+def agent_page():
+    """The mission view: type what to find, see the plan, run it, watch it work, read the result."""
+    return send_from_directory(app.static_folder, "agent.html")
+
+
 @app.get("/resources/<path:filename>")
 def resources(filename: str):
     return send_from_directory(PROJECT_ROOT / "ui" / "resources", filename)
@@ -9049,6 +9055,26 @@ def agent_run():
     command = str(body.get("command") or "").strip()
     # The synthetic demo has no radios: agent runs there use simulated receivers and say so everywhere.
     simulate = bool(body.get("simulate")) or RF_SENTINEL_DEMO_MODE
+    from rf_platform.agent.discover import is_discovery, plan_discovery
+    if isinstance(body.get("discovery"), dict) or (command and is_discovery(command) and not body.get("workflow")
+                                                   and not body.get("playbook")):
+        try:
+            spec = plan_discovery(command)["discovery"] if not isinstance(body.get("discovery"), dict) else {
+                **plan_discovery("discover the airwaves")["discovery"],
+                "duration_s": int(body["discovery"].get("duration_s") or 60)}
+            if not 20 <= spec["duration_s"] <= 300:
+                raise ValueError("A discovery sweep runs 20-300 s.")
+            mode = effective_mode(body.get("mode"))
+        except (ValueError, PermissionDenied) as exc:
+            return jsonify({"error": str(exc)[:500]}), 400
+        if decide("spectrum_sweep", mode) == "deny":
+            return jsonify({"error": f"{mode} mode is read-only: it cannot start collection.", "mode": mode}), 403
+        with agent_admission_lock:
+            if _agent_running():
+                return jsonify({"error": "An agent run is already active; stop it first."}), 409
+            job = _launch_discovery_job(spec, command or "discover the airwaves", mode, simulate,
+                                        str(body.get("source") or "dashboard")[:20], _operator_name())
+        return jsonify(_agent_public(job))
     book = None
     try:
         # A confirmed plan is re-validated here: a client (or model) cannot exceed the schema's bounds.
@@ -9071,6 +9097,73 @@ def agent_run():
         job = _launch_agent_job(spec, book, command, mode, planner_info, simulate, body.get("gain_db"),
                                 str(body.get("source") or "dashboard")[:20], requested_by=_operator_name())
     return jsonify(_agent_public(job))
+
+
+class _Stopper:
+    def __init__(self):
+        self._stop = threading.Event()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+
+def _launch_discovery_job(spec: dict[str, Any], command: str, mode: str, simulate: bool, source: str,
+                          requested_by: str | None) -> dict[str, Any]:
+    """Discover the airwaves (rf_platform.agent.discover) as an agent job: live spectrum in job["spectrum"]."""
+    from rf_platform.agent.discover import discover, save
+    from rf_platform.agent.gateway import AgentGateway, PermissionDenied
+    job_id = f"run-{uuid.uuid4().hex[:10]}"
+    stopper = _Stopper()
+    simulated = agent_simulated(simulate)
+    job = {"job_id": job_id, "command": command, "profile": "discovery", "kind": "discovery", "mode": mode,
+           "source": source, "status": "running", "started_at": time.time(), "steps": [], "result": None,
+           "error": None, "discovery": spec, "summary": {"find": "Everything from 70 MHz to 6 GHz"},
+           "planner": {"planner": "deterministic"}, "events": [], "alerts": [], "simulated": simulated,
+           "activity": [], "requested_by": requested_by, "agent": stopper, "spectrum": None}
+    gateway = AgentGateway(mode, job_id, _agent_approvals(), stop=stopper._stop)
+    gateway.record_request(requested_by, source)
+    with agent_jobs_lock:
+        agent_jobs[job_id] = job
+
+    def log(message: str) -> None:
+        job["steps"].append({"t": round(time.time() - job["started_at"], 1), "message": message})
+
+    def on_event(event: dict[str, Any]) -> None:
+        job["spectrum"] = event.get("spectrum")  # the latest picture only: the job is polled every second
+        job["sweep"] = {k: v for k, v in event.items() if k != "spectrum"}
+
+    def work():
+        try:
+            if simulated:
+                from rf_platform.agent.simulate import SimRadio
+                radio = SimRadio()
+                log("SIMULATION: no radio is used. The spectrum comes from a scripted scene.")
+            else:
+                from rf_platform.agent.radio import Radio
+                radio = Radio(_gateway_base(), os.getenv("SDR_GATEWAY_API_TOKEN", ""))
+            result = discover(radio, gateway, spec["duration_s"], on_step=log, on_event=on_event,
+                              should_stop=stopper._stop.is_set, simulated=simulated)
+            result.update(command=command, mode=mode, audit=gateway.audit)
+            job["result"] = result
+            job["spectrum"] = result["analysis"]["spectrum"]
+            job["report_dir"] = str(save(result, RF_SENTINEL_LOG_DIR / "agent-runs"))
+            job["run_id"] = result["run_id"]
+            if result.get("proposal"):
+                from rf_platform.agent.playbook import plan_any
+                try:
+                    job["proposal_plan"] = plan_any(result["proposal"], "deterministic")
+                except ValueError as exc:
+                    job["proposal_error"] = str(exc)
+            job["status"] = "stopped" if stopper._stop.is_set() else "done"
+        except PermissionDenied as exc:
+            job["status"], job["error"] = ("stopped" if stopper._stop.is_set() else "denied"), str(exc)
+        except Exception as exc:
+            job["status"], job["error"] = "error", f"{type(exc).__name__}: {exc}"[:500]
+        finally:
+            job["finished_at"] = time.time()
+            job["audit"] = gateway.audit
+    threading.Thread(target=work, name=job_id, daemon=True).start()
+    return job
 
 
 def _active_dir() -> Path:
@@ -9514,7 +9607,10 @@ def agent_tool(tool: str):
         return jsonify({"error": why, "mode": mode, "decision": "deny"}), 403
     if tool == "list_receivers":
         from rf_platform.agent.radio import Radio
-        return jsonify(Radio(_gateway_base(), os.getenv("SDR_GATEWAY_API_TOKEN", "")).devices())
+        try:
+            return jsonify(Radio(_gateway_base(), os.getenv("SDR_GATEWAY_API_TOKEN", "")).devices())
+        except RuntimeError as exc:  # the IQ service is not running: say so instead of a 500
+            return jsonify({"error": str(exc)}), 503
     if tool == "list_runs":
         return agent_jobs_list()
     if tool in ("get_run", "get_report"):
