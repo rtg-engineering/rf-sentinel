@@ -7,7 +7,7 @@ name = "rf-sentinel"
 version = "0.1.0"
 description = "RF Sentinel multi-protocol scanner orchestration"
 requires-python = ">=3.10"
-license = "LicenseRef-RF-Sentinel-Commercial"
+license = "LicenseRef-RF-Sentinel"
 dependencies = []
 
 [project.optional-dependencies]

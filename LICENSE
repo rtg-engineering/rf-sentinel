@@ -1,41 +1,54 @@
-RF Sentinel Commercial License
+RF Sentinel License
 
-Copyright (c) 2026 Jake Ramey and Intercept Labs LLC. All rights reserved.
+Copyright (c) 2026 RTG LLC. All rights reserved.
 
-This license governs the RF Sentinel application, including its user interface,
+This license governs the RF Sentinel software, including its user interface,
 backend services, orchestration code, dashboards, documentation, branding,
-configuration, and platform code, except for third-party components or plugins
-that are distributed under their own separate licenses.
+configuration, and platform code (the "Software"), except for third-party
+components or plugins that are distributed under their own separate licenses.
 
-1. Commercial License Required
+1. Proprietary Software
 
-RF Sentinel is proprietary commercial software. You may not copy, modify,
+The Software is proprietary to RTG LLC. Except as expressly granted in section
+2 or in a separate written agreement with RTG LLC, you may not copy, modify,
 publish, distribute, sublicense, sell, rent, lease, host for third parties, or
-otherwise make RF Sentinel available to any third party without a separate
-written license agreement from Jake Ramey or Intercept Labs LLC.
+otherwise make the Software available to any third party.
 
-2. Internal Evaluation
+2. Demonstration and Evaluation Grant
 
-Unless a separate written agreement says otherwise, possession of this source
-code does not grant any right to use RF Sentinel in production, offer it as a
-service, redistribute it, or incorporate it into another product. Any evaluation
-or development use requires permission from Jake Ramey or Intercept Labs LLC.
+Subject to the terms of this license, RTG LLC grants you a limited,
+non-exclusive, non-transferable, non-sublicensable, revocable license to:
+
+(a) download, install, and run the Software in its simulated or demonstration
+    mode, in which no radio receiver is used and all data is synthetic or
+    replayed; and
+
+(b) read and inspect the source code,
+
+solely to evaluate the Software for your own internal purposes.
+
+This grant does not include: collecting from live radio receivers; production,
+operational, or commercial use; use on behalf of third parties; redistribution
+of the Software or of modified versions; or offering the Software as a hosted
+service. Each of these requires a separate written license from RTG LLC.
 
 3. No Trademark or Branding Rights
 
-This license does not grant any rights to use the names, marks, logos, or trade
-dress of RF Sentinel, Intercept Labs LLC, or related products.
+This license does not grant any right to use the names, marks, logos, or trade
+dress of RF Sentinel, RTG, or related products.
 
 4. Plugins and Third-Party Software
 
-RF Sentinel may interoperate with separately licensed plugins, tools, libraries,
-drivers, or services. Those components remain governed by their own licenses.
-For example, GPLv3 plugins may be copied, modified, and redistributed under the
-terms of GPLv3, but this does not grant any right to copy, modify, or
-redistribute the proprietary RF Sentinel application itself.
+The Software may include or interoperate with separately licensed plugins,
+tools, libraries, drivers, or services. Those components remain governed by
+their own licenses, listed in THIRD_PARTY_NOTICES.md. For example, GPLv3
+plugins may be copied, modified, and redistributed under the terms of GPLv3;
+nothing in this license restricts the rights those licenses grant. This does
+not grant any right to copy, modify, or redistribute the proprietary Software
+itself.
 
-To preserve this separation, RF Sentinel is designed to communicate with plugins
-through process, command-line, file, FIFO, JSON, HTTP, WebSocket, or similarly
+To preserve this separation, the Software communicates with plugins through
+process, command-line, file, FIFO, JSON, HTTP, WebSocket, or similarly
 documented interfaces unless a separate license permits closer integration.
 
 5. Restrictions
@@ -44,26 +57,33 @@ You may not:
 
 - Remove copyright, license, or attribution notices.
 - Circumvent license checks, access controls, or technical restrictions.
-- Misrepresent RF Sentinel or derivative products as being authorized by Jake
-  Ramey or Intercept Labs LLC.
-- Use RF Sentinel in violation of applicable law or without authorization for
-  the radio systems, environments, or devices being monitored or tested.
+- Misrepresent the Software or derivative products as being authorized by
+  RTG LLC.
+- Use the Software in violation of applicable law, or without authorization
+  for the radio systems, environments, or devices being monitored or tested.
 
 6. No Warranty
 
-RF SENTINEL IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR
 A PARTICULAR PURPOSE, NON-INFRINGEMENT, SECURITY, ACCURACY, OR RELIABILITY.
 
 7. Limitation of Liability
 
-TO THE MAXIMUM EXTENT PERMITTED BY LAW, JAKE RAMEY AND INTERCEPT LABS LLC SHALL
-NOT BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM OR RELATED
-TO RF SENTINEL, WHETHER IN CONTRACT, TORT, OR OTHERWISE.
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, RTG LLC SHALL NOT BE LIABLE FOR ANY
+CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM OR RELATED TO THE SOFTWARE,
+WHETHER IN CONTRACT, TORT, OR OTHERWISE.
 
-8. Separate Agreements
+8. Termination
 
-If you have a separate written commercial license, support agreement, statement
-of work, or other contract with Jake Ramey or Intercept Labs LLC, that agreement
-controls to the extent it conflicts with this license.
+The grant in section 2 ends automatically if you do not comply with this
+license, and RTG LLC may end it at any time by notice. On termination you must
+stop using the Software and delete your copies.
 
+9. Separate Agreements
+
+If you have a separate written license, evaluation agreement, support
+agreement, statement of work, or other contract with RTG LLC covering the
+Software, that agreement controls to the extent it conflicts with this license.
+
+For commercial licensing or evaluation with live receivers, contact RTG LLC.

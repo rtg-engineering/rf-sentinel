@@ -370,7 +370,7 @@ A container build exists at `docker/`, with its own README and soapy-build asset
 
 ## License
 
-RF Sentinel itself is proprietary commercial software licensed under the `RF Sentinel Commercial License`; see [`LICENSE`](LICENSE).
+RF Sentinel is proprietary software of RTG LLC; see [`LICENSE`](LICENSE). You may run it in its simulated demonstration mode and read the source to evaluate it for your own internal purposes. Live collection, production or commercial use, and redistribution need a written license from RTG LLC.
 
 Some plugins are distributed under separate open-source licenses. In particular, `rf_platform/plugins/bluetooth-classic` is a GPLv3 submodule based on [`bsnet/btsniffer`](https://github.com/bsnet/btsniffer). See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
