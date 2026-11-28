@@ -28,7 +28,7 @@ This is an RX prototype, not a full production demodulator yet. The current deco
 ## Setup
 
 ```bash
-cd /home/jake/workspace/SDR/RF_Sentinel/rf_platform/plugins/zigbee-802154
+cd rf_platform/plugins/zigbee-802154  # from the repository root
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .

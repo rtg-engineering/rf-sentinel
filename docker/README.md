@@ -1,8 +1,7 @@
 # RF Sentinel Docker image
 
 Containerizes the RF Sentinel dashboard (`ui/backend/app.py`) plus all
-protocol plugins, so it can be deployed to a station (e.g. PASSIVE-SHIELD
-station1, `10.139.1.160`) without depending on whatever's installed
+protocol plugins, so it can be deployed to a station without depending on whatever's installed
 natively on that host's Python.
 
 The image runs the project's own `install.sh` at build time (creates

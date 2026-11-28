@@ -1174,7 +1174,7 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--seconds", type=float, default=60.0)
     record.add_argument("--rfgr", type=float, default=0.0)
     record.add_argument("--ifgr", type=float, default=35.0)
-    record.add_argument("--output", default="/home/jake/workspace/SDR/RF_Sentinel/recordings/lf_vlf_mf_sdrplay_500khz_1msps.i8")
+    record.add_argument("--output", default="recordings/lf_vlf_mf_sdrplay_500khz_1msps.i8")
     record.add_argument("--debug", action="store_true")
     record.set_defaults(func=_record)
     return parser
