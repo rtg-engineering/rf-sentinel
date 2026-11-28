@@ -27,7 +27,7 @@ from typing import Any
 import numpy as np
 import requests
 import websocket
-from flask import Flask, Response, g, jsonify, request, send_from_directory, session
+from flask import Flask, Response, g, has_request_context, jsonify, request, send_from_directory, session
 from werkzeug.exceptions import BadRequest
 from websocket._exceptions import WebSocketConnectionClosedException
 
@@ -4524,7 +4524,8 @@ def _btc_name_lookup_worker(address: str, lap: str) -> None:
 
 
 def _maybe_schedule_btc_name_lookup(row: dict[str, Any]) -> None:
-    bluetooth_classic = _clean_bluetooth_classic_config(_read_ui_config().get("bluetooth_classic"))
+    ui_config = _read_ui_config()
+    bluetooth_classic = _authorized_bluetooth_classic(ui_config.get("bluetooth_classic"), ui_config.get("transmit_authorization"))
     if not (RF_SENTINEL_BTC_NAME_LOOKUP or bluetooth_classic.get("remote_name_lookup")):
         return
     if row.get("protocol") != "BTC" or row.get("name"):
@@ -5620,7 +5621,7 @@ def _write_rf_sentinel_control(
             if int(channel) in WIFI_SUPPORTED_CHANNELS
         ] or [1, 6, 11]
     if bluetooth_classic is not None:
-        payload["bluetooth_classic"] = _clean_bluetooth_classic_config(bluetooth_classic)
+        payload["bluetooth_classic"] = _authorized_bluetooth_classic(bluetooth_classic)
     if zigbee_follow_channel is not RF_SENTINEL_NO_CHANGE:
         follow = payload.get("follow")
         if not isinstance(follow, dict):
@@ -5651,6 +5652,70 @@ def _write_rf_sentinel_control(
     tmp_path.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
     tmp_path.replace(RF_SENTINEL_CONTROL_PATH)
     return payload
+
+
+# Options that make this station transmit (on the host Bluetooth adapter, not the SDRs). Each needs an explicit,
+# recorded authorization from a named operator when it is switched on; switching it off clears the authorization, so
+# turning it on again asks again. A setting without a recorded authorization is never acted on.
+TRANSMIT_OPTIONS = {
+    "periodic_page_scan": "Bluetooth inquiry scan on the host adapter (it transmits inquiry packets)",
+    "remote_name_lookup": "Bluetooth remote name requests (each one pages the device it asks)",
+}
+# One-off transmit actions (not saved settings): authorized per request, same rule.
+TRANSMIT_ACTIONS = {
+    "discoverable_test": "Make the host Bluetooth controller discoverable (it answers inquiries and pages)",
+}
+
+
+class TransmitNotAuthorized(Exception):
+    def __init__(self, options: list[str], message: str):
+        super().__init__(message)
+        self.options = options
+
+
+@app.errorhandler(TransmitNotAuthorized)
+def _transmit_not_authorized(exc: TransmitNotAuthorized):
+    effects = {**TRANSMIT_OPTIONS, **TRANSMIT_ACTIONS}
+    return jsonify({"error": str(exc), "transmit_authorization_required": [
+        {"option": o, "effect": effects[o]} for o in exc.options]}), 403
+
+
+def _clean_transmit_authorization(raw: Any) -> dict[str, dict[str, str]]:
+    out: dict[str, dict[str, str]] = {}
+    for option, record in (raw.items() if isinstance(raw, dict) else []):
+        if option in TRANSMIT_OPTIONS and isinstance(record, dict) and record.get("by") and record.get("at"):
+            out[option] = {"by": str(record["by"])[:64], "at": str(record["at"])[:40]}
+    return out
+
+
+def _authorize_transmit_now(options: list[str]) -> dict[str, dict[str, str]]:
+    """Authorization for switching transmit options on, from this request: the operator must say so explicitly
+    (authorize_transmit: true) and, when sign-in is required, hold the approver role."""
+    from rf_platform.auth import rank
+    effects = {**TRANSMIT_OPTIONS, **TRANSMIT_ACTIONS}
+    names = ", ".join(effects[o] for o in options)
+    if not has_request_context():
+        raise TransmitNotAuthorized(options, f"Transmit options need an operator's authorization: {names}.")
+    body = request.get_json(silent=True) if request.is_json else None
+    if not (isinstance(body, dict) and body.get("authorize_transmit") is True):
+        raise TransmitNotAuthorized(options, f"This makes the station transmit ({names}). Confirm to authorize it.")
+    operator = g.get("operator")
+    if g.get("auth_mode") == "required" and (not operator or rank(operator["role"]) < rank("approver")):
+        raise TransmitNotAuthorized(options, f"Only an approver can authorize transmitting ({names}).")
+    who = operator["name"] if operator else "local operator (sign-in off)"
+    from datetime import datetime, timezone
+    at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    for option in options:
+        _append_scanner_log(f"[auth] {who} authorized transmitting: {effects[option]}")
+    return {option: {"by": who, "at": at} for option in options}
+
+
+def _authorized_bluetooth_classic(config: dict[str, Any], authorization: dict[str, Any] | None = None) -> dict[str, bool]:
+    """The Classic options as they may actually run: a transmit option without a recorded authorization is off."""
+    clean = _clean_bluetooth_classic_config(config)
+    granted = _clean_transmit_authorization(authorization if authorization is not None
+                                            else _read_ui_config().get("transmit_authorization"))
+    return {k: (v and (k not in TRANSMIT_OPTIONS or k in granted)) for k, v in clean.items()}
 
 
 def _clean_bluetooth_classic_config(raw: Any) -> dict[str, bool]:
@@ -5710,6 +5775,7 @@ def _read_ui_config() -> dict[str, Any]:
         "wifi_channels": wifi_channels or [1, 6, 11],
         "protocol_devices": protocol_devices,
         "bluetooth_classic": bluetooth_classic,
+        "transmit_authorization": _clean_transmit_authorization(payload.get("transmit_authorization")),
     }
 
 
@@ -5744,12 +5810,21 @@ def _write_ui_config(
         if str(protocol).strip().lower() in PROTOCOL_DEVICE_OVERRIDES and str(device_id).strip()
     }
     selected_bluetooth_classic = bluetooth_classic if bluetooth_classic is not None else existing.get("bluetooth_classic", {})
+    clean_bluetooth_classic = _clean_bluetooth_classic_config(selected_bluetooth_classic)
+    authorization = dict(existing.get("transmit_authorization") or {})
+    newly_on = [o for o in TRANSMIT_OPTIONS if clean_bluetooth_classic.get(o) and o not in authorization]
+    if newly_on:
+        authorization.update(_authorize_transmit_now(newly_on))  # raises (nothing written) unless authorized
+    for option in TRANSMIT_OPTIONS:
+        if not clean_bluetooth_classic.get(option):
+            authorization.pop(option, None)  # off clears it: switching it on again asks again
     payload = {
         "protocols": sorted(protocols & RF_SENTINEL_PROTOCOLS),
         "disabled_devices": sorted(str(item).strip() for item in disabled_devices if str(item).strip()),
         "wifi_channels": clean_wifi_channels,
         "protocol_devices": clean_protocol_devices,
-        "bluetooth_classic": _clean_bluetooth_classic_config(selected_bluetooth_classic),
+        "bluetooth_classic": clean_bluetooth_classic,
+        "transmit_authorization": authorization,
         "updated_at": time.time(),
     }
     tmp_path = RF_SENTINEL_UI_CONFIG_PATH.with_suffix(".json.tmp")
@@ -7119,7 +7194,7 @@ def _start_rf_sentinel_engine(
     protocols = enabled_protocols or set(RF_SENTINEL_PROTOCOLS)
     devices = enabled_devices or set()
     ui_config = _read_ui_config()
-    bluetooth_classic = _clean_bluetooth_classic_config(ui_config.get("bluetooth_classic"))
+    bluetooth_classic = _authorized_bluetooth_classic(ui_config.get("bluetooth_classic"), ui_config.get("transmit_authorization"))
     protocol_devices = _clean_protocol_devices(
         ui_config.get("protocol_devices"),
         devices,
@@ -9636,7 +9711,7 @@ def agent_tool(tool: str):
     from rf_platform.agent.gateway import NEVER, TOOLS
     outcome = decide(tool, mode)
     if outcome == "deny":
-        why = ("transmit-capable operations are never available to the agent" if tool in NEVER else
+        why = (f"{tool} is not an agent tool: jamming, spoofing, replay and raw access are never available" if tool in NEVER else
                f"{tool} is not permitted in {mode} mode" if tool in TOOLS else f"{tool} is not an agent tool")
         return jsonify({"error": why, "mode": mode, "decision": "deny"}), 403
     if tool == "list_receivers":
@@ -9662,6 +9737,7 @@ def agent_tool(tool: str):
 
 @app.post("/api/test/discoverable-dongle")
 def enable_discoverable_dongle():
+    _authorize_transmit_now(["discoverable_test"])  # 403 unless an operator explicitly authorizes it
     try:
         target, output = _enable_discoverable_controller()
     except FileNotFoundError:

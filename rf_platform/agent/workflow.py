@@ -33,6 +33,7 @@ TEXT_FIELDS = {"protocol", "label", "name", "manufacturer", "device_type", "devi
 NUMBER_FIELDS = {"rssi_dbfs", "count", "dwell_s"}
 MAX_RECORD_S = 10
 MAX_FOLLOW_UP_S = 300
+MAX_INQUIRY_S = 30
 # Tracker kinds. "find my" alone is not enough: iPhones, Macs and AirPods send Find My frames too.
 CONFIRMED_DRONE = "confirmed drone"  # device_type the drone adapter gives a detector-confirmed link
 DRONE_WORDS = r"\b(?:drones?|uavs?|uas|quadcopters?|dji|ocusync)\b"
@@ -76,7 +77,8 @@ class Condition(BaseModel):
 
 
 class Action(BaseModel):
-    kind: Literal["alert", "tag", "record_iq", "start_scan", "extend", "stop"]
+    # inquiry_scan and name_lookup TRANSMIT (host Bluetooth adapter): each waits for a named operator's approval.
+    kind: Literal["alert", "tag", "record_iq", "start_scan", "extend", "stop", "inquiry_scan", "name_lookup"]
     message: str | None = None                 # alert
     severity: Literal["info", "warning", "critical"] = "warning"
     label: str | None = None                   # tag
@@ -95,6 +97,8 @@ class Action(BaseModel):
             self.seconds = min(max(float(self.seconds or 60), 5), MAX_DURATION_S)
         elif self.kind == "tag":
             self.label = (self.label or "flagged").strip()[:40] or "flagged"
+        elif self.kind == "inquiry_scan":
+            self.seconds = min(max(float(self.seconds or 10), 1), MAX_INQUIRY_S)
         return self
 
     def describe(self) -> str:
@@ -103,7 +107,9 @@ class Action(BaseModel):
                 "record_iq": lambda: f"record {self.seconds:g} s of IQ evidence",
                 "start_scan": lambda: f"scan {PROTOCOL_TITLES[self.protocol]} for {self.seconds:g} s",
                 "extend": lambda: f"keep watching {self.seconds:g} s longer",
-                "stop": lambda: "stop collection"}[self.kind]()
+                "stop": lambda: "stop collection",
+                "inquiry_scan": lambda: f"Bluetooth inquiry scan for {self.seconds:g} s (transmits; needs approval)",
+                "name_lookup": lambda: "ask the device its Bluetooth name (transmits; needs approval)"}[self.kind]()
 
 
 class Trigger(BaseModel):
@@ -209,6 +215,10 @@ ACTION_PATTERNS: list[tuple[str, Callable[[re.Match], Action]]] = [
     (r"\b(?:tag|mark|flag)(?: (?:it|them|the device))?(?: as)? ([a-z][\w-]*)",
      lambda m: Action(kind="tag", label=m.group(1))),
     (r"\b(?:flag|tag) (?:it|them)\b", lambda m: Action(kind="tag", label="flagged")),
+    (rf"\b(?:run|do|start|send|try)\s+(?:an?\s+)?(?:bluetooth\s+)?inquiry(?:\s+scan)?(?:\s+for\s+(\d+(?:\.\d+)?)\s*({UNIT_S}))?",
+     lambda m: Action(kind="inquiry_scan", seconds=_seconds(m.group(1), m.group(2)) if m.group(1) else 10)),
+    (r"\b(?:look\s*up|get|ask (?:it )?for|request|query)\s+(?:its|their|the(?: device'?s)?)\s+(?:bluetooth\s+)?(?:remote\s+)?names?\b",
+     lambda m: Action(kind="name_lookup")),
     (r"\bstop\b(?: (?:the )?(?:scan|run|collection|watching))?", lambda m: Action(kind="stop")),
 ]
 
@@ -404,6 +414,15 @@ def plan_deterministic(text: str, standing_actions: bool = False) -> WorkflowSpe
             for seg in segments:
                 if _parse_triggers("x " + seg):
                     main = main.replace(seg, " ")
+    # "... and run an inquiry scan": a once-per-run transmit step, asked for (and approved) when collection first hears
+    # a device, never repeated per device.
+    segments = [seg for seg in re.split(r"[.;,]|\band\b|\bthen\b", main)[1:] if seg.strip()]
+    once = [a for seg in segments for t in _parse_triggers("x " + seg) for a in t.do if a.kind == "inquiry_scan"]
+    if once and not any(a.kind == "inquiry_scan" for t in triggers for a in t.do):
+        triggers.append(Trigger(when=[Condition(field="count", op="ge", value=1)], do=once[:1]))
+        for seg in segments:
+            if any(a.kind == "inquiry_scan" for t in _parse_triggers("x " + seg) for a in t.do):
+                main = main.replace(seg, " ")
     trackers = bool(re.search(r"\b(?:trackers?|airtags?|tiles?|find my|smarttags?)\b", main))
     cellular_words = r"\b(?:cell|cells|cellular|towers?|lte|5g|4g|2g|3g|gsm|base stations?|carriers?|plmn|(?:unknown|unrecognized) (?:network|operator|carrier))\b"
     implies_cellular = bool(re.search(cellular_words, main)) or (
@@ -485,7 +504,9 @@ count (detections so far), dwell_s (seconds between first and last sighting: use
 "around for N minutes"), new (true when never seen in earlier runs).
 Operators: eq, ne, contains, not_contains (text); ge, le, eq, ne (numbers).
 Actions: alert(message, severity info|warning|critical), tag(label), record_iq(seconds <= 10),
-start_scan(protocol, seconds <= 300), extend(seconds), stop.
+start_scan(protocol, seconds <= 300), extend(seconds), stop, inquiry_scan(seconds <= 30), name_lookup.
+inquiry_scan and name_lookup make the station TRANSMIT (host Bluetooth adapter); RF Sentinel asks a named operator to
+approve each one before it runs. Use them only when the operator asks for an inquiry scan or a device's name.
 Examples (request -> spec):
 - "watch for trackers for 5 minutes, only stronger than -60. if a tracker is seen for more than 2 minutes, send an
   urgent alert and record 5 seconds of iq" -> collect ["ble"], duration_s 300, filters [device_class eq tracker,
@@ -841,6 +862,36 @@ class WorkflowEngine:
         self.agent.gateway.authorize("stop_scan", {"reason": "workflow trigger", "device": device["key"]})
         self.agent.finish_early(f"workflow trigger on {device['label']}")
         return "collection ending"
+
+    def _do_inquiry_scan(self, action: Action, device: dict[str, Any]) -> str:
+        """Transmits: a BR/EDR inquiry on the host adapter, after a named operator approves it."""
+        from . import transmit
+        if getattr(self, "_inquiry_ran", False):
+            return "inquiry scan already ran in this run"
+        self._inquiry_ran = True  # once per run, approved or not: never a stream of approval prompts
+        self.agent.gateway.authorize("bt_inquiry", {"seconds": action.seconds, "trigger_device": device["key"]})
+        if getattr(self.agent, "simulate", False):
+            return f"simulated inquiry scan ({action.seconds:g} s); nothing transmitted"
+        transmit.inquiry(action.seconds)
+        self.step(f"Ran an approved Bluetooth inquiry scan for {action.seconds:g} s (trigger on {device['label']})")
+        return f"inquiry scan {action.seconds:g} s"
+
+    def _do_name_lookup(self, action: Action, device: dict[str, Any]) -> str:
+        """Transmits: a remote name request to one device (needs its full address), after approval."""
+        from . import transmit
+        address = transmit.full_address(device.get("address"))
+        if address is None:
+            raise RuntimeError(f"{device['label']} has no full Bluetooth address (only "
+                               f"{device.get('address') or 'a partial id'}), so its name cannot be requested")
+        self.agent.gateway.authorize("bt_remote_name", {"address": address})
+        name = f"Simulated device {address[-5:]}" if getattr(self.agent, "simulate", False) else transmit.remote_name(address)
+        if name:
+            with self._lock:
+                record = self.devices.get(device["key"])
+                if record is not None:
+                    record["name"] = name
+        self.step(f"Approved name request to {address}: {name or 'no answer'}")
+        return name or "no answer"
 
     def _do_record_iq(self, action: Action, device: dict[str, Any]) -> str:
         if device["protocol"] == "cellular":
