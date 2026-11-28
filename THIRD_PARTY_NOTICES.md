@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-RF Sentinel is proprietary commercial software. Some plugins and dependencies
+RF Sentinel is proprietary software of RTG LLC (see LICENSE). Some plugins and dependencies
 are distributed under separate open-source licenses.
 
 ## Bluetooth Classic SDR Stack
