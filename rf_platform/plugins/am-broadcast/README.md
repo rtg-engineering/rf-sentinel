@@ -5,7 +5,7 @@ RF Sentinel plugin for scanning VLF, LF, MF, and medium-wave AM broadcast signal
 ## Usage
 
 ```bash
-cd /home/jake/workspace/SDR/RF_Sentinel/rf_platform/plugins/am-broadcast
+cd rf_platform/plugins/am-broadcast  # from the repository root
 python -m pip install -e .
 am-broadcast scan --serial 1710022B20
 lf-mf-scan scan --serial 1710022B20 --band 1khz-1mhz

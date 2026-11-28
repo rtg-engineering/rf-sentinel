@@ -19,6 +19,16 @@ are distributed under separate open-source licenses.
 - Used by: the fleet view (`/fleet`). Base-map tiles are fetched from Esri ArcGIS Online services at view time and
   carry their own attribution and terms.
 
+## Prebuilt SDR libraries (`docker/soapy-build/`)
+
+Unmodified builds of upstream projects, used by the station Docker image:
+
+- `libSoapySDR.so.0.8-3` and headers: SoapySDR, Boost Software License 1.0. Source: https://github.com/pothosware/SoapySDR
+- `libbladeRF.so.2`: libbladeRF, GNU LGPL v2.1. Source: https://github.com/Nuand/bladeRF (host/libraries/libbladeRF)
+- `libbladeRFSupport.so`: SoapyBladeRF, GNU LGPL v2.1. Source: https://github.com/pothosware/SoapyBladeRF
+
+These libraries remain under their own licenses. You may replace them with your own builds of the same projects.
+
 ## Other Dependencies
 
 Runtime dependencies, SDR drivers, system tools, and protocol plugins may have

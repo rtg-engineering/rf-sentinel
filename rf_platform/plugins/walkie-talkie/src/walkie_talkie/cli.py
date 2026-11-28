@@ -17,7 +17,7 @@ DEFAULT_CENTER_FREQ_HZ = 462_500_000
 DEFAULT_SAMPLE_RATE_SPS = 1_000_000
 DEFAULT_BANDWIDTH_HZ = 250_000
 DEFAULT_DURATION_S = 3.0
-DEFAULT_RECORDING_DIR = Path("/home/jake/workspace/SDR/RF_Sentinel/recordings/walkie")
+DEFAULT_RECORDING_DIR = Path("recordings/walkie")  # relative to where the scanner runs
 
 
 def _json_print(payload: dict[str, Any]) -> None:

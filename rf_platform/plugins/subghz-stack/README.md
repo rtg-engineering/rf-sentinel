@@ -20,7 +20,7 @@ CLI-first Sub-GHz protocol analyzer built on `sdr-gateway`.
 ## Setup
 
 ```bash
-cd /home/jake/workspace/SDR/RF_Sentinel
+cd rf-sentinel  # the repository root
 source .venv/bin/activate
 pip install -e rf_platform/plugins/subghz-stack
 ```
